@@ -1,0 +1,1163 @@
+{
+  "$defs": {
+    "AgentAssignment": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Ref"
+        },
+        "assigned_at": {
+          "format": "date-time",
+          "title": "Assigned At",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "package_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Id"
+        },
+        "strategy_id": {
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "version",
+        "mode",
+        "assigned_at"
+      ],
+      "title": "AgentAssignment",
+      "type": "object"
+    },
+    "AgentMode": {
+      "enum": [
+        "RESEARCH",
+        "SIM",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "AgentMode",
+      "type": "string"
+    },
+    "AgentState": {
+      "additionalProperties": false,
+      "properties": {
+        "alerts": {
+          "items": {
+            "$ref": "#/$defs/Alert"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "assignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentAssignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bars": {
+          "items": {
+            "$ref": "#/$defs/Bar"
+          },
+          "title": "Bars",
+          "type": "array"
+        },
+        "codename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Codename"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/Connection"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
+        "drawdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "equity": {
+          "items": {
+            "$ref": "#/$defs/SeriesPoint"
+          },
+          "title": "Equity",
+          "type": "array"
+        },
+        "execution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_heartbeat": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Heartbeat"
+        },
+        "market": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market"
+        },
+        "memory_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Memory Refs",
+          "type": "array"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/Order"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PnL"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "title": "Positions",
+          "type": "array"
+        },
+        "recent_trades": {
+          "items": {
+            "$ref": "#/$defs/Trade"
+          },
+          "title": "Recent Trades",
+          "type": "array"
+        },
+        "risk_limits": {
+          "items": {
+            "$ref": "#/$defs/RiskLimit"
+          },
+          "title": "Risk Limits",
+          "type": "array"
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignalState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slot": {
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Slot",
+          "type": "integer"
+        },
+        "specialisation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Specialisation"
+        },
+        "status": {
+          "$ref": "#/$defs/AgentStatus"
+        },
+        "status_detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status Detail"
+        },
+        "timeframe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeframe"
+        }
+      },
+      "required": [
+        "slot",
+        "status"
+      ],
+      "title": "AgentState",
+      "type": "object"
+    },
+    "AgentStatus": {
+      "enum": [
+        "SLEEPING",
+        "STANDBY",
+        "SIMULATING",
+        "PAPER",
+        "LIVE",
+        "PAUSED",
+        "HALTED",
+        "ERROR"
+      ],
+      "title": "AgentStatus",
+      "type": "string"
+    },
+    "AgentsState": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/AgentState"
+          },
+          "title": "Agents",
+          "type": "array"
+        }
+      },
+      "title": "AgentsState",
+      "type": "object"
+    },
+    "Alert": {
+      "additionalProperties": false,
+      "properties": {
+        "alert_id": {
+          "title": "Alert Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "alert_id",
+        "at",
+        "severity",
+        "message"
+      ],
+      "title": "Alert",
+      "type": "object"
+    },
+    "Bar": {
+      "additionalProperties": false,
+      "properties": {
+        "c": {
+          "title": "C",
+          "type": "number"
+        },
+        "h": {
+          "title": "H",
+          "type": "number"
+        },
+        "l": {
+          "title": "L",
+          "type": "number"
+        },
+        "o": {
+          "title": "O",
+          "type": "number"
+        },
+        "t": {
+          "format": "date-time",
+          "title": "T",
+          "type": "string"
+        },
+        "v": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "V"
+        }
+      },
+      "required": [
+        "t",
+        "o",
+        "h",
+        "l",
+        "c"
+      ],
+      "title": "Bar",
+      "type": "object"
+    },
+    "Basis": {
+      "description": "What evidence a metric was computed on.",
+      "enum": [
+        "IN_SAMPLE",
+        "OUT_OF_SAMPLE",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "SIMULATION",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "Basis",
+      "type": "string"
+    },
+    "Connection": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "kind": {
+          "enum": [
+            "MARKET_DATA",
+            "BROKER",
+            "RESEARCH_BUS",
+            "MEMORY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "last_heartbeat": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Heartbeat"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/ConnectionState"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "state"
+      ],
+      "title": "Connection",
+      "type": "object"
+    },
+    "ConnectionState": {
+      "enum": [
+        "CONNECTED",
+        "DEGRADED",
+        "DISCONNECTED",
+        "NOT_CONFIGURED"
+      ],
+      "title": "ConnectionState",
+      "type": "string"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "ExecutionStats": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "fills": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fills"
+        },
+        "latency_ms_p50": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms P50"
+        },
+        "latency_ms_p95": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms P95"
+        },
+        "rejects": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejects"
+        },
+        "slippage_bps_mean": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slippage Bps Mean"
+        },
+        "slippage_model_bps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slippage Model Bps"
+        }
+      },
+      "required": [
+        "as_of"
+      ],
+      "title": "ExecutionStats",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A single reported number with its basis and provenance.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "component": {
+          "anyOf": [
+            {
+              "enum": [
+                "GROSS",
+                "COST",
+                "NET"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "cost_multiplier": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Multiplier"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts",
+            "ms",
+            "days",
+            "years"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "basis"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Order": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_slot": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Slot"
+        },
+        "instrument": {
+          "title": "Instrument",
+          "type": "string"
+        },
+        "limit_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit Price"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "order_type": {
+          "enum": [
+            "MARKET",
+            "LIMIT",
+            "STOP",
+            "STOP_LIMIT",
+            "OTHER"
+          ],
+          "title": "Order Type",
+          "type": "string"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "WORKING",
+            "PARTIAL",
+            "FILLED",
+            "CANCELLED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "submitted_at": {
+          "format": "date-time",
+          "title": "Submitted At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order_id",
+        "instrument",
+        "side",
+        "quantity",
+        "order_type",
+        "status",
+        "mode",
+        "submitted_at"
+      ],
+      "title": "Order",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "PnL": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "realized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unrealized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode",
+        "as_of"
+      ],
+      "title": "PnL",
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "avg_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avg Price"
+        },
+        "instrument": {
+          "title": "Instrument",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "unrealized_pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "instrument",
+        "side",
+        "quantity",
+        "mode",
+        "as_of"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "RiskLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "limit": {
+          "title": "Limit",
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "WARN",
+            "BREACH",
+            "UNKNOWN"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "used": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "limit",
+        "unit",
+        "state"
+      ],
+      "title": "RiskLimit",
+      "type": "object"
+    },
+    "SeriesPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "format": "date-time",
+          "title": "T",
+          "type": "string"
+        },
+        "v": {
+          "title": "V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "v"
+      ],
+      "title": "SeriesPoint",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "INFO",
+        "WARNING",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "SignalState": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "state": {
+          "enum": [
+            "NO_SIGNAL",
+            "FLAT",
+            "LONG",
+            "SHORT"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "as_of"
+      ],
+      "title": "SignalState",
+      "type": "object"
+    },
+    "Trade": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_slot": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Slot"
+        },
+        "executed_at": {
+          "format": "date-time",
+          "title": "Executed At",
+          "type": "string"
+        },
+        "instrument": {
+          "title": "Instrument",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "price": {
+          "title": "Price",
+          "type": "number"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "BUY",
+            "SELL"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "slippage_bps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slippage Bps"
+        },
+        "trade_id": {
+          "title": "Trade Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trade_id",
+        "instrument",
+        "side",
+        "quantity",
+        "price",
+        "executed_at",
+        "mode"
+      ],
+      "title": "Trade",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/agents.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/AgentsState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "AgentsStateDocument",
+  "type": "object"
+}

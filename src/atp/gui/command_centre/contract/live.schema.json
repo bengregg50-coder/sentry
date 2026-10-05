@@ -1,0 +1,437 @@
+{
+  "$defs": {
+    "AgentMode": {
+      "enum": [
+        "RESEARCH",
+        "SIM",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "AgentMode",
+      "type": "string"
+    },
+    "Basis": {
+      "description": "What evidence a metric was computed on.",
+      "enum": [
+        "IN_SAMPLE",
+        "OUT_OF_SAMPLE",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "SIMULATION",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "Basis",
+      "type": "string"
+    },
+    "Connection": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "kind": {
+          "enum": [
+            "MARKET_DATA",
+            "BROKER",
+            "RESEARCH_BUS",
+            "MEMORY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "last_heartbeat": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Heartbeat"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/ConnectionState"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "state"
+      ],
+      "title": "Connection",
+      "type": "object"
+    },
+    "ConnectionState": {
+      "enum": [
+        "CONNECTED",
+        "DEGRADED",
+        "DISCONNECTED",
+        "NOT_CONFIGURED"
+      ],
+      "title": "ConnectionState",
+      "type": "string"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "LiveEngineState": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/Connection"
+          },
+          "title": "Connections",
+          "type": "array"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "engine_state": {
+          "enum": [
+            "OFFLINE",
+            "STARTING",
+            "RUNNING",
+            "DEGRADED",
+            "STOPPED",
+            "NOT_BUILT"
+          ],
+          "title": "Engine State",
+          "type": "string"
+        },
+        "heartbeat_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heartbeat At"
+        },
+        "orders_working": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orders Working"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PnL"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "positions_open": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Positions Open"
+        },
+        "trading_enabled": {
+          "title": "Trading Enabled",
+          "type": "boolean"
+        },
+        "trading_mode": {
+          "enum": [
+            "DISABLED",
+            "SIM",
+            "PAPER",
+            "LIVE"
+          ],
+          "title": "Trading Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "as_of",
+        "engine_state",
+        "trading_mode",
+        "trading_enabled"
+      ],
+      "title": "LiveEngineState",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A single reported number with its basis and provenance.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "component": {
+          "anyOf": [
+            {
+              "enum": [
+                "GROSS",
+                "COST",
+                "NET"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "cost_multiplier": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Multiplier"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts",
+            "ms",
+            "days",
+            "years"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "basis"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "PnL": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "realized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unrealized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode",
+        "as_of"
+      ],
+      "title": "PnL",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/live.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/LiveEngineState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "LiveEngineStateDocument",
+  "type": "object"
+}

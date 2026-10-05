@@ -1,0 +1,500 @@
+{
+  "$defs": {
+    "AgentMode": {
+      "enum": [
+        "RESEARCH",
+        "SIM",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "AgentMode",
+      "type": "string"
+    },
+    "Allocation": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_slot": {
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Agent Slot",
+          "type": "integer"
+        },
+        "capital": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "strategy_id": {
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "agent_slot",
+        "strategy_id",
+        "version"
+      ],
+      "title": "Allocation",
+      "type": "object"
+    },
+    "Basis": {
+      "description": "What evidence a metric was computed on.",
+      "enum": [
+        "IN_SAMPLE",
+        "OUT_OF_SAMPLE",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "SIMULATION",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "Basis",
+      "type": "string"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "Exposure": {
+      "additionalProperties": false,
+      "properties": {
+        "gross": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "key",
+        "label"
+      ],
+      "title": "Exposure",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A single reported number with its basis and provenance.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "component": {
+          "anyOf": [
+            {
+              "enum": [
+                "GROSS",
+                "COST",
+                "NET"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "cost_multiplier": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Multiplier"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts",
+            "ms",
+            "days",
+            "years"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "basis"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "PnL": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "day": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "realized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unrealized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode",
+        "as_of"
+      ],
+      "title": "PnL",
+      "type": "object"
+    },
+    "PortfolioState": {
+      "additionalProperties": false,
+      "properties": {
+        "allocations": {
+          "items": {
+            "$ref": "#/$defs/Allocation"
+          },
+          "title": "Allocations",
+          "type": "array"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "drawdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "equity": {
+          "items": {
+            "$ref": "#/$defs/SeriesPoint"
+          },
+          "title": "Equity",
+          "type": "array"
+        },
+        "exposures": {
+          "items": {
+            "$ref": "#/$defs/Exposure"
+          },
+          "title": "Exposures",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PnL"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "title": "Positions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "as_of"
+      ],
+      "title": "PortfolioState",
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "avg_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avg Price"
+        },
+        "instrument": {
+          "title": "Instrument",
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/AgentMode"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "number"
+        },
+        "side": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "unrealized_pnl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "instrument",
+        "side",
+        "quantity",
+        "mode",
+        "as_of"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "SeriesPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "format": "date-time",
+          "title": "T",
+          "type": "string"
+        },
+        "v": {
+          "title": "V",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "v"
+      ],
+      "title": "SeriesPoint",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/portfolio.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/PortfolioState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "PortfolioStateDocument",
+  "type": "object"
+}

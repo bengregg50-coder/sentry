@@ -1,0 +1,219 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:memory",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "memories": [
+      {
+        "memory_id": "FX-M0001",
+        "type": "FAILED_MECHANISM",
+        "title": "FIXTURE: opening-range continuation fails net of costs",
+        "created_at": "2026-01-06T14:30:00+00:00",
+        "source": {
+          "actor": "RESEARCH_ENGINE",
+          "programme_id": "FX-P01",
+          "trial_ids": [
+            "FX-T003"
+          ]
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [
+          {
+            "evidence_id": "FX-EV1",
+            "kind": "TRIAL",
+            "ref": "FX-T003",
+            "stance": "SUPPORTS",
+            "result": "FAIL",
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          },
+          {
+            "evidence_id": "FX-EV2",
+            "kind": "TRIAL",
+            "ref": "FX-T001",
+            "stance": "SUPPORTS",
+            "result": "PASS",
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          }
+        ],
+        "confidence": "HIGH",
+        "validation_state": "VALIDATED",
+        "status": "RETAIN",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00",
+        "oos": "FAIL",
+        "robustness": "PASS",
+        "cost_sensitivity": "PASS"
+      },
+      {
+        "memory_id": "FX-M0002",
+        "type": "REJECTED_ASSUMPTION",
+        "title": "FIXTURE: session effects are not stable",
+        "created_at": "2026-01-07T14:30:00+00:00",
+        "source": {
+          "actor": "RESEARCH_ENGINE",
+          "programme_id": "FX-P01",
+          "trial_ids": []
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [
+          {
+            "evidence_id": "FX-EV3",
+            "kind": "TRIAL",
+            "ref": "FX-T004",
+            "stance": "SUPPORTS",
+            "result": "FAIL",
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          }
+        ],
+        "confidence": "MEDIUM",
+        "validation_state": "VALIDATED",
+        "status": "REJECTED",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "memory_id": "FX-M0003",
+        "type": "VOLATILITY_OBSERVATION",
+        "title": "FIXTURE: roll-window volatility observation",
+        "created_at": "2026-01-08T14:30:00+00:00",
+        "source": {
+          "actor": "AGENT",
+          "agent_slot": 2,
+          "trial_ids": []
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [
+          {
+            "evidence_id": "FX-EV4",
+            "kind": "SIMULATION",
+            "ref": "fixture/sim/obs1",
+            "stance": "SUPPORTS",
+            "result": null,
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          },
+          {
+            "evidence_id": "FX-EV5",
+            "kind": "LIVE_OBSERVATION",
+            "ref": "fixture/sim/obs2",
+            "stance": "CONTRADICTS",
+            "result": null,
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          }
+        ],
+        "confidence": "MEDIUM",
+        "validation_state": "PROVISIONAL",
+        "status": "REVIEW",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00",
+        "related_strategies": [
+          "FX-S003"
+        ]
+      },
+      {
+        "memory_id": "FX-M0004",
+        "type": "LESSON",
+        "title": "FIXTURE lesson: freeze specs before data",
+        "created_at": "2026-01-09T14:30:00+00:00",
+        "source": {
+          "actor": "RESEARCH_ENGINE",
+          "programme_id": "FX-P01",
+          "trial_ids": []
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [
+          {
+            "evidence_id": "FX-EV6",
+            "kind": "DOCUMENT",
+            "ref": "fixture/postmortem.md",
+            "stance": "SUPPORTS",
+            "result": null,
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          }
+        ],
+        "confidence": "HIGH",
+        "validation_state": "VALIDATED",
+        "status": "RETAIN",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "memory_id": "FX-M0005",
+        "type": "DANGEROUS_FEATURE",
+        "title": "FIXTURE: look-ahead in session labels",
+        "created_at": "2026-01-10T14:30:00+00:00",
+        "source": {
+          "actor": "RESEARCH_ENGINE",
+          "programme_id": "FX-P01",
+          "trial_ids": []
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [
+          {
+            "evidence_id": "FX-EV7",
+            "kind": "EXPERIMENT",
+            "ref": "fixture/exp/la",
+            "stance": "SUPPORTS",
+            "result": "FAIL",
+            "summary": "FIXTURE evidence",
+            "independent": true,
+            "recorded_at": "2026-01-20T12:00:00+00:00"
+          }
+        ],
+        "confidence": "HIGH",
+        "validation_state": "VALIDATED",
+        "status": "RETAIN",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00",
+        "related_memories": [
+          "FX-M0004",
+          "FX-M9999"
+        ]
+      },
+      {
+        "memory_id": "FX-M0006",
+        "type": "EXECUTION_OBSERVATION",
+        "title": "FIXTURE: sim slippage below model",
+        "created_at": "2026-01-11T14:30:00+00:00",
+        "source": {
+          "actor": "AGENT",
+          "agent_slot": 2,
+          "trial_ids": []
+        },
+        "hypothesis": "FIXTURE hypothesis text",
+        "observation": "FIXTURE observation text",
+        "evidence": [],
+        "confidence": "LOW",
+        "validation_state": "UNVERIFIED",
+        "status": "REVIEW",
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_reviewed": "2026-01-20T12:00:00+00:00",
+        "related_strategies": [
+          "FX-S003"
+        ]
+      }
+    ]
+  }
+}

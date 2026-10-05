@@ -1,0 +1,324 @@
+{
+  "$defs": {
+    "ChangeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "approved_before_results": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved Before Results"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "change_id": {
+          "title": "Change Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "SPEC_FREEZE",
+            "SEAL",
+            "GOVERNANCE_CHANGE",
+            "APPROVAL",
+            "REJECTION",
+            "RETIREMENT",
+            "RECONSTRUCTION",
+            "DATA_CHANGE",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "change_id",
+        "at",
+        "actor",
+        "kind",
+        "summary"
+      ],
+      "title": "ChangeRecord",
+      "type": "object"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "GovernanceCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Ref"
+        },
+        "key": {
+          "$ref": "#/$defs/GovernanceCheckKey"
+        },
+        "state": {
+          "$ref": "#/$defs/GovernanceState"
+        }
+      },
+      "required": [
+        "key",
+        "state"
+      ],
+      "title": "GovernanceCheck",
+      "type": "object"
+    },
+    "GovernanceCheckKey": {
+      "enum": [
+        "trial_accounting",
+        "global_trial_count",
+        "research_live_separation",
+        "oos_separation",
+        "multiple_testing",
+        "referee",
+        "data_integrity",
+        "dataset_identity",
+        "validation_status",
+        "reconstruction_status",
+        "strategy_approval"
+      ],
+      "title": "GovernanceCheckKey",
+      "type": "string"
+    },
+    "GovernanceDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "change_history": {
+          "items": {
+            "$ref": "#/$defs/ChangeRecord"
+          },
+          "title": "Change History",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/GovernanceCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "referee": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefereeStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "GovernanceDoc",
+      "type": "object"
+    },
+    "GovernanceState": {
+      "enum": [
+        "PASS",
+        "WARN",
+        "FAIL",
+        "DIFFERS",
+        "RECONSTRUCTED",
+        "PENDING",
+        "UNKNOWN",
+        "NOT_APPLICABLE"
+      ],
+      "title": "GovernanceState",
+      "type": "string"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "RefereeStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "last_run_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run At"
+        },
+        "lock_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lock Hash"
+        },
+        "lock_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lock Ref"
+        },
+        "state": {
+          "enum": [
+            "MATCH",
+            "DIFFERS",
+            "NOT_RUN",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "RefereeStatus",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/governance.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/GovernanceDoc"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "GovernanceDocDocument",
+  "type": "object"
+}

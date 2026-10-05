@@ -1,0 +1,362 @@
+{
+  "$defs": {
+    "Dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Class"
+        },
+        "bar_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bar Size"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "coverage_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage End"
+        },
+        "coverage_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coverage Start"
+        },
+        "dataset_id": {
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/DatasetGap"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "integrity": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNKNOWN"
+          ],
+          "title": "Integrity",
+          "type": "string"
+        },
+        "integrity_notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Integrity Notes",
+          "type": "array"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Verified At"
+        },
+        "manifest_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manifest Ref"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "reconstructed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reconstructed"
+        },
+        "reconstruction_detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reconstruction Detail"
+        },
+        "root": {
+          "title": "Root",
+          "type": "string"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "session_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Count"
+        },
+        "sessions_by_year": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Sessions By Year",
+          "type": "object"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        },
+        "used_by": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Used By",
+          "type": "array"
+        },
+        "venue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "root",
+        "integrity",
+        "origin"
+      ],
+      "title": "Dataset",
+      "type": "object"
+    },
+    "DatasetGap": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DatasetGap",
+      "type": "object"
+    },
+    "DatasetsState": {
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/Dataset"
+          },
+          "title": "Datasets",
+          "type": "array"
+        }
+      },
+      "title": "DatasetsState",
+      "type": "object"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "$id": "sentry-command-centre/v1/datasets.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/DatasetsState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "DatasetsStateDocument",
+  "type": "object"
+}

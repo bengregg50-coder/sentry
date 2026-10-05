@@ -1,0 +1,1414 @@
+{
+  "$defs": {
+    "Basis": {
+      "description": "What evidence a metric was computed on.",
+      "enum": [
+        "IN_SAMPLE",
+        "OUT_OF_SAMPLE",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "SIMULATION",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "Basis",
+      "type": "string"
+    },
+    "CheckState": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "PENDING",
+        "NOT_RUN",
+        "BLOCKED",
+        "INCONCLUSIVE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "CheckState",
+      "type": "string"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "EvidenceState": {
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "LOST",
+        "PENDING"
+      ],
+      "title": "EvidenceState",
+      "type": "string"
+    },
+    "Hypothesis": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "decided_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided At"
+        },
+        "decision_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Reason"
+        },
+        "economic_rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Economic Rationale"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mechanism"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "prereg_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prereg Ref"
+        },
+        "preregistered_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preregistered At"
+        },
+        "programme_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Programme Id"
+        },
+        "stage_reached": {
+          "$ref": "#/$defs/Stage"
+        },
+        "statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement"
+        },
+        "status": {
+          "$ref": "#/$defs/HypothesisStatus"
+        },
+        "strategy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strategy Id"
+        },
+        "terminal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Terminal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "trial_numbers": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Trial Numbers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hypothesis_id",
+        "title",
+        "status",
+        "stage_reached",
+        "origin"
+      ],
+      "title": "Hypothesis",
+      "type": "object"
+    },
+    "HypothesisStatus": {
+      "enum": [
+        "PROPOSED",
+        "PREREGISTERED",
+        "TESTING",
+        "PENDING",
+        "REJECTED",
+        "BLOCKED_BY_DATA",
+        "VALIDATED",
+        "ABANDONED"
+      ],
+      "title": "HypothesisStatus",
+      "type": "string"
+    },
+    "IntegrityNotice": {
+      "additionalProperties": false,
+      "properties": {
+        "affects": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affects",
+          "type": "array"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "notice_id": {
+          "title": "Notice Id",
+          "type": "string"
+        },
+        "occurred_on": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Occurred On"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "notice_id",
+        "severity",
+        "title"
+      ],
+      "title": "IntegrityNotice",
+      "type": "object"
+    },
+    "LineageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "PROGRAMME",
+            "HYPOTHESIS",
+            "TRIAL",
+            "STRATEGY_VERSION",
+            "MEMORY",
+            "PROPOSAL",
+            "DOCUMENT",
+            "LITERATURE"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "LineageRef",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A single reported number with its basis and provenance.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "component": {
+          "anyOf": [
+            {
+              "enum": [
+                "GROSS",
+                "COST",
+                "NET"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "cost_multiplier": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Multiplier"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts",
+            "ms",
+            "days",
+            "years"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "basis"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "NamedMetric": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/Metric"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "metric"
+      ],
+      "title": "NamedMetric",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "Programme": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation_windows": {
+          "items": {
+            "$ref": "#/$defs/Window"
+          },
+          "title": "Evaluation Windows",
+          "type": "array"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "frozen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frozen At"
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mechanism"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "programme_id": {
+          "title": "Programme Id",
+          "type": "string"
+        },
+        "sealed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealed At"
+        },
+        "spec_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Hash"
+        },
+        "spec_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Ref"
+        },
+        "status": {
+          "$ref": "#/$defs/ProgrammeStatus"
+        },
+        "universe_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "PROVISIONAL",
+                "VERIFIED",
+                "FROZEN"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Universe Status"
+        }
+      },
+      "required": [
+        "programme_id",
+        "name",
+        "status",
+        "origin"
+      ],
+      "title": "Programme",
+      "type": "object"
+    },
+    "ProgrammeStatus": {
+      "enum": [
+        "PROPOSED",
+        "SPEC_DRAFT",
+        "SPEC_FROZEN",
+        "RUNNING",
+        "COMPLETE",
+        "SEALED",
+        "DEFERRED",
+        "ABANDONED"
+      ],
+      "title": "ProgrammeStatus",
+      "type": "string"
+    },
+    "ResearchArea": {
+      "additionalProperties": false,
+      "properties": {
+        "area_id": {
+          "title": "Area Id",
+          "type": "string"
+        },
+        "literature": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Literature",
+          "type": "array"
+        },
+        "mechanism_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mechanism Class"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "programme_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Programme Ids",
+          "type": "array"
+        },
+        "rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rationale"
+        },
+        "status": {
+          "$ref": "#/$defs/ResearchAreaStatus"
+        }
+      },
+      "required": [
+        "area_id",
+        "name",
+        "status"
+      ],
+      "title": "ResearchArea",
+      "type": "object"
+    },
+    "ResearchAreaStatus": {
+      "enum": [
+        "CANDIDATE_AREA",
+        "ACTIVE",
+        "DEFERRED",
+        "EXHAUSTED"
+      ],
+      "title": "ResearchAreaStatus",
+      "type": "string"
+    },
+    "ResearchFocus": {
+      "additionalProperties": false,
+      "properties": {
+        "hypothesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Id"
+        },
+        "next_action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Action"
+        },
+        "programme_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Programme Id"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        }
+      },
+      "title": "ResearchFocus",
+      "type": "object"
+    },
+    "ResearchRole": {
+      "enum": [
+        "LEAD_RESEARCHER",
+        "QUANT_RESEARCHER",
+        "DATA_ANALYST",
+        "CODER",
+        "BACKTESTER",
+        "ADVERSARIAL_REFEREE",
+        "GOVERNANCE"
+      ],
+      "title": "ResearchRole",
+      "type": "string"
+    },
+    "ResearchState": {
+      "additionalProperties": false,
+      "properties": {
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResearchFocus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hypotheses": {
+          "items": {
+            "$ref": "#/$defs/Hypothesis"
+          },
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "integrity_notices": {
+          "items": {
+            "$ref": "#/$defs/IntegrityNotice"
+          },
+          "title": "Integrity Notices",
+          "type": "array"
+        },
+        "programmes": {
+          "items": {
+            "$ref": "#/$defs/Programme"
+          },
+          "title": "Programmes",
+          "type": "array"
+        },
+        "research_areas": {
+          "items": {
+            "$ref": "#/$defs/ResearchArea"
+          },
+          "title": "Research Areas",
+          "type": "array"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleStatus"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "trial_accounting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrialAccounting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trials": {
+          "items": {
+            "$ref": "#/$defs/Trial"
+          },
+          "title": "Trials",
+          "type": "array"
+        }
+      },
+      "title": "ResearchState",
+      "type": "object"
+    },
+    "RoleStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "last_activity_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Activity At"
+        },
+        "role": {
+          "$ref": "#/$defs/ResearchRole"
+        },
+        "state": {
+          "enum": [
+            "NOT_BUILT",
+            "IDLE",
+            "ACTIVE",
+            "BLOCKED",
+            "OFFLINE"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "state"
+      ],
+      "title": "RoleStatus",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "INFO",
+        "WARNING",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "Stage": {
+      "description": "The research \u2192 deployment pipeline, in order.",
+      "enum": [
+        "DISCOVERY",
+        "HYPOTHESIS",
+        "BACKTEST",
+        "ROBUSTNESS",
+        "OOS",
+        "VALIDATION",
+        "APPROVED",
+        "SIM",
+        "LIVE",
+        "SCALED"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "Terminal": {
+      "description": "How an item stopped progressing. ``None`` on an item means still active.",
+      "enum": [
+        "REJECTED",
+        "BLOCKED_BY_DATA",
+        "PENDING",
+        "ABANDONED",
+        "RETIRED"
+      ],
+      "title": "Terminal",
+      "type": "string"
+    },
+    "Trial": {
+      "additionalProperties": false,
+      "properties": {
+        "data_used": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Used",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "evidence_state": {
+          "$ref": "#/$defs/EvidenceState"
+        },
+        "experiment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Experiment"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        },
+        "hypothesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Id"
+        },
+        "kind": {
+          "$ref": "#/$defs/TrialKind"
+        },
+        "lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageRef"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/NamedMetric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "oos_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "outcome": {
+          "$ref": "#/$defs/TrialOutcome"
+        },
+        "programme_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Programme Id"
+        },
+        "recorded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded At"
+        },
+        "rejection_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejection Reason"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "trial_id": {
+          "title": "Trial Id",
+          "type": "string"
+        },
+        "trial_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trial Number"
+        },
+        "validation_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "trial_id",
+        "kind",
+        "stage",
+        "outcome",
+        "evidence_state",
+        "origin"
+      ],
+      "title": "Trial",
+      "type": "object"
+    },
+    "TrialAccounting": {
+      "additionalProperties": false,
+      "description": "Declared by the research ledger. The UI cross-checks; it never recomputes.",
+      "properties": {
+        "as_of": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "As Of"
+        },
+        "global_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Global Count"
+        },
+        "ledger_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ledger Hash"
+        },
+        "ledger_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ledger Ref"
+        },
+        "live_recorded": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Recorded"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "reconstructed_baseline": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reconstructed Baseline"
+        },
+        "sealed_evidence_separate": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealed Evidence Separate"
+        }
+      },
+      "title": "TrialAccounting",
+      "type": "object"
+    },
+    "TrialKind": {
+      "enum": [
+        "DISCOVERY",
+        "BACKTEST",
+        "ROBUSTNESS",
+        "COST_SENSITIVITY",
+        "PARAMETER_STABILITY",
+        "REGIME",
+        "OOS",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "VALIDATION",
+        "DATA_CHECK",
+        "OTHER"
+      ],
+      "title": "TrialKind",
+      "type": "string"
+    },
+    "TrialOutcome": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCONCLUSIVE",
+        "RUNNING",
+        "BLOCKED",
+        "VOID"
+      ],
+      "title": "TrialOutcome",
+      "type": "string"
+    },
+    "Window": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "DISCOVERY",
+                "IN_SAMPLE",
+                "PRIMARY_EVIDENCE",
+                "CONFIRMATION",
+                "HOLDOUT",
+                "OUT_OF_SAMPLE",
+                "IMPLEMENTATION_VERIFICATION",
+                "OTHER"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        }
+      },
+      "title": "Window",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/research.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/ResearchState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "ResearchStateDocument",
+  "type": "object"
+}

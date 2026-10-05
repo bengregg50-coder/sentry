@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:insights",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "insights": [
+      {
+        "insight_id": "FX-I1",
+        "at": "2026-01-20T12:00:00+00:00",
+        "kind": "NULL_RESULT",
+        "title": "FIXTURE: intraday family exhausted",
+        "body": "FIXTURE insight body",
+        "source": "fixture:research",
+        "evidence_refs": [
+          "FX-M0001"
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "insight_id": "FX-I2",
+        "at": "2026-01-18T12:00:00+00:00",
+        "kind": "GOVERNANCE",
+        "title": "FIXTURE: referee differs on 2 trials",
+        "source": "fixture:governance",
+        "origin": "SYNTHETIC_FIXTURE"
+      }
+    ]
+  }
+}

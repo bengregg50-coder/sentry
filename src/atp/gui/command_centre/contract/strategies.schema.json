@@ -1,0 +1,1406 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "decided_at": {
+          "format": "date-time",
+          "title": "Decided At",
+          "type": "string"
+        },
+        "decided_by": {
+          "title": "Decided By",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "APPROVED",
+            "REJECTED",
+            "REVOKED"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "decision_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Ref"
+        },
+        "scope": {
+          "enum": [
+            "SIM",
+            "PAPER",
+            "LIVE_SMALL",
+            "LIVE"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "scope",
+        "decided_at",
+        "decided_by"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "Basis": {
+      "description": "What evidence a metric was computed on.",
+      "enum": [
+        "IN_SAMPLE",
+        "OUT_OF_SAMPLE",
+        "WALK_FORWARD",
+        "MONTE_CARLO",
+        "SIMULATION",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "Basis",
+      "type": "string"
+    },
+    "Check": {
+      "additionalProperties": false,
+      "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/$defs/CheckState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "Check",
+      "type": "object"
+    },
+    "CheckState": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "PENDING",
+        "NOT_RUN",
+        "BLOCKED",
+        "INCONCLUSIVE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "CheckState",
+      "type": "string"
+    },
+    "DeploymentPackage": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_model_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Model Identity"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "data_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Identity"
+        },
+        "executor_identity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executor Identity"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "package_id": {
+          "title": "Package Id",
+          "type": "string"
+        },
+        "risk_limits_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Risk Limits Ref"
+        },
+        "spec_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Hash"
+        }
+      },
+      "required": [
+        "package_id",
+        "created_at"
+      ],
+      "title": "DeploymentPackage",
+      "type": "object"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "ImprovementProposal": {
+      "additionalProperties": false,
+      "description": "A proposed change. It can only ever become a *new* strategy version.",
+      "properties": {
+        "agent_slot": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Slot"
+        },
+        "base_version": {
+          "minimum": 1,
+          "title": "Base Version",
+          "type": "integer"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "proposed_at": {
+          "format": "date-time",
+          "title": "Proposed At",
+          "type": "string"
+        },
+        "proposed_by": {
+          "title": "Proposed By",
+          "type": "string"
+        },
+        "rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rationale"
+        },
+        "resulting_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resulting Version"
+        },
+        "state": {
+          "$ref": "#/$defs/ProposalState"
+        },
+        "strategy_id": {
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "proposed_at",
+        "proposed_by",
+        "strategy_id",
+        "base_version",
+        "summary",
+        "state"
+      ],
+      "title": "ImprovementProposal",
+      "type": "object"
+    },
+    "LineageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "PROGRAMME",
+            "HYPOTHESIS",
+            "TRIAL",
+            "STRATEGY_VERSION",
+            "MEMORY",
+            "PROPOSAL",
+            "DOCUMENT",
+            "LITERATURE"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "LineageRef",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A single reported number with its basis and provenance.",
+      "properties": {
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "component": {
+          "anyOf": [
+            {
+              "enum": [
+                "GROSS",
+                "COST",
+                "NET"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "cost_multiplier": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Multiplier"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts",
+            "ms",
+            "days",
+            "years"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "basis"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "MultipleTesting": {
+      "additionalProperties": false,
+      "properties": {
+        "adjusted_threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adjusted Threshold"
+        },
+        "deflated_sharpe": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deflated Sharpe"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "global_trials_at_decision": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Global Trials At Decision"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "state": {
+          "$ref": "#/$defs/CheckState"
+        },
+        "trials_in_family": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trials In Family"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "MultipleTesting",
+      "type": "object"
+    },
+    "NamedMetric": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/Metric"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "metric"
+      ],
+      "title": "NamedMetric",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "ProposalState": {
+      "enum": [
+        "PROPOSED",
+        "IN_RESEARCH",
+        "REJECTED",
+        "VALIDATED",
+        "APPROVED",
+        "RELEASED_AS_VERSION"
+      ],
+      "title": "ProposalState",
+      "type": "string"
+    },
+    "RegimeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/NamedMetric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "regime": {
+          "title": "Regime",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Window"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "regime"
+      ],
+      "title": "RegimeResult",
+      "type": "object"
+    },
+    "StrategiesState": {
+      "additionalProperties": false,
+      "properties": {
+        "proposals": {
+          "items": {
+            "$ref": "#/$defs/ImprovementProposal"
+          },
+          "title": "Proposals",
+          "type": "array"
+        },
+        "strategies": {
+          "items": {
+            "$ref": "#/$defs/Strategy"
+          },
+          "title": "Strategies",
+          "type": "array"
+        }
+      },
+      "title": "StrategiesState",
+      "type": "object"
+    },
+    "Strategy": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned_agent": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned Agent"
+        },
+        "current_version": {
+          "minimum": 1,
+          "title": "Current Version",
+          "type": "integer"
+        },
+        "economic_rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Economic Rationale"
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instrument"
+        },
+        "last_update": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Update"
+        },
+        "market": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market"
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mechanism"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "status": {
+          "$ref": "#/$defs/StrategyStatus"
+        },
+        "strategy_id": {
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeframe"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/$defs/StrategyVersion"
+          },
+          "minItems": 1,
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "name",
+        "status",
+        "current_version",
+        "versions",
+        "origin"
+      ],
+      "title": "Strategy",
+      "type": "object"
+    },
+    "StrategyMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "additional": {
+          "items": {
+            "$ref": "#/$defs/NamedMetric"
+          },
+          "title": "Additional",
+          "type": "array"
+        },
+        "capacity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "costs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expectancy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_return": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "gross_return": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_drawdown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "net_return": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sharpe": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slippage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sortino": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trade_count": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "win_rate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Metric"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StrategyMetrics",
+      "type": "object"
+    },
+    "StrategyStatus": {
+      "enum": [
+        "CANDIDATE",
+        "IN_VALIDATION",
+        "VALIDATED",
+        "APPROVED",
+        "DEPLOYED_SIM",
+        "DEPLOYED_LIVE",
+        "SCALED",
+        "RETIRED",
+        "REJECTED"
+      ],
+      "title": "StrategyStatus",
+      "type": "string"
+    },
+    "StrategyVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Approval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "change_rationale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Rationale"
+        },
+        "change_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Change Summary"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deployment_package": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeploymentPackage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageRef"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "metrics": {
+          "$ref": "#/$defs/StrategyMetrics"
+        },
+        "multiple_testing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MultipleTesting"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "parent_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Version"
+        },
+        "proposal_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Id"
+        },
+        "proposed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed By"
+        },
+        "regimes": {
+          "items": {
+            "$ref": "#/$defs/RegimeResult"
+          },
+          "title": "Regimes",
+          "type": "array"
+        },
+        "spec_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Hash"
+        },
+        "spec_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Ref"
+        },
+        "status": {
+          "$ref": "#/$defs/StrategyStatus"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationChecks"
+        },
+        "validation_status": {
+          "$ref": "#/$defs/ValidationStatus",
+          "default": "NOT_STARTED"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "status",
+        "created_at"
+      ],
+      "title": "StrategyVersion",
+      "type": "object"
+    },
+    "ValidationChecks": {
+      "additionalProperties": false,
+      "description": "Each check is ``None`` until the research engine reports it.",
+      "properties": {
+        "cost_sensitivity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "economic_rationale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "execution_realism": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "monte_carlo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "multiple_testing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "out_of_sample": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "parameter_stability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "positive_expectancy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "realistic_costs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "regime_analysis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "robustness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sample_size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "walk_forward": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ValidationChecks",
+      "type": "object"
+    },
+    "ValidationStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "IN_PROGRESS",
+        "VALIDATED",
+        "FAILED"
+      ],
+      "title": "ValidationStatus",
+      "type": "string"
+    },
+    "Window": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "DISCOVERY",
+                "IN_SAMPLE",
+                "PRIMARY_EVIDENCE",
+                "CONFIRMATION",
+                "HOLDOUT",
+                "OUT_OF_SAMPLE",
+                "IMPLEMENTATION_VERIFICATION",
+                "OTHER"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start"
+        }
+      },
+      "title": "Window",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/strategies.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/StrategiesState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "StrategiesStateDocument",
+  "type": "object"
+}

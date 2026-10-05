@@ -1,0 +1,971 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:research",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "focus": {
+      "programme_id": "FX-P02",
+      "hypothesis_id": "FX-H007",
+      "summary": "FIXTURE focus summary",
+      "next_action": "FIXTURE: run implementation verification"
+    },
+    "programmes": [
+      {
+        "programme_id": "FX-P01",
+        "name": "FIXTURE sealed intraday family",
+        "family": "FIXTURE-intraday",
+        "status": "SEALED",
+        "outcome": "NO APPROVED STRATEGY",
+        "sealed_at": "2025-11-06T14:30:00+00:00",
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "programme_id": "FX-P02",
+        "name": "FIXTURE daily premia replication",
+        "family": "FIXTURE-trend",
+        "mechanism": "FIXTURE time-series momentum",
+        "status": "SPEC_FROZEN",
+        "universe_status": "PROVISIONAL",
+        "spec_ref": "fixture/spec.md",
+        "spec_hash": "fx0000000000000000000000000000000000000000000000000000000000a1",
+        "frozen_at": "2026-01-05T14:30:00+00:00",
+        "evaluation_windows": [
+          {
+            "label": "FIXTURE primary",
+            "role": "PRIMARY_EVIDENCE",
+            "start": "2000-01-01",
+            "end": "2015-12-31"
+          },
+          {
+            "label": "FIXTURE confirmation",
+            "role": "CONFIRMATION",
+            "start": "2016-01-01",
+            "end": "2024-12-31"
+          }
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "programme_id": "FX-P03",
+        "name": "FIXTURE carry study",
+        "family": "FIXTURE-carry",
+        "status": "PROPOSED",
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "programme_id": "FX-P04",
+        "name": "FIXTURE order-flow pilot",
+        "family": "FIXTURE-orderflow",
+        "status": "DEFERRED",
+        "notes": [
+          "FIXTURE: data not purchased"
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      }
+    ],
+    "hypotheses": [
+      {
+        "hypothesis_id": "FX-H001",
+        "title": "FIXTURE opening-range continuation",
+        "programme_id": "FX-P01",
+        "family": "FIXTURE-intraday",
+        "statement": "FIXTURE opening-range continuation (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "REJECTED",
+        "stage_reached": "OOS",
+        "terminal": "REJECTED",
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": "2025-12-31T14:30:00+00:00",
+        "decision_reason": "FIXTURE: failed OOS after costs",
+        "strategy_id": null,
+        "trial_numbers": [
+          1,
+          2,
+          3
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H002",
+        "title": "FIXTURE session reversal",
+        "programme_id": "FX-P01",
+        "family": "FIXTURE-intraday",
+        "statement": "FIXTURE session reversal (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "REJECTED",
+        "stage_reached": "BACKTEST",
+        "terminal": "REJECTED",
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": "2025-12-31T14:30:00+00:00",
+        "decision_reason": "FIXTURE: negative net expectancy",
+        "strategy_id": null,
+        "trial_numbers": [
+          4
+        ],
+        "origin": "RECONSTRUCTED"
+      },
+      {
+        "hypothesis_id": "FX-H003",
+        "title": "FIXTURE order-flow absorption",
+        "programme_id": null,
+        "family": "FIXTURE-orderflow",
+        "statement": "FIXTURE order-flow absorption (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "BLOCKED_BY_DATA",
+        "stage_reached": "HYPOTHESIS",
+        "terminal": "BLOCKED_BY_DATA",
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": "2025-12-31T14:30:00+00:00",
+        "decision_reason": "FIXTURE: requires unpurchased data",
+        "strategy_id": null,
+        "trial_numbers": [],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H004",
+        "title": "FIXTURE volatility-conditioned breakout",
+        "programme_id": "FX-P01",
+        "family": "FIXTURE-intraday",
+        "statement": "FIXTURE volatility-conditioned breakout (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "PENDING",
+        "stage_reached": "ROBUSTNESS",
+        "terminal": "PENDING",
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": "2025-12-31T14:30:00+00:00",
+        "decision_reason": "FIXTURE: awaiting cost-sensitivity rerun",
+        "strategy_id": null,
+        "trial_numbers": [
+          5,
+          6
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H005",
+        "title": "FIXTURE cross-asset trend",
+        "programme_id": "FX-P02",
+        "family": "FIXTURE-trend",
+        "statement": "FIXTURE cross-asset trend (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "VALIDATED",
+        "stage_reached": "VALIDATION",
+        "terminal": null,
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": null,
+        "decision_reason": null,
+        "strategy_id": "FX-S003",
+        "trial_numbers": [
+          7,
+          8,
+          9
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H006",
+        "title": "FIXTURE calendar drift",
+        "programme_id": null,
+        "family": "FIXTURE-calendar",
+        "statement": "FIXTURE calendar drift (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "ABANDONED",
+        "stage_reached": "DISCOVERY",
+        "terminal": "ABANDONED",
+        "preregistered_at": null,
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": "2025-12-31T14:30:00+00:00",
+        "decision_reason": "FIXTURE: researcher dropped pre-test",
+        "strategy_id": null,
+        "trial_numbers": [],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H007",
+        "title": "FIXTURE term-structure carry",
+        "programme_id": null,
+        "family": "FIXTURE-carry",
+        "statement": "FIXTURE term-structure carry (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "PREREGISTERED",
+        "stage_reached": "HYPOTHESIS",
+        "terminal": null,
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": null,
+        "decision_reason": null,
+        "strategy_id": null,
+        "trial_numbers": [],
+        "origin": "ORIGINAL"
+      },
+      {
+        "hypothesis_id": "FX-H008",
+        "title": "FIXTURE equity event drift",
+        "programme_id": null,
+        "family": "FIXTURE-event",
+        "statement": "FIXTURE equity event drift (synthetic statement)",
+        "mechanism": "FIXTURE mechanism text",
+        "economic_rationale": "FIXTURE rationale text",
+        "status": "TESTING",
+        "stage_reached": "BACKTEST",
+        "terminal": null,
+        "preregistered_at": "2025-12-06T14:30:00+00:00",
+        "created_at": "2025-11-26T14:30:00+00:00",
+        "decided_at": null,
+        "decision_reason": null,
+        "strategy_id": null,
+        "trial_numbers": [
+          10
+        ],
+        "origin": "ORIGINAL"
+      }
+    ],
+    "trials": [
+      {
+        "trial_id": "FX-T001",
+        "trial_number": 1,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H001",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE backtest #1",
+        "kind": "BACKTEST",
+        "stage": "BACKTEST",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-17T14:30:00+00:00",
+        "recorded_at": "2025-12-18T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 3.8,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 2.6,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H001"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T001.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T002",
+        "trial_number": 2,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H001",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE cost sensitivity #2",
+        "kind": "COST_SENSITIVITY",
+        "stage": "ROBUSTNESS",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-18T14:30:00+00:00",
+        "recorded_at": "2025-12-19T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 3.5,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 2.3,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H001"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T002.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T003",
+        "trial_number": 3,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H001",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE oos #3",
+        "kind": "OOS",
+        "stage": "OOS",
+        "outcome": "FAIL",
+        "rejection_reason": "FIXTURE: OOS net expectancy negative",
+        "evidence_state": "ORIGINAL",
+        "oos_state": "FAIL",
+        "validation_state": null,
+        "started_at": "2025-12-19T14:30:00+00:00",
+        "recorded_at": "2025-12-20T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 3.2,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 2.0,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H001"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T003.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T004",
+        "trial_number": 4,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H002",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE backtest #4",
+        "kind": "BACKTEST",
+        "stage": "BACKTEST",
+        "outcome": "FAIL",
+        "rejection_reason": "FIXTURE: net of costs < 0",
+        "evidence_state": "LOST",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-20T14:30:00+00:00",
+        "recorded_at": null,
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H002"
+          }
+        ],
+        "evidence_refs": [],
+        "origin": "RECONSTRUCTED"
+      },
+      {
+        "trial_id": "FX-T005",
+        "trial_number": 5,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H004",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE backtest #5",
+        "kind": "BACKTEST",
+        "stage": "BACKTEST",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-21T14:30:00+00:00",
+        "recorded_at": "2025-12-22T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 2.6,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 1.4,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H004"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T005.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T006",
+        "trial_number": 6,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H004",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE robustness #6",
+        "kind": "ROBUSTNESS",
+        "stage": "ROBUSTNESS",
+        "outcome": "INCONCLUSIVE",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-22T14:30:00+00:00",
+        "recorded_at": "2025-12-23T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 2.3,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 1.1,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H004"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T006.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T007",
+        "trial_number": 7,
+        "programme_id": "FX-P02",
+        "hypothesis_id": "FX-H005",
+        "family": "FIXTURE-trend",
+        "experiment": "FIXTURE backtest #7",
+        "kind": "BACKTEST",
+        "stage": "BACKTEST",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-23T14:30:00+00:00",
+        "recorded_at": "2025-12-24T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A",
+          "FX-DS-B",
+          "FX-DS-C"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 2.0,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 0.8,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H005"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T007.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T008",
+        "trial_number": 8,
+        "programme_id": "FX-P02",
+        "hypothesis_id": "FX-H005",
+        "family": "FIXTURE-trend",
+        "experiment": "FIXTURE oos #8",
+        "kind": "OOS",
+        "stage": "OOS",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": "PASS",
+        "validation_state": null,
+        "started_at": "2025-12-24T14:30:00+00:00",
+        "recorded_at": "2025-12-25T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A",
+          "FX-DS-B",
+          "FX-DS-C"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 1.7,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 0.5,
+              "unit": "pct",
+              "basis": "OUT_OF_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H005"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T008.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T009",
+        "trial_number": 9,
+        "programme_id": "FX-P02",
+        "hypothesis_id": "FX-H005",
+        "family": "FIXTURE-trend",
+        "experiment": "FIXTURE walk forward #9",
+        "kind": "WALK_FORWARD",
+        "stage": "VALIDATION",
+        "outcome": "PASS",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": "PASS",
+        "validation_state": "PASS",
+        "started_at": "2025-12-25T14:30:00+00:00",
+        "recorded_at": "2025-12-26T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A",
+          "FX-DS-B",
+          "FX-DS-C"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 1.4,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": 0.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H005"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T009.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T010",
+        "trial_number": 10,
+        "programme_id": "FX-P01",
+        "hypothesis_id": "FX-H008",
+        "family": "FIXTURE-event",
+        "experiment": "FIXTURE backtest #10",
+        "kind": "BACKTEST",
+        "stage": "BACKTEST",
+        "outcome": "RUNNING",
+        "rejection_reason": null,
+        "evidence_state": "ORIGINAL",
+        "oos_state": null,
+        "validation_state": null,
+        "started_at": "2025-12-26T14:30:00+00:00",
+        "recorded_at": "2025-12-27T14:30:00+00:00",
+        "data_used": [
+          "FX-DS-A"
+        ],
+        "window_start": "2019-06-01",
+        "window_end": "2023-12-31",
+        "metrics": [
+          {
+            "key": "gross",
+            "label": "Gross return",
+            "metric": {
+              "value": 1.1,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "GROSS"
+            }
+          },
+          {
+            "key": "cost",
+            "label": "Costs",
+            "metric": {
+              "value": -1.2,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "COST",
+              "cost_multiplier": 1.0
+            }
+          },
+          {
+            "key": "net",
+            "label": "Net return",
+            "metric": {
+              "value": -0.1,
+              "unit": "pct",
+              "basis": "IN_SAMPLE",
+              "component": "NET"
+            }
+          }
+        ],
+        "lineage": [
+          {
+            "kind": "HYPOTHESIS",
+            "ref": "FX-H008"
+          }
+        ],
+        "evidence_refs": [
+          "fixture/evidence/T010.json"
+        ],
+        "origin": "ORIGINAL"
+      },
+      {
+        "trial_id": "FX-T-RECON-LOST",
+        "trial_number": null,
+        "programme_id": "FX-P01",
+        "family": "FIXTURE-intraday",
+        "experiment": "FIXTURE reconstructed entry (original record lost)",
+        "kind": "OTHER",
+        "stage": "BACKTEST",
+        "outcome": "FAIL",
+        "evidence_state": "LOST",
+        "origin": "RECONSTRUCTED"
+      }
+    ],
+    "trial_accounting": {
+      "reconstructed_baseline": 5,
+      "live_recorded": 9,
+      "global_count": 14,
+      "ledger_ref": "fixture/ledger.jsonl",
+      "ledger_hash": "fx00000000000000000000000000000000000000000000000000000000000000",
+      "sealed_evidence_separate": true,
+      "as_of": "2026-01-20T12:00:00+00:00",
+      "notes": [
+        "FIXTURE accounting"
+      ]
+    },
+    "integrity_notices": [
+      {
+        "notice_id": "FX-N1",
+        "severity": "WARNING",
+        "title": "FIXTURE: original files lost",
+        "detail": "FIXTURE notice \u2014 synthetic loss event for rendering tests",
+        "occurred_on": "2025-12-01",
+        "reference": "fixture/reconstruction.md",
+        "affects": [
+          "research"
+        ]
+      }
+    ],
+    "research_areas": [
+      {
+        "area_id": "FX-A1",
+        "name": "FIXTURE diversified trend",
+        "mechanism_class": "trend",
+        "status": "ACTIVE",
+        "rationale": "FIXTURE rationale",
+        "literature": [
+          "FIXTURE et al. (2000)"
+        ],
+        "programme_ids": [
+          "FX-P02"
+        ]
+      },
+      {
+        "area_id": "FX-A2",
+        "name": "FIXTURE carry",
+        "mechanism_class": "carry",
+        "status": "CANDIDATE_AREA",
+        "programme_ids": [
+          "FX-P03"
+        ]
+      },
+      {
+        "area_id": "FX-A3",
+        "name": "FIXTURE intraday timing",
+        "mechanism_class": "timing",
+        "status": "EXHAUSTED"
+      },
+      {
+        "area_id": "FX-A4",
+        "name": "FIXTURE order flow",
+        "mechanism_class": "microstructure",
+        "status": "DEFERRED"
+      }
+    ],
+    "roles": [
+      {
+        "role": "LEAD_RESEARCHER",
+        "state": "ACTIVE",
+        "last_activity_at": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "role": "QUANT_RESEARCHER",
+        "state": "IDLE"
+      },
+      {
+        "role": "DATA_ANALYST",
+        "state": "IDLE"
+      },
+      {
+        "role": "CODER",
+        "state": "ACTIVE"
+      },
+      {
+        "role": "BACKTESTER",
+        "state": "BLOCKED",
+        "detail": "FIXTURE: waiting on data"
+      },
+      {
+        "role": "ADVERSARIAL_REFEREE",
+        "state": "IDLE"
+      },
+      {
+        "role": "GOVERNANCE",
+        "state": "NOT_BUILT"
+      }
+    ]
+  }
+}

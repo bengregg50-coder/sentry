@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:system",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "subsystems": [
+      {
+        "key": "research_engine",
+        "state": "ONLINE",
+        "detail": "FIXTURE: research engine heartbeat",
+        "heartbeat_at": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "key": "trading_engine",
+        "state": "DEGRADED",
+        "detail": "FIXTURE: simulation only"
+      },
+      {
+        "key": "agent_network",
+        "state": "ONLINE"
+      },
+      {
+        "key": "data",
+        "state": "ONLINE"
+      },
+      {
+        "key": "governance",
+        "state": "ONLINE"
+      },
+      {
+        "key": "memory",
+        "state": "IDLE"
+      }
+    ]
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "SubsystemKey": {
+      "enum": [
+        "research_engine",
+        "trading_engine",
+        "agent_network",
+        "data",
+        "governance",
+        "memory"
+      ],
+      "title": "SubsystemKey",
+      "type": "string"
+    },
+    "SubsystemState": {
+      "enum": [
+        "ONLINE",
+        "DEGRADED",
+        "OFFLINE",
+        "IDLE",
+        "NOT_BUILT",
+        "UNKNOWN"
+      ],
+      "title": "SubsystemState",
+      "type": "string"
+    },
+    "SubsystemStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "heartbeat_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heartbeat At"
+        },
+        "key": {
+          "$ref": "#/$defs/SubsystemKey"
+        },
+        "state": {
+          "$ref": "#/$defs/SubsystemState"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "key",
+        "state"
+      ],
+      "title": "SubsystemStatus",
+      "type": "object"
+    },
+    "SystemState": {
+      "additionalProperties": false,
+      "properties": {
+        "subsystems": {
+          "items": {
+            "$ref": "#/$defs/SubsystemStatus"
+          },
+          "title": "Subsystems",
+          "type": "array"
+        }
+      },
+      "title": "SystemState",
+      "type": "object"
+    }
+  },
+  "$id": "sentry-command-centre/v1/system.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/SystemState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "SystemStateDocument",
+  "type": "object"
+}

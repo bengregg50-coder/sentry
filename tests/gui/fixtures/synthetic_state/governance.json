@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:governance",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "checks": [
+      {
+        "key": "trial_accounting",
+        "state": "PASS",
+        "detail": "FIXTURE: ledger append-only",
+        "checked_at": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "key": "global_trial_count",
+        "state": "PASS",
+        "detail": "FIXTURE"
+      },
+      {
+        "key": "research_live_separation",
+        "state": "PASS"
+      },
+      {
+        "key": "oos_separation",
+        "state": "PASS"
+      },
+      {
+        "key": "multiple_testing",
+        "state": "WARN",
+        "detail": "FIXTURE: family count provisional"
+      },
+      {
+        "key": "referee",
+        "state": "DIFFERS",
+        "detail": "FIXTURE: referee reproduction differs"
+      },
+      {
+        "key": "data_integrity",
+        "state": "PASS"
+      },
+      {
+        "key": "dataset_identity",
+        "state": "PASS"
+      },
+      {
+        "key": "validation_status",
+        "state": "PENDING"
+      },
+      {
+        "key": "reconstruction_status",
+        "state": "RECONSTRUCTED",
+        "detail": "FIXTURE: baseline reconstructed after loss"
+      }
+    ],
+    "referee": {
+      "state": "DIFFERS",
+      "detail": "FIXTURE: 2 of 14 trial results differ",
+      "lock_ref": "fixture/referee.lock",
+      "lock_hash": "fx99999999999999999999999999999999999999999999999999999999999999",
+      "last_run_at": "2026-01-20T12:00:00+00:00"
+    },
+    "change_history": [
+      {
+        "change_id": "FX-C1",
+        "at": "2025-11-06T14:30:00+00:00",
+        "actor": "fixture-governance",
+        "kind": "SEAL",
+        "summary": "FIXTURE: sealed intraday programme",
+        "approved_before_results": true
+      },
+      {
+        "change_id": "FX-C2",
+        "at": "2026-01-05T14:30:00+00:00",
+        "actor": "fixture-governance",
+        "kind": "SPEC_FREEZE",
+        "summary": "FIXTURE: froze replication spec",
+        "approved_before_results": true
+      },
+      {
+        "change_id": "FX-C3",
+        "at": "2026-01-09T14:30:00+00:00",
+        "actor": "fixture-governance",
+        "kind": "APPROVAL",
+        "summary": "FIXTURE: approved FX-S003 v2 for SIM",
+        "ref": "fixture/approval.md",
+        "approved_before_results": null
+      },
+      {
+        "change_id": "FX-C4",
+        "at": "2025-12-06T14:30:00+00:00",
+        "actor": "fixture-operator",
+        "kind": "RECONSTRUCTION",
+        "summary": "FIXTURE: rebuilt baseline after loss"
+      }
+    ]
+  }
+}

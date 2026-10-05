@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:execution",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "as_of": "2026-01-20T12:00:00+00:00",
+    "connections": [
+      {
+        "name": "FIXTURE sim feed",
+        "kind": "MARKET_DATA",
+        "state": "CONNECTED",
+        "last_heartbeat": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "name": "FIXTURE sim broker",
+        "kind": "BROKER",
+        "state": "CONNECTED",
+        "last_heartbeat": "2026-01-20T12:00:00+00:00"
+      }
+    ],
+    "open_orders": [
+      {
+        "order_id": "FX-O1",
+        "instrument": "FXB",
+        "side": "SELL",
+        "quantity": 1,
+        "order_type": "LIMIT",
+        "limit_price": 99.5,
+        "status": "WORKING",
+        "mode": "SIM",
+        "submitted_at": "2026-01-20T12:00:00+00:00",
+        "agent_slot": 2
+      }
+    ],
+    "fills": [
+      {
+        "trade_id": "FX-TR1",
+        "instrument": "FXA",
+        "side": "BUY",
+        "quantity": 2,
+        "price": 101.25,
+        "executed_at": "2026-01-20T09:00:00+00:00",
+        "mode": "SIM",
+        "slippage_bps": 1.2,
+        "agent_slot": 2
+      }
+    ],
+    "stats": {
+      "as_of": "2026-01-20T12:00:00+00:00",
+      "latency_ms_p50": 42.0,
+      "latency_ms_p95": 120.0,
+      "slippage_bps_mean": 1.2,
+      "slippage_model_bps": 1.5,
+      "fills": 14,
+      "rejects": 0
+    }
+  }
+}

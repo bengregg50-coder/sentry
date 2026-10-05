@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:live",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "as_of": "2026-01-20T12:00:00+00:00",
+    "engine_state": "RUNNING",
+    "trading_mode": "SIM",
+    "trading_enabled": false,
+    "detail": "FIXTURE: simulation only; live trading disabled",
+    "connections": [
+      {
+        "name": "FIXTURE sim feed",
+        "kind": "MARKET_DATA",
+        "state": "CONNECTED",
+        "last_heartbeat": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "name": "FIXTURE sim broker",
+        "kind": "BROKER",
+        "state": "CONNECTED",
+        "last_heartbeat": "2026-01-20T12:00:00+00:00"
+      }
+    ],
+    "heartbeat_at": "2026-01-20T12:00:00+00:00",
+    "positions_open": 1,
+    "orders_working": 1,
+    "pnl": {
+      "mode": "SIM",
+      "as_of": "2026-01-20T12:00:00+00:00",
+      "realized": {
+        "value": 1250.0,
+        "unit": "currency",
+        "basis": "SIMULATION",
+        "currency": "USD"
+      },
+      "unrealized": {
+        "value": 310.0,
+        "unit": "currency",
+        "basis": "SIMULATION",
+        "currency": "USD"
+      },
+      "day": {
+        "value": 85.0,
+        "unit": "currency",
+        "basis": "SIMULATION",
+        "currency": "USD"
+      }
+    }
+  }
+}

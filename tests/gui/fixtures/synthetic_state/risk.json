@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:risk",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "as_of": "2026-01-20T12:00:00+00:00",
+    "kill_switch": {
+      "state": "ARMED",
+      "detail": "FIXTURE kill switch"
+    },
+    "portfolio_limits": [
+      {
+        "key": "gross",
+        "label": "Gross exposure",
+        "limit": 150,
+        "used": 60,
+        "unit": "pct",
+        "state": "OK"
+      }
+    ],
+    "daily_limits": [
+      {
+        "key": "daily_loss",
+        "label": "Daily loss",
+        "limit": 2000,
+        "used": 1700,
+        "unit": "currency",
+        "state": "WARN"
+      }
+    ],
+    "execution_limits": [
+      {
+        "key": "slippage",
+        "label": "Slippage vs model",
+        "limit": 3,
+        "used": 1.2,
+        "unit": "bps",
+        "state": "OK"
+      }
+    ],
+    "breaches": [
+      {
+        "breach_id": "FX-B1",
+        "at": "2026-01-20T12:00:00+00:00",
+        "limit_key": "daily_loss",
+        "severity": "WARNING",
+        "detail": "FIXTURE: 85% of daily loss limit",
+        "agent_slot": 2
+      }
+    ]
+  }
+}

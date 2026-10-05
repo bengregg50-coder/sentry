@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:datasets",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "datasets": [
+      {
+        "dataset_id": "FX-DS-A",
+        "root": "FXA",
+        "name": "FIXTURE dataset FXA",
+        "venue": "FIXTURE-VENUE",
+        "asset_class": "FIXTURE futures",
+        "kind": "FUTURES_INTRADAY",
+        "bar_size": "1m",
+        "timezone": "UTC",
+        "coverage_start": "2018-01-02",
+        "coverage_end": "2025-12-31",
+        "session_count": 2000,
+        "sessions_by_year": {
+          "2018": 120,
+          "2019": 250,
+          "2020": 250,
+          "2021": 250,
+          "2022": 250,
+          "2023": 250,
+          "2024": 250,
+          "2025": 120
+        },
+        "content_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+        "manifest_ref": "fixture/FXA.manifest",
+        "integrity": "PASS",
+        "integrity_notes": [],
+        "reconstructed": false,
+        "reconstruction_detail": null,
+        "gaps": [],
+        "last_verified_at": "2026-01-20T12:00:00+00:00",
+        "used_by": [
+          "FX-P01"
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "dataset_id": "FX-DS-B",
+        "root": "FXB",
+        "name": "FIXTURE dataset FXB",
+        "venue": "FIXTURE-VENUE",
+        "asset_class": "FIXTURE futures",
+        "kind": "FUTURES_INTRADAY",
+        "bar_size": "1m",
+        "timezone": "UTC",
+        "coverage_start": "2018-01-02",
+        "coverage_end": "2025-12-31",
+        "session_count": 1995,
+        "sessions_by_year": {
+          "2018": 120,
+          "2019": 250,
+          "2020": 250,
+          "2021": 250,
+          "2022": 250,
+          "2023": 250,
+          "2024": 250,
+          "2025": 120
+        },
+        "content_hash": "fx00000000000000000000000000000000000000000000000000000000000002",
+        "manifest_ref": "fixture/FXB.manifest",
+        "integrity": "WARN",
+        "integrity_notes": [
+          "FIXTURE: 5-session gap"
+        ],
+        "reconstructed": false,
+        "reconstruction_detail": null,
+        "gaps": [
+          {
+            "start": "2020-03-16",
+            "end": "2020-03-20",
+            "reason": "FIXTURE gap"
+          }
+        ],
+        "last_verified_at": "2026-01-20T12:00:00+00:00",
+        "used_by": [
+          "FX-P01"
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "dataset_id": "FX-DS-C",
+        "root": "FXC",
+        "name": "FIXTURE dataset FXC",
+        "venue": "FIXTURE-VENUE",
+        "asset_class": "FIXTURE futures",
+        "kind": "FUTURES_INTRADAY",
+        "bar_size": "1m",
+        "timezone": "UTC",
+        "coverage_start": "2019-06-03",
+        "coverage_end": "2025-12-31",
+        "session_count": 1640,
+        "sessions_by_year": {
+          "2019": 120,
+          "2020": 250,
+          "2021": 250,
+          "2022": 250,
+          "2023": 250,
+          "2024": 250,
+          "2025": 120
+        },
+        "content_hash": "fx00000000000000000000000000000000000000000000000000000000000003",
+        "manifest_ref": "fixture/FXC.manifest",
+        "integrity": "PASS",
+        "integrity_notes": [],
+        "reconstructed": true,
+        "reconstruction_detail": "FIXTURE: manifest rebuilt",
+        "gaps": [],
+        "last_verified_at": "2026-01-20T12:00:00+00:00",
+        "used_by": [
+          "FX-P01"
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      }
+    ]
+  }
+}

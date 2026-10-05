@@ -1,0 +1,438 @@
+{
+  "$defs": {
+    "CheckState": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "PENDING",
+        "NOT_RUN",
+        "BLOCKED",
+        "INCONCLUSIVE",
+        "NOT_APPLICABLE"
+      ],
+      "title": "CheckState",
+      "type": "string"
+    },
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "EvidenceItem": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "independent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Independent"
+        },
+        "kind": {
+          "enum": [
+            "EXPERIMENT",
+            "TRIAL",
+            "BACKTEST",
+            "OUT_OF_SAMPLE",
+            "ROBUSTNESS",
+            "COST_SENSITIVITY",
+            "SIMULATION",
+            "LIVE_OBSERVATION",
+            "LITERATURE",
+            "DOCUMENT"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "recorded_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded At"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stance": {
+          "enum": [
+            "SUPPORTS",
+            "CONTRADICTS",
+            "NEUTRAL"
+          ],
+          "title": "Stance",
+          "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "kind",
+        "ref",
+        "stance"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "Memory": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "enum": [
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "UNRATED"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "cost_sensitivity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceItem"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "hypothesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis"
+        },
+        "last_reviewed": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Reviewed"
+        },
+        "memory_id": {
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "observation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observation"
+        },
+        "oos": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "related_experiments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Experiments",
+          "type": "array"
+        },
+        "related_memories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Memories",
+          "type": "array"
+        },
+        "related_strategies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Related Strategies",
+          "type": "array"
+        },
+        "robustness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "$ref": "#/$defs/MemorySource"
+        },
+        "status": {
+          "enum": [
+            "RETAIN",
+            "REVIEW",
+            "DEPRECATED",
+            "REJECTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/MemoryType"
+        },
+        "validation_state": {
+          "enum": [
+            "VALIDATED",
+            "PROVISIONAL",
+            "UNVERIFIED",
+            "CONTRADICTED",
+            "REJECTED"
+          ],
+          "title": "Validation State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memory_id",
+        "type",
+        "title",
+        "created_at",
+        "source",
+        "confidence",
+        "validation_state",
+        "status",
+        "origin"
+      ],
+      "title": "Memory",
+      "type": "object"
+    },
+    "MemorySource": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "RESEARCH_ENGINE",
+            "AGENT",
+            "HUMAN",
+            "VALIDATION",
+            "EXECUTION"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "agent_slot": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Slot"
+        },
+        "experiment_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Experiment Ids",
+          "type": "array"
+        },
+        "programme_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Programme Id"
+        },
+        "trial_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trial Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "actor"
+      ],
+      "title": "MemorySource",
+      "type": "object"
+    },
+    "MemoryState": {
+      "additionalProperties": false,
+      "properties": {
+        "memories": {
+          "items": {
+            "$ref": "#/$defs/Memory"
+          },
+          "title": "Memories",
+          "type": "array"
+        }
+      },
+      "title": "MemoryState",
+      "type": "object"
+    },
+    "MemoryType": {
+      "enum": [
+        "FINDING",
+        "LESSON",
+        "FAILED_MECHANISM",
+        "FAILED_HYPOTHESIS",
+        "REJECTED_ASSUMPTION",
+        "REGIME_OBSERVATION",
+        "EXECUTION_OBSERVATION",
+        "VOLATILITY_OBSERVATION",
+        "USEFUL_FEATURE",
+        "DANGEROUS_FEATURE",
+        "PARAMETER_SENSITIVITY",
+        "STRATEGY_INTERACTION",
+        "DATA_NOTE"
+      ],
+      "title": "MemoryType",
+      "type": "string"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "$id": "sentry-command-centre/v1/memory.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/MemoryState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "MemoryStateDocument",
+  "type": "object"
+}

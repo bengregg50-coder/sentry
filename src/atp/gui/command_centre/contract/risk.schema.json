@@ -1,0 +1,290 @@
+{
+  "$defs": {
+    "DocumentMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "producer",
+        "generated_at",
+        "origin"
+      ],
+      "title": "DocumentMeta",
+      "type": "object"
+    },
+    "KillSwitch": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "state": {
+          "enum": [
+            "ARMED",
+            "TRIPPED",
+            "NOT_CONFIGURED"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "tripped_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tripped At"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "KillSwitch",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "RiskBreach": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_slot": {
+          "anyOf": [
+            {
+              "maximum": 5,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Slot"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "breach_id": {
+          "title": "Breach Id",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "limit_key": {
+          "title": "Limit Key",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "breach_id",
+        "at",
+        "limit_key",
+        "severity"
+      ],
+      "title": "RiskBreach",
+      "type": "object"
+    },
+    "RiskLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "limit": {
+          "title": "Limit",
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "WARN",
+            "BREACH",
+            "UNKNOWN"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "ratio",
+            "pct",
+            "bps",
+            "count",
+            "currency",
+            "contracts"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "used": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Used"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "limit",
+        "unit",
+        "state"
+      ],
+      "title": "RiskLimit",
+      "type": "object"
+    },
+    "RiskState": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "breaches": {
+          "items": {
+            "$ref": "#/$defs/RiskBreach"
+          },
+          "title": "Breaches",
+          "type": "array"
+        },
+        "daily_limits": {
+          "items": {
+            "$ref": "#/$defs/RiskLimit"
+          },
+          "title": "Daily Limits",
+          "type": "array"
+        },
+        "execution_limits": {
+          "items": {
+            "$ref": "#/$defs/RiskLimit"
+          },
+          "title": "Execution Limits",
+          "type": "array"
+        },
+        "kill_switch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KillSwitch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "portfolio_limits": {
+          "items": {
+            "$ref": "#/$defs/RiskLimit"
+          },
+          "title": "Portfolio Limits",
+          "type": "array"
+        }
+      },
+      "required": [
+        "as_of"
+      ],
+      "title": "RiskState",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "INFO",
+        "WARNING",
+        "CRITICAL"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$id": "sentry-command-centre/v1/risk.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/RiskState"
+    },
+    "meta": {
+      "$ref": "#/$defs/DocumentMeta"
+    }
+  },
+  "required": [
+    "meta",
+    "data"
+  ],
+  "title": "RiskStateDocument",
+  "type": "object"
+}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>SENTRY Command Centre</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/cc/static/css/tokens.css" />
+    <link rel="stylesheet" href="/cc/static/css/base.css" />
+    <link rel="stylesheet" href="/cc/static/css/layout.css" />
+    <link rel="stylesheet" href="/cc/static/css/components.css" />
+    <link rel="stylesheet" href="/cc/static/css/views.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-command.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-research-a.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-research-b.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-agents.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-strategies.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-memory.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-ops.css" />
+    <link rel="stylesheet" href="/cc/static/css/v-data.css" />
+    <script src="/cc/static/vendor/lightweight-charts/lightweight-charts.standalone.production.js" defer></script>
+    <script type="module" src="/cc/static/js/main.js"></script>
+  </head>
+  <body>
+    <div class="app" id="app" data-nav="expanded">
+      <div class="banners" id="banners"></div>
+      <aside class="sidebar" id="sidebar" aria-label="Primary"></aside>
+      <header class="topbar" id="topbar"></header>
+      <main class="main" id="main"><div class="view" id="view"><div class="empty" data-empty-state="boot"><div class="empty__title">Initialising SENTRY Command Centre</div></div></div></main>
+      <footer class="statusbar" id="statusbar"></footer>
+    </div>
+    <noscript>The SENTRY Command Centre requires JavaScript.</noscript>
+  </body>
+</html>

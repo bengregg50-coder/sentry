@@ -1,0 +1,692 @@
+{
+  "meta": {
+    "schema_version": "1",
+    "producer": "fixture:strategies",
+    "generated_at": "2026-01-20T12:00:00+00:00",
+    "origin": "SYNTHETIC_FIXTURE",
+    "notes": [
+      "SYNTHETIC TEST FIXTURE \u2014 not SENTRY state"
+    ]
+  },
+  "data": {
+    "strategies": [
+      {
+        "strategy_id": "FX-S001",
+        "name": "FIXTURE candidate A",
+        "mechanism": "FIXTURE carry",
+        "market": "FIXTURE-MKT",
+        "instrument": "FXB",
+        "timeframe": "1D",
+        "status": "CANDIDATE",
+        "current_version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "status": "CANDIDATE",
+            "created_at": "2026-01-06T14:30:00+00:00",
+            "parent_version": null,
+            "change_summary": "FIXTURE initial version",
+            "change_rationale": null,
+            "proposed_by": "research_engine",
+            "proposal_id": null,
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+            "lineage": [],
+            "metrics": {},
+            "validation_status": "NOT_STARTED",
+            "validation": {},
+            "multiple_testing": null,
+            "approval": null,
+            "deployment_package": null
+          }
+        ],
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_update": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "strategy_id": "FX-S002",
+        "name": "FIXTURE in validation B",
+        "mechanism": "FIXTURE breakout",
+        "market": "FIXTURE-MKT",
+        "instrument": "FXA",
+        "timeframe": "15m",
+        "status": "IN_VALIDATION",
+        "current_version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "status": "IN_VALIDATION",
+            "created_at": "2026-01-06T14:30:00+00:00",
+            "parent_version": null,
+            "change_summary": "FIXTURE initial version",
+            "change_rationale": null,
+            "proposed_by": "research_engine",
+            "proposal_id": null,
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+            "lineage": [],
+            "metrics": {
+              "sharpe": {
+                "value": 1.9,
+                "unit": "ratio",
+                "basis": "IN_SAMPLE"
+              },
+              "trade_count": {
+                "value": 88,
+                "unit": "count",
+                "basis": "IN_SAMPLE"
+              }
+            },
+            "validation_status": "IN_PROGRESS",
+            "validation": {
+              "economic_rationale": {
+                "state": "PASS",
+                "detail": null,
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "out_of_sample": {
+                "state": "PENDING",
+                "detail": null,
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "cost_sensitivity": {
+                "state": "FAIL",
+                "detail": "FIXTURE: fails at 2\u00d7 costs",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              }
+            },
+            "multiple_testing": {
+              "state": "PENDING",
+              "method": "FIXTURE deflated Sharpe",
+              "trials_in_family": 6
+            },
+            "approval": null,
+            "deployment_package": null
+          }
+        ],
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_update": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "strategy_id": "FX-S003",
+        "name": "FIXTURE validated trend C",
+        "mechanism": "FIXTURE cross-asset trend",
+        "economic_rationale": "FIXTURE rationale",
+        "market": "FIXTURE multi-asset",
+        "instrument": "FXA/FXB/FXC",
+        "timeframe": "1D",
+        "status": "DEPLOYED_SIM",
+        "current_version": 2,
+        "versions": [
+          {
+            "version": 1,
+            "status": "RETIRED",
+            "created_at": "2026-01-06T14:30:00+00:00",
+            "parent_version": null,
+            "change_summary": "FIXTURE initial version",
+            "change_rationale": null,
+            "proposed_by": "research_engine",
+            "proposal_id": null,
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+            "lineage": [
+              {
+                "kind": "HYPOTHESIS",
+                "ref": "FX-H005"
+              },
+              {
+                "kind": "TRIAL",
+                "ref": "FX-T008"
+              }
+            ],
+            "metrics": {
+              "gross_return": {
+                "value": 8.4,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "GROSS"
+              },
+              "costs": {
+                "value": -1.9,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "COST",
+                "cost_multiplier": 1.0
+              },
+              "net_return": {
+                "value": 6.5,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "NET"
+              },
+              "sharpe": {
+                "value": 0.61,
+                "unit": "ratio",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "sortino": {
+                "value": 0.88,
+                "unit": "ratio",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "max_drawdown": {
+                "value": -14.2,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "trade_count": {
+                "value": 412,
+                "unit": "count",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "win_rate": {
+                "value": 41.0,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "slippage": {
+                "value": 1.5,
+                "unit": "bps",
+                "basis": "SIMULATION"
+              },
+              "additional": [
+                {
+                  "key": "net_2x",
+                  "label": "Net @2\u00d7 costs",
+                  "metric": {
+                    "value": 4.6,
+                    "unit": "pct",
+                    "basis": "OUT_OF_SAMPLE",
+                    "component": "NET",
+                    "cost_multiplier": 2.0
+                  }
+                }
+              ]
+            },
+            "validation_status": "VALIDATED",
+            "validation": {
+              "economic_rationale": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "positive_expectancy": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "realistic_costs": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "cost_sensitivity": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "robustness": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "parameter_stability": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "out_of_sample": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "walk_forward": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "multiple_testing": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "execution_realism": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "sample_size": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "regime_analysis": {
+                "state": "INCONCLUSIVE",
+                "detail": "FIXTURE: one regime weak",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "monte_carlo": {
+                "state": "NOT_RUN",
+                "detail": null,
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              }
+            },
+            "multiple_testing": {
+              "state": "PASS",
+              "method": "FIXTURE deflated Sharpe",
+              "trials_in_family": 3,
+              "global_trials_at_decision": 12,
+              "deflated_sharpe": 0.4
+            },
+            "approval": null,
+            "deployment_package": null
+          },
+          {
+            "version": 2,
+            "status": "DEPLOYED_SIM",
+            "created_at": "2026-01-07T14:30:00+00:00",
+            "parent_version": 1,
+            "change_summary": "FIXTURE v2 change",
+            "change_rationale": "FIXTURE rationale",
+            "proposed_by": "agent:02",
+            "proposal_id": "FX-PR1",
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000002",
+            "lineage": [
+              {
+                "kind": "STRATEGY_VERSION",
+                "ref": "FX-S003@1"
+              },
+              {
+                "kind": "PROPOSAL",
+                "ref": "FX-PR1"
+              },
+              {
+                "kind": "MEMORY",
+                "ref": "FX-M0003"
+              }
+            ],
+            "metrics": {
+              "gross_return": {
+                "value": 8.4,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "GROSS"
+              },
+              "costs": {
+                "value": -1.9,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "COST",
+                "cost_multiplier": 1.0
+              },
+              "net_return": {
+                "value": 6.5,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE",
+                "component": "NET"
+              },
+              "sharpe": {
+                "value": 0.61,
+                "unit": "ratio",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "sortino": {
+                "value": 0.88,
+                "unit": "ratio",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "max_drawdown": {
+                "value": -14.2,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "trade_count": {
+                "value": 412,
+                "unit": "count",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "win_rate": {
+                "value": 41.0,
+                "unit": "pct",
+                "basis": "OUT_OF_SAMPLE"
+              },
+              "slippage": {
+                "value": 1.5,
+                "unit": "bps",
+                "basis": "SIMULATION"
+              },
+              "additional": [
+                {
+                  "key": "net_2x",
+                  "label": "Net @2\u00d7 costs",
+                  "metric": {
+                    "value": 4.6,
+                    "unit": "pct",
+                    "basis": "OUT_OF_SAMPLE",
+                    "component": "NET",
+                    "cost_multiplier": 2.0
+                  }
+                }
+              ]
+            },
+            "validation_status": "VALIDATED",
+            "validation": {
+              "economic_rationale": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "positive_expectancy": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "realistic_costs": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "cost_sensitivity": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "robustness": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "parameter_stability": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "out_of_sample": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "walk_forward": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "multiple_testing": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "execution_realism": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "sample_size": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "regime_analysis": {
+                "state": "INCONCLUSIVE",
+                "detail": "FIXTURE: one regime weak",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "monte_carlo": {
+                "state": "NOT_RUN",
+                "detail": null,
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              }
+            },
+            "multiple_testing": {
+              "state": "PASS",
+              "method": "FIXTURE deflated Sharpe",
+              "trials_in_family": 4,
+              "global_trials_at_decision": 14,
+              "deflated_sharpe": 0.35
+            },
+            "approval": {
+              "decision": "APPROVED",
+              "scope": "SIM",
+              "decided_at": "2026-01-09T14:30:00+00:00",
+              "decided_by": "fixture-governance",
+              "decision_ref": "fixture/approval.md",
+              "conditions": [
+                "FIXTURE: SIM only"
+              ]
+            },
+            "deployment_package": {
+              "package_id": "FX-PKG-003-2",
+              "created_at": "2026-01-10T14:30:00+00:00",
+              "spec_hash": "fx22222222222222222222222222222222222222222222222222222222222222",
+              "data_identity": "fx-data-id",
+              "executor_identity": "fx-exec-id",
+              "cost_model_identity": "fx-cost-id",
+              "risk_limits_ref": "fixture/risk.json"
+            }
+          }
+        ],
+        "assigned_agent": 2,
+        "origin": "SYNTHETIC_FIXTURE",
+        "last_update": "2026-01-20T12:00:00+00:00"
+      },
+      {
+        "strategy_id": "FX-S004",
+        "name": "FIXTURE retired D",
+        "mechanism": "FIXTURE calendar",
+        "market": "FIXTURE-MKT",
+        "instrument": "FXC",
+        "timeframe": "1D",
+        "status": "RETIRED",
+        "current_version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "status": "DEPLOYED_SIM",
+            "created_at": "2026-01-06T14:30:00+00:00",
+            "parent_version": null,
+            "change_summary": "FIXTURE initial version",
+            "change_rationale": null,
+            "proposed_by": "research_engine",
+            "proposal_id": null,
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+            "lineage": [],
+            "metrics": {},
+            "validation_status": "VALIDATED",
+            "validation": {
+              "economic_rationale": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "positive_expectancy": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "realistic_costs": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "cost_sensitivity": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "robustness": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "parameter_stability": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "out_of_sample": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "walk_forward": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "multiple_testing": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "execution_realism": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "sample_size": {
+                "state": "PASS",
+                "detail": "FIXTURE",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "regime_analysis": {
+                "state": "INCONCLUSIVE",
+                "detail": "FIXTURE: one regime weak",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              },
+              "monte_carlo": {
+                "state": "NOT_RUN",
+                "detail": null,
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              }
+            },
+            "multiple_testing": null,
+            "approval": {
+              "decision": "APPROVED",
+              "scope": "SIM",
+              "decided_at": "2026-01-09T14:30:00+00:00",
+              "decided_by": "fixture-governance",
+              "decision_ref": "fixture/approval.md",
+              "conditions": [
+                "FIXTURE: SIM only"
+              ]
+            },
+            "deployment_package": {
+              "package_id": "FX-PKG-004-1",
+              "created_at": "2026-01-10T14:30:00+00:00",
+              "spec_hash": "fx22222222222222222222222222222222222222222222222222222222222222",
+              "data_identity": "fx-data-id",
+              "executor_identity": "fx-exec-id",
+              "cost_model_identity": "fx-cost-id",
+              "risk_limits_ref": "fixture/risk.json"
+            }
+          }
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      },
+      {
+        "strategy_id": "FX-S005",
+        "name": "FIXTURE rejected E",
+        "mechanism": "FIXTURE session effect",
+        "market": "FIXTURE-MKT",
+        "instrument": "FXA",
+        "timeframe": "5m",
+        "status": "REJECTED",
+        "current_version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "status": "REJECTED",
+            "created_at": "2026-01-06T14:30:00+00:00",
+            "parent_version": null,
+            "change_summary": "FIXTURE initial version",
+            "change_rationale": null,
+            "proposed_by": "research_engine",
+            "proposal_id": null,
+            "spec_hash": "fx00000000000000000000000000000000000000000000000000000000000001",
+            "lineage": [],
+            "metrics": {},
+            "validation_status": "FAILED",
+            "validation": {
+              "out_of_sample": {
+                "state": "FAIL",
+                "detail": "FIXTURE: OOS failed",
+                "evidence_refs": [],
+                "checked_at": "2026-01-20T12:00:00+00:00"
+              }
+            },
+            "multiple_testing": null,
+            "approval": null,
+            "deployment_package": null
+          }
+        ],
+        "origin": "SYNTHETIC_FIXTURE"
+      }
+    ],
+    "proposals": [
+      {
+        "proposal_id": "FX-PR1",
+        "proposed_at": "2026-01-07T14:30:00+00:00",
+        "proposed_by": "agent:02",
+        "agent_slot": 2,
+        "strategy_id": "FX-S003",
+        "base_version": 1,
+        "summary": "FIXTURE: tighten roll timing",
+        "rationale": "FIXTURE rationale",
+        "evidence_refs": [
+          "FX-M0003"
+        ],
+        "state": "RELEASED_AS_VERSION",
+        "resulting_version": 2
+      },
+      {
+        "proposal_id": "FX-PR2",
+        "proposed_at": "2026-01-19T12:00:00+00:00",
+        "proposed_by": "agent:02",
+        "agent_slot": 2,
+        "strategy_id": "FX-S003",
+        "base_version": 2,
+        "summary": "FIXTURE: volatility scaling tweak",
+        "state": "IN_RESEARCH"
+      }
+    ]
+  }
+}

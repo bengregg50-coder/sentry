@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "AgentEventKind": {
+      "enum": [
+        "OBSERVATION",
+        "INTERPRETATION",
+        "MEMORY_RECALL",
+        "HYPOTHESIS",
+        "TEST",
+        "EVALUATION",
+        "LEARNING",
+        "MEMORY_WRITE",
+        "PROPOSAL",
+        "SIGNAL_EVALUATION",
+        "NO_TRADE",
+        "DECISION",
+        "ORDER",
+        "FILL",
+        "RESEARCH_OBSERVATION",
+        "STATE_CHANGE",
+        "ALERT",
+        "ERROR"
+      ],
+      "title": "AgentEventKind",
+      "type": "string"
+    },
+    "AgentMode": {
+      "enum": [
+        "RESEARCH",
+        "SIM",
+        "PAPER",
+        "LIVE"
+      ],
+      "title": "AgentMode",
+      "type": "string"
+    },
+    "EventRefs": {
+      "additionalProperties": false,
+      "properties": {
+        "memory_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Memory Ids",
+          "type": "array"
+        },
+        "order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Id"
+        },
+        "proposal_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposal Id"
+        },
+        "strategy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strategy Id"
+        },
+        "trial_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trial Ids",
+          "type": "array"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "title": "EventRefs",
+      "type": "object"
+    },
+    "Origin": {
+      "description": "Where a record came from. Never merge counts across origins.",
+      "enum": [
+        "ORIGINAL",
+        "RECONSTRUCTED",
+        "SYNTHETIC_FIXTURE"
+      ],
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "$id": "sentry-command-centre/v1/agent_event.schema.json",
+  "additionalProperties": false,
+  "description": "One line of ``agent_events.jsonl`` (append-only).",
+  "properties": {
+    "agent_slot": {
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Agent Slot",
+      "type": "integer"
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Detail"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/AgentEventKind"
+    },
+    "mode": {
+      "$ref": "#/$defs/AgentMode"
+    },
+    "origin": {
+      "$ref": "#/$defs/Origin"
+    },
+    "refs": {
+      "$ref": "#/$defs/EventRefs"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "ts",
+    "agent_slot",
+    "kind",
+    "mode",
+    "summary",
+    "origin"
+  ],
+  "title": "AgentEvent",
+  "type": "object"
+}
