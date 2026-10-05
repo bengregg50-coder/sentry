@@ -83,3 +83,19 @@ export function findingsFor(ctx, section) {
   const all = derived(ctx, "consistency") ?? [];
   return section ? all.filter((f) => f.section === section) : all;
 }
+
+/** Accurate empty-state title for a source, e.g. sourceTitle(src, "Strategy registry"). */
+export function sourceTitle(src, what) {
+  switch (src?.status) {
+    case "MISSING":
+      return `${what} not produced`;
+    case "INVALID":
+      return `${what} rejected by the contract`;
+    case "UNREADABLE":
+      return `${what} unreadable`;
+    case "OK":
+      return what;
+    default:
+      return `${what} not connected`;
+  }
+}

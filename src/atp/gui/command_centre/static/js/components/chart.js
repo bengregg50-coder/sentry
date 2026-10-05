@@ -9,7 +9,7 @@ let seq = 0;
 /**
  * kind: "candles" (data: contract Bar[]) | "line" | "area" (data: contract SeriesPoint[])
  */
-export function chartHost({ kind = "line", data, height = 220, emptyTitle = "No series data", emptyReason, label }) {
+export function chartHost({ kind = "line", data, height = 220, emptyTitle = "No series data", emptyReason, label, axisY = "PRICE / VALUE", axisX = "TIME (UTC)" }) {
   const id = `chart-${++seq}`;
   const has = Array.isArray(data) && data.length > 0;
   if (has) registry.set(id, { kind, data });
@@ -17,9 +17,19 @@ export function chartHost({ kind = "line", data, height = 220, emptyTitle = "No 
     ${has
       ? ""
       : html`<div class="chart__empty" data-empty-state="chart"><div class="flat"></div><div class="t">${emptyTitle}</div>${emptyReason ? html`<div class="r">${emptyReason}</div>` : ""}</div>
-        <span class="chart__axis" style="left:8px;top:6px">PRICE / VALUE</span>
-        <span class="chart__axis" style="right:8px;bottom:4px">TIME (UTC)</span>`}
+        <span class="chart__axis" style="left:8px;top:6px">${axisY}</span>
+        <span class="chart__axis" style="right:8px;bottom:4px">${axisX}</span>`}
   </div>`;
+}
+
+/** A locale Intl accepts; some environments report tags like "en-US@posix" that Intl rejects. */
+function chartLocale() {
+  try {
+    const lang = navigator.language;
+    return Intl.NumberFormat.supportedLocalesOf([lang]).length && Intl.DateTimeFormat.supportedLocalesOf([lang]).length ? lang : "en-GB";
+  } catch {
+    return "en-GB";
+  }
 }
 
 function toTime(iso) {
@@ -35,6 +45,7 @@ export function mountCharts(root) {
     if (!spec || !LW) return;
     const chart = LW.createChart(el, {
       autoSize: true,
+      localization: { locale: chartLocale() },
       layout: { background: { color: "transparent" }, textColor: "#64748B", fontFamily: getComputedStyle(document.body).getPropertyValue("--font-mono"), attributionLogo: false },
       grid: { vertLines: { color: "rgba(148,163,184,0.06)" }, horzLines: { color: "rgba(148,163,184,0.06)" } },
       rightPriceScale: { borderColor: "rgba(148,163,184,0.15)" },

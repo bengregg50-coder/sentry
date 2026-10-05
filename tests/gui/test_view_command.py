@@ -292,7 +292,7 @@ def test_system_fixture_renders_declared_counts(browser, fixture_url):
     assert count("LIVE") == "0"
 
     eligible = _text(page, '[data-fact="eligible"]')
-    assert "FX-S003" in eligible and "FX-S004" in eligible
+    assert "FX-S003" in eligible and "FX-S004" not in eligible  # retired strategies are never eligible
 
     rows = page.locator(".cc-panel-handoff .table tbody tr")
     assert rows.count() == 5

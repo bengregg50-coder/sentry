@@ -642,7 +642,7 @@
   .xl-span-4 { grid-column: span 4; }
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1440px) {
   .app {
     grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
   }

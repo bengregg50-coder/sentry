@@ -74,8 +74,9 @@ export function basisChip(basis) {
   return html`<span class="chip chip--basis" title="${"Basis: " + humanize(basis)}">${BASIS_SHORT[basis] ?? basis}</span>`;
 }
 
-export function originBadge(origin) {
-  if (!origin || origin === "ORIGINAL") return "";
+export function originBadge(origin, { showOriginal = false } = {}) {
+  if (!origin) return "";
+  if (origin === "ORIGINAL") return showOriginal ? html`<span class="badge badge--ghost tone-muted" data-state="ORIGINAL">ORIGINAL</span>` : "";
   if (origin === "SYNTHETIC_FIXTURE") return html`<span class="badge tone-bad" data-state="SYNTHETIC_FIXTURE">SYNTHETIC FIXTURE</span>`;
   return badge(origin);
 }
@@ -89,12 +90,12 @@ export function val(v, { unit, cls } = {}) {
 }
 
 /** Inline contract Metric with basis chip. */
-export function metric(m, { showBasis = true } = {}) {
+export function metric(m, { showBasis = true, showComponent = true } = {}) {
   const f = fmtMetric(m);
   if (f.empty) return html`<span class="v is-empty" data-v>${EMPTY}</span>`;
   return html`<span class="v" data-v>${f.text}${f.suffix ? html`<span class="unit"> ${f.suffix}</span>` : ""}</span>${
     showBasis ? html` ${basisChip(f.basis)}` : ""
-  }${f.component ? html` <span class="chip">${f.component}</span>` : ""}${f.mult ? html` <span class="chip">${f.mult}× COST</span>` : ""}`;
+  }${showComponent && f.component ? html` <span class="chip chip--component">${f.component}</span>` : ""}${f.mult ? html` <span class="chip chip--mult">${f.mult}× COST</span>` : ""}`;
 }
 
 /** KPI tile. value null => empty, with emptyLabel explaining why. */
@@ -157,8 +158,16 @@ export function sourceTag(src, { now } = {}) {
  * columns: [{key, label, render?(row) -> Safe|string, cls?, num?}]
  * rows: array | null (null => source unavailable, pass `empty`)
  */
-export function table({ columns, rows, empty, dense = false, rowHref, rowCls, maxHeight }) {
-  if (!rows || rows.length === 0) return empty ?? emptyState({ title: "None recorded", compact: true });
+export function table({ columns, rows, empty, dense = false, rowHref, rowCls, maxHeight, keepFrame = false }) {
+  if (!rows || rows.length === 0) {
+    const inner = empty ?? emptyState({ title: "None recorded", compact: true });
+    if (!keepFrame) return inner;
+    // Keep the column structure visible so an empty register still reads as a register.
+    return html`<div class="table-wrap"><table class="${cx("table", dense && "table--dense")}">
+      <thead><tr>${columns.map((c) => html`<th class="${cx(c.num && "num", c.cls)}">${c.label}</th>`)}</tr></thead>
+      <tbody><tr><td colspan="${String(columns.length)}" style="padding:12px">${inner}</td></tr></tbody>
+    </table></div>`;
+  }
   return html`<div class="table-wrap" ${maxHeight ? raw(`style="max-height:${Number(maxHeight)}px"`) : ""}>
     <table class="${cx("table", dense && "table--dense")}">
       <thead><tr>${columns.map((c) => html`<th class="${cx(c.num && "num", c.cls)}">${c.label}</th>`)}</tr></thead>
@@ -197,7 +206,7 @@ export function tabs(items, active) {
 
 /* ---------------- findings / notices ---------------- */
 
-export function findingsList(findings, { limit, empty } = {}) {
+export function findingsList(findings, { limit, empty, moreHref } = {}) {
   if (!findings || findings.length === 0) return empty ?? emptyState({ title: "No findings", compact: true, iconName: "shield" });
   const shown = limit ? findings.slice(0, limit) : findings;
   return html`<div class="findings">
@@ -207,7 +216,11 @@ export function findingsList(findings, { limit, empty } = {}) {
         <div class="finding__msg">${f.message}</div>
       </div>`,
     )}
-    ${limit && findings.length > limit ? html`<div class="small muted" style="margin-top:6px">+${findings.length - limit} more</div>` : ""}
+    ${limit && findings.length > limit
+      ? moreHref
+        ? html`<a class="small" href="${moreHref}" style="display:inline-block;margin-top:6px">+${findings.length - limit} more →</a>`
+        : html`<div class="small muted" style="margin-top:6px">+${findings.length - limit} more</div>`
+      : ""}
   </div>`;
 }
 
@@ -242,7 +255,7 @@ export function control(action, iconName = "lock") {
 
 export function controlButton(action, iconName = "lock") {
   const reason = (action.blockers ?? []).join(" · ");
-  return html`<button class="btn" type="button" disabled title="${reason}" data-control="${action.key}">${icon(iconName)}${action.label}</button>`;
+  return html`<button class="btn" type="button" disabled title="${reason}" data-control="${action.key}" data-enabled="${action.enabled ? "1" : "0"}">${icon(iconName)}${action.label}</button>`;
 }
 
 /* ---------------- meters ---------------- */

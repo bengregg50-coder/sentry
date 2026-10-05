@@ -210,7 +210,7 @@ async function renderView({ force = false } = {}) {
   const key = location.hash || "#/";
   if (!force && lastRendered.key === key && lastRendered.revision === state.snapshot?.revision) return;
   const seq = ++renderSeq;
-  const sameRoute = lastRendered.key === key;
+  const sameRoute = (lastRendered.key ?? "").split("?")[0] === key.split("?")[0];
   const scrollTop = els.main.scrollTop;
 
   if (!m) {
@@ -266,6 +266,8 @@ async function renderView({ force = false } = {}) {
     }
     els.view.replaceWith(view);
     els.view = view;
+    // Restore/reset scroll before mount() so a view may scroll a focused element into view.
+    els.main.scrollTop = sameRoute ? scrollTop : 0;
     const cleanups = [];
     if (state.snapshot) {
       if (mod.mount) cleanups.push(mod.mount(view, ctx));
@@ -273,8 +275,6 @@ async function renderView({ force = false } = {}) {
       cleanups.push(mountGraph(view));
     }
     cleanup = () => cleanups.forEach((c) => typeof c === "function" && c());
-    if (sameRoute) els.main.scrollTop = scrollTop;
-    else els.main.scrollTop = 0;
     lastRendered = { key, revision: state.snapshot?.revision };
   } catch (err) {
     console.error(err);

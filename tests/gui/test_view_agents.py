@@ -150,7 +150,7 @@ def test_fixture_overview_slots_and_eligibility(fixture_page):
     assert board["SLEEPING"] == "2" and board["SIMULATING"] == "1" and board["STANDBY"] == "1"
     assert board["NOT_REPORTED"] == "1" and board["LIVE"] == "0"
     text = view_text(fixture_page).upper()
-    assert "FX-S003" in text and "FX-S004" in text  # derived.controls.deployment_eligible
+    assert "FX-S003" in text  # derived.controls.deployment_eligible (retired FX-S004 is never eligible)
     assert fixture_page.locator(".ag-log__row[data-event-id]").count() == 15
     assert all(enabled == "0" for _, enabled in _controls(fixture_page))
     assert fixture_page.locator('[data-memref="FX-M0003"]').count() == 1

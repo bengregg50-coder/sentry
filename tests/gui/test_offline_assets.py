@@ -41,7 +41,8 @@ def test_css_has_no_remote_imports_or_fonts():
         assert "@import" not in css, p
         assert "@font-face" not in css, p
         for url in re.findall(r"url\(([^)]+)\)", css):
-            assert url.strip("'\"").startswith(("data:", "/cc/static/")), (p, url)
+            # data: URIs, local assets and in-document fragment refs (url(#id)) make no network request
+            assert url.strip("'\"").startswith(("data:", "/cc/static/", "#")), (p, url)
 
 
 def test_vendored_chart_library_is_local_and_licensed():

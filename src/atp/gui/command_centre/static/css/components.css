@@ -324,6 +324,11 @@
     repeating-linear-gradient(-45deg, rgba(148, 163, 184, 0.018) 0 6px, transparent 6px 12px),
     rgba(7, 10, 15, 0.35);
   min-height: 120px;
+}
+
+/* An empty state fills its panel only when it is the panel's sole content;
+   after other content it sizes to itself instead of overflowing the panel. */
+.panel__body > .empty:only-child {
   height: 100%;
 }
 

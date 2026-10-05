@@ -32,8 +32,8 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
   const available = !!pipeline?.available;
   const stages = pipeline?.stages ?? STAGES.map((s) => ({ stage: s, reached: null, active: null, terminals: null }));
   const W = 1200;
-  const left = compact ? 40 : 150;
-  const right = 40;
+  const left = compact ? 54 : 190; // lane labels are end-anchored left of the first node
+  const right = 54; // node half-width + glow must stay inside the viewBox
   const step = (W - left - right) / (STAGES.length - 1);
   const xs = STAGES.map((_, i) => left + i * step);
   const nodeW = Math.min(92, step - 14);
@@ -91,6 +91,11 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
     parts.push(`<text x="${x}" y="${yMain - 11}" text-anchor="middle" class="svg-label ${live ? "svg-label--strong" : ""}">${esc(label(st.stage))}</text>`);
     const valueText = isNil(reached) ? EMPTY : String(reached);
     parts.push(`<text x="${x}" y="${yMain + 13}" text-anchor="middle" class="svg-value ${isNil(reached) || reached === 0 ? "is-empty" : ""}" data-v ${isNil(reached) ? 'data-empty="1"' : ""}>${esc(valueText)}</text>`);
+    const recon = st.reached_by_origin?.RECONSTRUCTED ?? 0;
+    if (recon > 0) {
+      // Disclose, never merge silently: how many of this stage's items are reconstructed.
+      parts.push(`<text x="${x + nodeW / 2 - 4}" y="${yMain - 33}" text-anchor="end" class="svg-label" style="font-size:8.5px;fill:var(--warn)" data-origin-disclosure="RECONSTRUCTED"><title>${esc(`${recon} of ${reached} items reaching this stage are RECONSTRUCTED`)}</title>INCL ${recon} RECON</text>`);
+    }
     const activeText = isNil(st.active) ? "" : `${st.active} ACTIVE`;
     if (activeText) parts.push(`<text x="${x}" y="${yMain + 44}" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:9px">${esc(activeText)}</text>`);
     parts.push(`</g>`);

@@ -137,9 +137,9 @@
 .tracks__head,
 .tracks__row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.6fr) repeat(10, minmax(46px, 1fr)) minmax(150px, 1fr);
+  grid-template-columns: minmax(300px, 2fr) repeat(10, minmax(40px, 1fr)) 196px;
   align-items: center;
-  min-width: 980px;
+  min-width: 1080px;
 }
 
 .tracks__head {

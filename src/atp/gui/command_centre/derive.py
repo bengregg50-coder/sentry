@@ -123,6 +123,16 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
 
 
+def _by_origin(records: Iterable[Any], key: Any) -> dict[str, dict[str, int]]:
+    """{origin: {key(record): count}} — counts that must not be merged across origins."""
+    out: dict[str, dict[str, int]] = {}
+    for r in records:
+        bucket = out.setdefault(r.origin.value, {})
+        k = key(r)
+        bucket[k] = bucket.get(k, 0) + 1
+    return out
+
+
 def _current(strategy: Strategy) -> StrategyVersion:
     return next(v for v in strategy.versions if v.version == strategy.current_version)
 
@@ -184,20 +194,39 @@ def derive_pipeline(research: ResearchState | None, strategies: StrategiesState 
     for stage in PIPELINE_STAGES:
         idx = STAGE_INDEX[stage]
         if not available:
-            stages.append({"stage": stage.value, "reached": None, "active": None, "terminals": None})
+            stages.append(
+                {
+                    "stage": stage.value,
+                    "reached": None,
+                    "active": None,
+                    "terminals": None,
+                    "reached_by_origin": None,
+                    "active_by_origin": None,
+                    "terminals_by_origin": None,
+                }
+            )
             continue
-        reached = sum(1 for it in items if STAGE_INDEX[Stage(it["stage_reached"])] >= idx)
+        reached_items = [it for it in items if STAGE_INDEX[Stage(it["stage_reached"])] >= idx]
         here = [it for it in items if it["stage_reached"] == stage.value]
         terminals = Counter(it["terminal"] for it in here if it["terminal"])
+        terminals_by_origin: dict[str, dict[str, int]] = {}
+        for it in here:
+            if it["terminal"]:
+                bucket = terminals_by_origin.setdefault(it["origin"], {})
+                bucket[it["terminal"]] = bucket.get(it["terminal"], 0) + 1
         stages.append(
             {
                 "stage": stage.value,
-                "reached": reached,
+                "reached": len(reached_items),
                 "active": sum(1 for it in here if not it["terminal"]),
                 "terminals": {t.value: terminals.get(t.value, 0) for t in Terminal},
+                # Origins are never merged silently: the totals above are disclosed per origin here.
+                "reached_by_origin": dict(Counter(it["origin"] for it in reached_items)),
+                "active_by_origin": dict(Counter(it["origin"] for it in here if not it["terminal"])),
+                "terminals_by_origin": terminals_by_origin,
             }
         )
-    return {"available": available, "stages": stages, "items": items}
+    return {"available": available, "stages": stages, "items": items if available else None}
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +246,8 @@ def derive_trial_accounting(research: ResearchState | None) -> dict[str, Any]:
         "records_total": len(research.trials),
         "outcomes": dict(Counter(t.outcome.value for t in research.trials)),
         "kinds": dict(Counter(t.kind.value for t in research.trials)),
+        "outcomes_by_origin": _by_origin(research.trials, lambda t: t.outcome.value),
+        "kinds_by_origin": _by_origin(research.trials, lambda t: t.kind.value),
     }
 
 
@@ -296,10 +327,12 @@ def derive_handoff(strategy: Strategy, agents: AgentsState | None) -> dict[str, 
             "Live without a LIVE-scope approval",
         ),
     }
+    withdrawn = strategy.status in (StrategyStatus.RETIRED, StrategyStatus.REJECTED)
     return {
         "strategy_id": strategy.strategy_id,
         "version": v.version,
-        "deployment_eligible": validated and approved and packaged,
+        "deployment_eligible": validated and approved and packaged and not withdrawn,
+        "withdrawn": withdrawn,
         "steps": [{"step": k, **steps[k]} for k in HANDOFF_STEPS],
     }
 
@@ -409,7 +442,9 @@ def derive_knowledge_graph(
 
     def node(nid: str, ntype: str, label: str, state: str | None = None, origin: str | None = None) -> str:
         key = f"{ntype}:{nid}"
-        nodes.setdefault(key, {"key": key, "id": nid, "type": ntype, "label": label, "state": state, "origin": origin})
+        current = nodes.get(key)
+        if current is None or current["state"] == "UNRESOLVED":
+            nodes[key] = {"key": key, "id": nid, "type": ntype, "label": label, "state": state, "origin": origin}
         return key
 
     def ref(ntype: str, nid: str) -> str:
@@ -435,6 +470,8 @@ def derive_knowledge_graph(
     if strategies:
         for s in strategies.strategies:
             node(s.strategy_id, "STRATEGY", s.name, s.status.value, s.origin.value)
+        for p in strategies.proposals:
+            node(p.proposal_id, "PROPOSAL", p.summary, p.state.value, None)
     if memory:
         for m in memory.memories:
             node(m.memory_id, "MEMORY", m.title, m.validation_state, m.origin.value)
@@ -544,6 +581,8 @@ def derive_research_summary(research: ResearchState | None, strategies: Strategi
     if research is not None:
         out["programmes_by_status"] = dict(Counter(p.status.value for p in research.programmes))
         out["hypotheses_by_status"] = dict(Counter(h.status.value for h in research.hypotheses))
+        out["hypotheses_by_status_origin"] = _by_origin(research.hypotheses, lambda h: h.status.value)
+        out["trials_by_origin"] = dict(Counter(t.origin.value for t in research.trials))
         out["hypotheses_total"] = len(research.hypotheses)
         out["trials_total"] = len(research.trials)
         out["trials_running"] = sum(1 for t in research.trials if t.outcome.value == "RUNNING")
@@ -552,6 +591,7 @@ def derive_research_summary(research: ResearchState | None, strategies: Strategi
         strategies_list = strategies.strategies
         out["strategies_total"] = len(strategies_list)
         out["strategies_by_status"] = dict(Counter(s.status.value for s in strategies_list))
+        out["strategies_by_status_origin"] = _by_origin(strategies_list, lambda s: s.status.value)
         out["candidates"] = sum(
             1 for s in strategies_list if s.status in (StrategyStatus.CANDIDATE, StrategyStatus.IN_VALIDATION)
         )
@@ -624,7 +664,7 @@ def derive_controls(strategies: StrategiesState | None, agents: AgentsState | No
         runtime_blockers.append("No agent runtime connected")
     return {
         "read_only": True,
-        "deployment_eligible": eligible,
+        "deployment_eligible": eligible if strategies is not None else None,
         "actions": [
             {"key": "ASSIGN_STRATEGY", "label": "Assign strategy", "enabled": False, "blockers": deploy_blockers},
             {"key": "START_SIMULATION", "label": "Start simulation", "enabled": False, "blockers": deploy_blockers},
@@ -849,7 +889,13 @@ def derive_consistency(sources: dict[str, SourceResult], events: EventsResult | 
                 )
             if p.strategy_id not in strat_by_id:
                 findings.append(
-                    _finding("INFO", "UNRESOLVED_REFERENCE", f"{p.proposal_id} references unknown strategy {p.strategy_id}", "strategies")
+                    _finding(
+                        "INFO",
+                        "UNRESOLVED_REFERENCE",
+                        f"{p.proposal_id} references unknown strategy {p.strategy_id}",
+                        "strategies",
+                        [p.proposal_id, p.strategy_id],
+                    )
                 )
 
     # -- agents -------------------------------------------------------------
@@ -926,6 +972,25 @@ def derive_consistency(sources: dict[str, SourceResult], events: EventsResult | 
                 if al.severity.value == "CRITICAL":
                     findings.append(_finding("CRITICAL", "AGENT_ALERT", f"{label}: {al.message}", "agents"))
 
+    # -- data citations -----------------------------------------------------
+    if research is not None and datasets is not None:
+        known = {d.dataset_id for d in datasets.datasets}
+        missing: dict[str, list[str]] = {}
+        for t in research.trials:
+            for ds in t.data_used:
+                if ds not in known:
+                    missing.setdefault(ds, []).append(t.trial_id)
+        for ds, trial_ids in sorted(missing.items()):
+            findings.append(
+                _finding(
+                    "INFO",
+                    "UNRESOLVED_DATASET_REFERENCE",
+                    f"{len(trial_ids)} trial(s) cite dataset {ds}, which is not in the data catalogue",
+                    "data",
+                    [ds, *trial_ids],
+                )
+            )
+
     # -- live / risk --------------------------------------------------------
     if live is not None and live.trading_enabled and live.trading_mode == "LIVE":
         live_ok = any(
@@ -977,14 +1042,24 @@ def derive_consistency(sources: dict[str, SourceResult], events: EventsResult | 
             for oid in m.related_memories:
                 if oid not in mem_ids:
                     findings.append(
-                        _finding("INFO", "UNRESOLVED_REFERENCE", f"{m.memory_id} references unknown memory {oid}", "memory")
+                        _finding(
+                            "INFO",
+                            "UNRESOLVED_REFERENCE",
+                            f"{m.memory_id} references unknown memory {oid}",
+                            "memory",
+                            [m.memory_id, oid],
+                        )
                     )
             if strategies is not None:
                 for sid in m.related_strategies:
                     if sid not in strat_by_id:
                         findings.append(
                             _finding(
-                                "INFO", "UNRESOLVED_REFERENCE", f"{m.memory_id} references unknown strategy {sid}", "memory"
+                                "INFO",
+                                "UNRESOLVED_REFERENCE",
+                                f"{m.memory_id} references unknown strategy {sid}",
+                                "memory",
+                                [m.memory_id, sid],
                             )
                         )
 
@@ -1020,6 +1095,7 @@ def derive_all(sources: dict[str, SourceResult], events: EventsResult | None) ->
         "learning": derive_learning(events, strategies),
         "controls": derive_controls(strategies, agents, handoffs),
         "consistency": consistency,
+        "validation_requirements": list(REQUIRED_VALIDATION_CHECKS),
         "alert_counts": dict(Counter(f["severity"] for f in consistency)),
         "document_origins": origins,
         "synthetic": any(f["code"] == "SYNTHETIC_FIXTURE_LOADED" for f in consistency),

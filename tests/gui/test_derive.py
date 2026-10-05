@@ -225,3 +225,56 @@ def test_invalid_source_is_reported_as_finding(state_factory):
     assert "SOURCE_INVALID" in codes(d)
     data = next(s for s in d["system"] if s["key"] == "data")
     assert data["state"] == "ONLINE"  # declared by system.json; the invalid source is a separate finding
+
+
+def test_retired_strategy_is_never_deployment_eligible(fixture_derived):
+    h = next(h for h in fixture_derived["handoffs"] if h["strategy_id"] == "FX-S004")
+    assert h["withdrawn"] is True and h["deployment_eligible"] is False
+    assert fixture_derived["controls"]["deployment_eligible"] == ["FX-S003"]
+
+
+def test_eligibility_and_items_are_null_when_not_connected():
+    d = derived_for(empty_provider())
+    assert d["controls"]["deployment_eligible"] is None
+    assert d["pipeline"]["items"] is None
+
+
+def test_pipeline_discloses_origins_per_stage(fixture_derived):
+    stages = {s["stage"]: s for s in fixture_derived["pipeline"]["stages"]}
+    disc = stages["DISCOVERY"]
+    assert sum(disc["reached_by_origin"].values()) == disc["reached"]
+    assert disc["reached_by_origin"].get("RECONSTRUCTED") == 1  # FX-H002
+    bt = stages["BACKTEST"]
+    assert bt["terminals_by_origin"]["RECONSTRUCTED"] == {"REJECTED": 1}
+
+
+def test_trial_breakdowns_by_origin(fixture_derived):
+    ta = fixture_derived["trial_accounting"]
+    assert ta["outcomes_by_origin"]["RECONSTRUCTED"] == {"FAIL": 2}
+    assert sum(ta["kinds_by_origin"]["ORIGINAL"].values()) == 9
+    rs = fixture_derived["research_summary"]
+    assert rs["trials_by_origin"] == {"ORIGINAL": 9, "RECONSTRUCTED": 2}
+    assert rs["hypotheses_by_status_origin"]["RECONSTRUCTED"] == {"REJECTED": 1}
+
+
+def test_declared_proposal_is_not_unresolved(fixture_derived):
+    nodes = {n["key"]: n for n in fixture_derived["knowledge_graph"]["nodes"]}
+    assert nodes["PROPOSAL:FX-PR1"]["state"] == "RELEASED_AS_VERSION"
+    assert fixture_derived["knowledge_graph"]["unresolved"] == 1
+
+
+def test_unresolved_reference_findings_carry_refs(fixture_derived):
+    f = next(f for f in fixture_derived["consistency"] if f["code"] == "UNRESOLVED_REFERENCE")
+    assert f["refs"] == ["FX-M0005", "FX-M9999"]
+
+
+def test_dataset_citation_cross_check(state_factory):
+    def cite(doc):
+        doc["data"]["trials"][0]["data_used"] = ["FX-DS-A", "FX-DS-UNKNOWN"]
+
+    d = derived_for(FileStateProvider(state_factory({"research": cite})))
+    f = next(f for f in d["consistency"] if f["code"] == "UNRESOLVED_DATASET_REFERENCE")
+    assert f["refs"][0] == "FX-DS-UNKNOWN" and f["severity"] == "INFO"
+    # without a data catalogue nothing can be claimed missing
+    d = derived_for(FileStateProvider(state_factory({"research": cite}, drop=("datasets",))))
+    assert not any(f["code"] == "UNRESOLVED_DATASET_REFERENCE" for f in d["consistency"])

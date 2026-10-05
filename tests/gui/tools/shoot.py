@@ -97,8 +97,15 @@ def main() -> int:
             page.wait_for_timeout(450)
             module = page.evaluate("document.querySelector('.view')?.dataset.module || ''")
             err_box = page.evaluate("!!document.querySelector('.error-box')")
-            name = route.strip("/").replace("/", "_") or "home"
-            page.screenshot(path=str(args.out / f"{args.mode}-{name}.png"), full_page=args.full)
+            name = route.strip("/").replace("/", "_").replace("?", "_").replace("=", "-") or "home"
+            if args.full:
+                # .main is the scroll container, so grow the viewport to the content height instead.
+                h = page.evaluate("() => { const m = document.querySelector('.main'); return m.scrollHeight + (window.innerHeight - m.clientHeight); }")
+                page.set_viewport_size({"width": args.width, "height": max(args.height, int(h))})
+                page.wait_for_timeout(200)
+            page.screenshot(path=str(args.out / f"{args.mode}-{name}.png"))
+            if args.full:
+                page.set_viewport_size({"width": args.width, "height": args.height})
             status = "OK"
             if errors or external or err_box:
                 status = "ERR"
