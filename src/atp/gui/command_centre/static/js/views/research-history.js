@@ -8,9 +8,9 @@
 
 import { html } from "../core/html.js";
 import { humanize, fmtCount, fmtDate, fmtDateTime, shortHash, isNil } from "../core/format.js";
-import { derived, findingsFor } from "../core/state.js";
+import { derived, findingsFor, sourceReason } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
-import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, integrityNotices, findingsList, kv, notice, originBadge, val } from "../components/ui.js";
+import { pageHeader, panel, badge, stat, statRow, sourceTag, emptyState, integrityNotices, findingsList, kv, notice, originBadge, val } from "../components/ui.js";
 import * as B from "./_research-b-common.js";
 
 const PATH = "/research/history";
@@ -23,11 +23,11 @@ function header(rs, rsrc) {
     ? rs.integrity_notices.length
       ? integrityNotices(rs.integrity_notices)
       : emptyState({ title: "No integrity notices declared", reason: "research.json declares no loss, reconstruction or integrity event.", compact: true, iconName: "shield" })
-    : sourceEmpty(rsrc, { compact: true, title: "Integrity notices not connected", hint: "Declared loss and reconstruction events — with references to how material was rebuilt — appear here first." });
+    : B.srcEmpty(rsrc, { compact: true, hint: "Declared loss and reconstruction events — with references to how material was rebuilt — appear here first." });
   return html`<div class="rsb-hero" data-doctrine="failed-not-lost">
       <div class="rsb-hero__mark"><span>DOCTRINE</span></div>
       <div class="rsb-hero__statement rsb-failed">FAILED <span class="rsb-failed__ne">≠</span> LOST <span class="rsb-failed__sub">— failures inform future research</span></div>
-      <p class="rsb-hero__lead">A failed trial is evidence: it narrows the search, raises the multiple-testing bar and is written to memory. Nothing here is hidden, deleted, re-labelled or backfilled. Lost originals stay marked LOST; reconstructed records stay marked RECONSTRUCTED.</p>
+      <p class="rsb-hero__lead">A failed trial is evidence: it narrows the search, raises the multiple-testing bar and is written to memory. Nothing here is deleted, re-labelled or backfilled; a long ledger is paged, with the rows not shown counted. Lost originals stay marked LOST; reconstructed records stay marked RECONSTRUCTED.</p>
     </div>
     <div class="rsb-label rsb-gap">Integrity notices <span class="rsb-label__extra">declared by the research engine</span></div>
     <div class="rsb-notices">${notices}</div>`;
@@ -38,11 +38,12 @@ function header(rs, rsrc) {
 function accounting(ctx, rs, rsrc) {
   const ta = derived(ctx, "trial_accounting");
   if (!ta?.available) {
+    const off = B.offLabel(rsrc);
     return html`${statRow(
       [
-        stat({ label: "Reconstructed baseline", value: null, emptyLabel: "NOT CONNECTED" }),
-        stat({ label: "Live-recorded", value: null, emptyLabel: "NOT CONNECTED" }),
-        stat({ label: "Global (declared)", value: null, emptyLabel: "NOT CONNECTED" }),
+        stat({ label: "Reconstructed baseline", value: null, emptyLabel: off }),
+        stat({ label: "Live-recorded", value: null, emptyLabel: off }),
+        stat({ label: "Global (declared)", value: null, emptyLabel: off }),
       ],
       { min: 120 },
     )}
@@ -54,7 +55,7 @@ function accounting(ctx, rs, rsrc) {
       ["Sealed evidence separate", null],
       ["As of", null],
     ])}
-    <p class="rsb-note">Counts are never estimated. They appear when the research ledger exports trial_accounting; reconstructed and live-recorded trials are always shown separately.</p>`;
+    <p class="rsb-note">${rs ? "Trial accounting was not derived for this snapshot." : sourceReason(rsrc)} Counts are never estimated; reconstructed and live-recorded trials are always shown separately.</p>`;
   }
   const d = ta.declared;
   const recs = ta.records_by_origin ?? {};
@@ -123,22 +124,29 @@ function filterBar(rs, all, outcome, programme) {
   </div>`;
 }
 
-/** The filter bar's structure when the ledger is not connected: outcomes listed, no counts. */
-function filterFrame() {
+/** The filter bar's structure when the ledger is unavailable: outcomes listed, no counts. */
+function filterFrame(rsrc) {
   return html`<div class="rsb-filter is-empty">
     <div class="rsb-filter__row"><span class="rsb-filter__k">OUTCOME</span><div class="rsb-filter__opts">${["ALL", ...B.TRIAL_OUTCOMES].map(
       (o) => html`<span class="rsb-filter__opt" data-filter-outcome="${o}"><span class="rsb-filter__sw"></span>${o === "ALL" ? "All outcomes" : humanize(o)}<span class="rsb-filter__n">${val(null)}</span></span>`,
     )}</div></div>
-    <div class="rsb-filter__row"><span class="rsb-filter__k">PROGRAMME</span><div class="rsb-filter__opts"><span class="rsb-faint">PROGRAMMES APPEAR WHEN THE LEDGER IS CONNECTED · SEALED PROGRAMMES ARE MARKED SEALED</span></div></div>
+    <div class="rsb-filter__row"><span class="rsb-filter__k">PROGRAMME</span><div class="rsb-filter__opts"><span class="rsb-faint" data-programmes-off>NO PROGRAMMES LISTED · ${B.srcLine(rsrc)} · SEALED PROGRAMMES ARE MARKED SEALED</span></div></div>
   </div>`;
 }
 
-function groupHead(p, id, rows) {
+/** Group count from the full (filtered) group; a partly paged group says how much of it is on the page. */
+function groupCount(rows, shown, filtered) {
+  return html`<span class="rsb-gh__n" data-group-total="${String(rows.length)}" data-group-shown="${String(shown.length)}">${B.splitVal(B.originSplit(rows))}<span class="rsb-faint">${filtered ? "TRIALS MATCHING" : "TRIALS"}</span>${
+    shown.length < rows.length ? html`<span class="rsb-faint rsb-gh__part">· ${B.splitText(B.originSplit(shown))} on this page</span>` : ""
+  }</span>`;
+}
+
+function groupHead(p, id, rows, shown, filtered) {
   if (!p) {
     return html`<div class="rsb-gh" data-programme="${id}">
       <span class="rsb-gh__id">${id === NONE ? "NO PROGRAMME" : id}</span>
       <span class="rsb-sub">${id === NONE ? "Trials not linked to a programme" : "Programme not found in research.json"}</span>
-      <span class="rsb-gh__n">${B.splitVal(B.originSplit(rows))}<span class="rsb-faint">TRIALS SHOWN</span></span>
+      ${groupCount(rows, shown, filtered)}
     </div>`;
   }
   return html`<div class="rsb-gh" data-programme="${p.programme_id}" data-programme-status="${p.status}">
@@ -149,7 +157,7 @@ function groupHead(p, id, rows) {
     ${p.sealed_at ? html`<span class="rsb-faint">SEALED ${fmtDate(p.sealed_at)}</span>` : p.frozen_at ? html`<span class="rsb-faint">FROZEN ${fmtDate(p.frozen_at)}</span>` : ""}
     ${p.outcome ? html`<span class="rsb-gh__out"><span class="rsb-faint">PROGRAMME OUTCOME</span> ${p.outcome}</span>` : ""}
     ${originBadge(p.origin)}
-    <span class="rsb-gh__n">${B.splitVal(B.originSplit(rows))}<span class="rsb-faint">TRIALS SHOWN</span></span>
+    ${groupCount(rows, shown, filtered)}
   </div>`;
 }
 
@@ -193,13 +201,12 @@ function ledger(rs, rsrc, query) {
   const hypById = new Map((rs?.hypotheses ?? []).map((h) => [h.hypothesis_id, h]));
   if (!rs) {
     const focusNote = query.focus
-      ? html`<div class="rsb-gap0">${notice({ title: `Focus ${query.focus} cannot be located`, body: "research.json is not connected, so no trial can be shown. Nothing is displayed in its place.", tone: "info", iconName: "info" })}</div>`
+      ? html`<div class="rsb-gap0">${notice({ title: `Focus ${query.focus} cannot be located`, body: `${sourceReason(rsrc)} No trial can be shown, and nothing is displayed in its place.`, tone: B.srcBroken(rsrc) ? "bad" : "info", iconName: "info" })}</div>`
       : "";
-    return html`${filterFrame()}${focusNote}${B.regTable({
+    return html`${filterFrame(rsrc)}${focusNote}${B.regTable({
       columns,
       rows: null,
-      empty: sourceEmpty(rsrc, {
-        title: "Research ledger not connected",
+      empty: B.srcEmpty(rsrc, {
         hint: "Every trial ever run will be listed here by programme — family, hypothesis, experiment, result, reason for rejection, evidence / OOS / validation state, dates, data used, trial number, lineage and origin. Failed trials are never removed.",
       }),
     })}`;
@@ -211,8 +218,16 @@ function ledger(rs, rsrc, query) {
   const rows = all.filter((t) => (outcome === "ALL" || t.outcome === outcome) && (programme === "ALL" || (t.programme_id ?? NONE) === programme));
   const progById = new Map(rs.programmes.map((p) => [p.programme_id, p]));
   const byProg = B.groupBy(rows, (t) => progKey(t));
-  const order = [...rs.programmes.map((p) => p.programme_id), ...[...byProg.keys()].filter((k) => !progById.has(k) && k !== NONE), NONE];
-  const groups = order.filter((k) => byProg.has(k)).map((k) => ({ key: k, head: groupHead(progById.get(k), k, byProg.get(k)), rows: byProg.get(k) }));
+  const order = [...rs.programmes.map((p) => p.programme_id), ...[...byProg.keys()].filter((k) => !progById.has(k) && k !== NONE), NONE].filter((k) => byProg.has(k));
+  const filtered = outcome !== "ALL" || programme !== "ALL";
+  // Only a page of rows (in display order: by programme, then ledger order) is materialised.
+  // Group and filter counts come from the full arrays; a focused trial opens the page that holds it.
+  const ordered = order.flatMap((k) => byProg.get(k));
+  const page = B.pageRows(ordered, query.rows, { from: query.from, include: focus ? ordered.findIndex((t) => t.trial_id === focus) : -1 });
+  const shownBy = B.groupBy(page.shown, (t) => progKey(t));
+  const groups = order
+    .filter((k) => shownBy.has(k))
+    .map((k) => ({ key: k, head: groupHead(progById.get(k), k, byProg.get(k), shownBy.get(k), filtered), rows: shownBy.get(k) }));
 
   let focusNote = "";
   if (focus) {
@@ -225,12 +240,18 @@ function ledger(rs, rsrc, query) {
         tone: "info",
         iconName: "info",
       });
+    else if (!page.shown.includes(ft))
+      focusNote = notice({
+        title: `${focus} is outside the rows shown`,
+        body: html`It is on another page of this ledger. <a href="${B.qhref(PATH, { outcome: outcome === "ALL" ? null : outcome, programme: programme === "ALL" ? null : programme, focus })}">Open the page that holds it</a>.`,
+        tone: "info",
+        iconName: "info",
+      });
     else
       focusNote = html`<div class="rsb-focusbar" data-focus-bar="${focus}"><span class="rsb-focusbar__k">FOCUS</span>${B.refLink(ft.trial_id)}<span class="text-2">${ft.experiment ?? ""}</span>${badge(ft.outcome)}${
         ft.rejection_reason ? html`<span class="rsb-sub">${ft.rejection_reason}</span>` : ""
       }<a class="rsb-focusbar__clear" href="${B.qhref(PATH, { outcome: outcome === "ALL" ? null : outcome, programme: programme === "ALL" ? null : programme })}">CLEAR FOCUS</a></div>`;
   }
-  const filtered = outcome !== "ALL" || programme !== "ALL";
   const empty = rs.trials.length
     ? emptyState({ title: "No trials match this filter", reason: `Outcome ${humanize(outcome)} · programme ${programme === NONE ? "none" : humanize(programme)}.`, hint: "Clear the filter to see every trial.", compact: true })
     : emptyState({ title: "No trials recorded", reason: "research.json is connected and its trial ledger is empty. When trials run — pass or fail — they are listed here permanently.", compact: true });
@@ -246,13 +267,14 @@ function ledger(rs, rsrc, query) {
       rowCls: (t) => [t.trial_id === focus ? "rsb-row--focus" : "", t.outcome === "FAIL" ? "rsb-row--fail" : ""].join(" "),
       rowAttrs: (t) => html`data-trial="${t.trial_id}" data-outcome="${t.outcome}" data-evidence="${t.evidence_state}" ${t.trial_id === focus ? html`data-focus="1"` : ""}`,
     })}
+    ${B.pager(page, (q) => B.withQuery(PATH, query, q), { noun: "trials", hint: filtered ? "" : "filter by outcome or programme above to narrow the ledger" })}
     ${filtered ? html`<p class="rsb-note">Filtered view. <a href="${B.qhref(PATH, { focus })}">Show all ${B.splitText(B.originSplit(all), "trials")}</a>.</p>` : ""}
   `;
 }
 
 /* ---------------------------------------------------------------- terminated hypotheses */
 
-function terminated(rs, rsrc) {
+function terminated(rs, rsrc, query) {
   const rows = rs
     ? rs.hypotheses.filter((h) => B.TERMINATED.includes(h.terminal) || B.TERMINATED.includes(h.status)).sort((a, b) => String(b.decided_at ?? "").localeCompare(String(a.decided_at ?? "")))
     : null;
@@ -279,15 +301,21 @@ function terminated(rs, rsrc) {
     { label: "Origin", render: (h) => B.originCell(h.origin) },
   ];
   const empty = !rs
-    ? sourceEmpty(rsrc, { compact: true, title: "Hypotheses not connected", hint: "Hypotheses that ended REJECTED, BLOCKED BY DATA or ABANDONED will be listed with their decision reasons." })
+    ? B.srcEmpty(rsrc, { compact: true, hint: "Hypotheses that ended REJECTED, BLOCKED BY DATA or ABANDONED will be listed with their decision reasons." })
     : emptyState({ title: "No terminated hypotheses", reason: "No hypothesis in research.json has ended REJECTED, BLOCKED BY DATA or ABANDONED.", compact: true });
-  return B.regTable({ columns, rows, empty, rowAttrs: (h) => html`data-hypothesis="${h.hypothesis_id}"` });
+  const page = B.pageRows(rows, query.hrows, { from: query.hfrom });
+  return html`${B.regTable({ columns, rows: page.shown, empty, rowAttrs: (h) => html`data-hypothesis="${h.hypothesis_id}"` })}${B.pager(
+    page,
+    (q) => B.withQuery(PATH, query, { hrows: q.rows, hfrom: q.from }),
+    { noun: "hypotheses", key: "hrows" },
+  )}`;
 }
 
 /* ---------------------------------------------------------------- view */
 
-let scrolledFor = null;
-
+// The focused trial is scrolled into view once per focus: re-renders on a new state
+// revision or a "show more" page step keep the reader's scroll position.
+let scrolled = { focus: null, done: false };
 export default {
   title: "Research History",
   render(ctx) {
@@ -303,7 +331,7 @@ export default {
       })}
 
       <div class="grid">
-        ${panel({ span: 7, code: "HIS-01", title: "Record integrity", sub: rs ? `${fmtCount(rs.integrity_notices.length)} integrity notice(s) declared` : "research.json not connected", variant: "hero", cls: "lg-span-12", body: header(rs, rsrc) })}
+        ${panel({ span: 7, code: "HIS-01", title: "Record integrity", sub: rs ? `${fmtCount(rs.integrity_notices.length)} integrity notice(s) declared` : B.srcPhrase(rsrc), variant: "hero", cls: "lg-span-12", body: header(rs, rsrc) })}
         ${panel({ span: 5, code: "HIS-02", title: "Trial accounting", sub: "Reconstructed and live-recorded kept apart", cls: "lg-span-12 rsb-statwrap", body: accounting(ctx, rs, rsrc) })}
       </div>
 
@@ -312,7 +340,7 @@ export default {
           span: 12,
           code: "HIS-03",
           title: "Research ledger",
-          sub: rs ? `${B.splitText(B.originSplit(rs.trials), "trial records")} · grouped by programme · ledger order` : "Source not connected",
+          sub: rs ? `${B.splitText(B.originSplit(rs.trials), "trial records")} · grouped by programme · ledger order` : B.srcPhrase(rsrc),
           body: ledger(rs, rsrc, ctx.query),
           id: "ledger",
         })}
@@ -323,27 +351,27 @@ export default {
           span: 12,
           code: "HIS-04",
           title: "Terminated hypotheses",
-          sub: term ? `${B.splitText(B.originSplit(term), "hypotheses")} · rejected, blocked by data or abandoned · most recent decision first` : "Source not connected",
-          body: terminated(rs, rsrc),
+          sub: term ? `${B.splitText(B.originSplit(term), "hypotheses")} · rejected, blocked by data or abandoned · most recent decision first` : B.srcPhrase(rsrc),
+          body: terminated(rs, rsrc, ctx.query),
         })}
       </div>
     `;
   },
   mount(root, ctx) {
-    const focus = ctx.query.focus;
-    const key = location.hash;
-    const reset = () => {
-      scrolledFor = null;
+    const focus = ctx.query.focus ?? null;
+    const onHash = () => {
+      const q = new URLSearchParams(location.hash.split("?")[1] ?? "");
+      if (!location.hash.startsWith("#" + PATH) || q.get("focus") !== focus) scrolled = { focus: null, done: false };
     };
-    window.addEventListener("hashchange", reset);
-    if (focus && scrolledFor !== key) {
-      scrolledFor = key;
-      // After the shell resets the scroll position for a newly opened route.
+    window.addEventListener("hashchange", onHash);
+    if (focus && !(scrolled.focus === focus && scrolled.done)) {
+      // After the shell restores or resets the scroll position for this render.
       requestAnimationFrame(() => {
         const row = root.querySelector('tr[data-focus="1"]');
         if (row) row.scrollIntoView({ block: "center" });
+        scrolled = { focus, done: !!row };
       });
     }
-    return () => window.removeEventListener("hashchange", reset);
+    return () => window.removeEventListener("hashchange", onHash);
   },
 };

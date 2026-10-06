@@ -115,9 +115,12 @@
   font-family: var(--font-mono);
   letter-spacing: 0.06em;
   min-height: 12px;
-  white-space: nowrap;
+  /* status reasons are explanations: allow two lines rather than cutting them off */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .agent-mini.is-sleeping {
@@ -445,3 +448,4 @@
 .gov-doctrine {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
+

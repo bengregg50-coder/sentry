@@ -21,6 +21,10 @@ const GROUPS = [
   { label: "DEPLOYMENT · AGENTS", from: 7, to: 9 },
 ];
 
+const ORIGIN_ORDER = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
+const ORIGIN_SHORT = { ORIGINAL: "", RECONSTRUCTED: "R", SYNTHETIC_FIXTURE: "S" };
+const ORIGIN_COLOUR = { ORIGINAL: "var(--text-2)", RECONSTRUCTED: "var(--warn)", SYNTHETIC_FIXTURE: "var(--bad)" };
+
 const TONE_VAR = { ok: "var(--ok)", warn: "var(--warn)", bad: "var(--bad)", info: "var(--cyan-2)", accent: "var(--blue-2)", muted: "var(--muted)" };
 
 function label(s) {
@@ -49,6 +53,9 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
   const H = baseH + (undCount ? 20 : 0);
 
   const parts = [];
+  let anyDisclosure = false;
+  let anyPartial = false;
+  let anyUnavailable = null;
 
   // group brackets
   for (const g of GROUPS) {
@@ -97,12 +104,28 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
     parts.push(`<text x="${x}" y="${yMain - 11}" text-anchor="middle" class="svg-label ${live ? "svg-label--strong" : ""}">${esc(label(st.stage))}</text>`);
     const valueText = isNil(reached) ? EMPTY : String(reached);
     parts.push(`<text x="${x}" y="${yMain + 13}" text-anchor="middle" class="svg-value ${isNil(reached) || reached === 0 ? "is-empty" : ""}" data-v ${isNil(reached) ? 'data-empty="1"' : ""}>${esc(valueText)}</text>`);
-    const recon = st.reached_by_origin?.RECONSTRUCTED ?? 0;
-    if (recon > 0) {
-      // Disclose, never merge silently: how many of this stage's items are reconstructed.
-      parts.push(`<text x="${x + nodeW / 2 - 4}" y="${yMain - 33}" text-anchor="end" class="svg-label" style="font-size:8.5px;fill:var(--warn)" data-origin-disclosure="RECONSTRUCTED"><title>${esc(`${recon} of ${reached} items reaching this stage are RECONSTRUCTED`)}</title>INCL ${recon} RECON</text>`);
+    const byOrigin = st.reached_by_origin ?? {};
+    const nonOriginal = Object.entries(byOrigin).some(([o, n]) => o !== "ORIGINAL" && n > 0);
+    if (nonOriginal) {
+      // The headline is a total across origins, so every origin is itemised beside it — never merged silently.
+      anyDisclosure = true;
+      // "7 +1R +3S": unmarked = original; R / S suffixes mark reconstructed / synthetic records.
+      const segs = ORIGIN_ORDER.filter((o) => (byOrigin[o] ?? 0) > 0).map((o, i) =>
+        o === "ORIGINAL"
+          ? `<tspan style="fill:${ORIGIN_COLOUR[o]}">${byOrigin[o]}</tspan>`
+          : `<tspan style="fill:${ORIGIN_COLOUR[o]}">${i ? "+" : ""}${byOrigin[o]}${ORIGIN_SHORT[o]}</tspan>`,
+      );
+      const tip = ORIGIN_ORDER.filter((o) => (byOrigin[o] ?? 0) > 0).map((o) => `${byOrigin[o]} ${o}`).join(", ");
+      parts.push(`<text x="${x}" y="${yMain - 34}" text-anchor="middle" class="svg-label" style="font-size:8.5px;letter-spacing:.06em" data-origin-disclosure="${esc(Object.keys(byOrigin).join(" "))}"><title>${esc(`${reached} reached ${label(st.stage)}: ${tip}`)}</title>${segs.join(" ")}</text>`);
     }
-    const activeText = isNil(st.active) ? "" : `${st.active} ACTIVE`;
+    let activeText = isNil(st.active) ? "" : `${st.active} ACTIVE`;
+    if (st.available === false) {
+      activeText = "NO SOURCE";
+      anyUnavailable = st.unavailable_source ?? anyUnavailable;
+    } else if (st.partial?.length) {
+      activeText += " *";
+      anyPartial = true;
+    }
     if (activeText) parts.push(`<text x="${x}" y="${yMain + 44}" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:9px">${esc(activeText)}</text>`);
     parts.push(`</g>`);
 
@@ -145,7 +168,13 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
   }
 
   const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Research to deployment pipeline" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
-  return html`<div class="diagram pipeline" data-pipeline-available="${available ? "1" : "0"}" style="--diagram-min:${raw(compact ? "680px" : "820px")}">${raw(svg)}</div>`;
+  const notes = [];
+  if (anyDisclosure)
+    notes.push(html`<span>Stage totals span record origins — unmarked: original</span><span><b style="color:var(--warn)">R</b> reconstructed</span><span><b style="color:var(--bad)">S</b> synthetic fixture</span>`);
+  if (anyPartial) notes.push(html`<span data-pipeline-partial="1">* hypotheses only — strategies are not included in these counts</span>`);
+  if (anyUnavailable) notes.push(html`<span data-pipeline-unavailable="${anyUnavailable}">NO SOURCE: ${anyUnavailable}.json is not available, so these stages are not counted</span>`);
+  const key = notes.length ? html`<div class="legend pipeline__origins" data-origin-key="${anyDisclosure ? "1" : "0"}">${notes}</div>` : "";
+  return html`<div class="diagram pipeline" data-pipeline-available="${available ? "1" : "0"}" style="--diagram-min:${raw(compact ? "680px" : "820px")}">${raw(svg)}</div>${key}`;
 }
 
 /**
@@ -164,7 +193,7 @@ export function pipelineTracks(items, { limit = 24, hrefFor } = {}) {
       const href = hrefFor ? hrefFor(it) : null;
       const tone = it.terminal ? toneOf(it.terminal) : "info";
       return html`<div class="tracks__row ${declared ? "" : "tracks__row--undeclared"}" data-item="${it.id}" data-stage-basis="${it.stage_basis ?? ""}" title="${declared ? "" : "Stage not declared by any producer — no stage is shown as traversed"}">
-        <span class="tracks__label">${href ? html`<a href="${href}">${it.id}</a>` : it.id}<span class="tracks__title">${it.label}</span>${originBadge(it.origin)}</span>
+        <span class="tracks__label">${href ? html`<a href="${href}">${it.id}</a>` : it.id}<span class="tracks__title" title="${it.label}">${it.label}</span>${originBadge(it.origin)}</span>
         ${declared
           ? STAGES.map((s, i) => {
               const cls = i < reachedIdx ? "on" : i === reachedIdx ? `end tone-${tone}` : "off";

@@ -2,6 +2,7 @@
 
 import { html, raw, cx } from "./core/html.js";
 import { store } from "./core/store.js";
+import { sourceShort } from "./core/state.js";
 import { refreshSnapshot, startPolling } from "./core/api.js";
 import { parseHash, match } from "./core/router.js";
 import { fmtTime, humanize, fmtAge } from "./core/format.js";
@@ -180,7 +181,7 @@ function updateShell(state) {
     <span class="seg seg--opt">PROVIDER <b>${snap?.provider.kind ?? "—"}</b></span>
     <span class="seg seg--path" title="${loc}">STATE <b>${loc}</b></span>
     <span class="seg">SOURCES <b>${snap ? `${ok}/${srcs.length} OK` : "—"}</b></span>
-    <span class="seg">EVENTS <b>${snap ? humanize(snap.events_source.status) : "—"}</b></span>
+    <span class="seg">EVENTS <b>${snap ? sourceShort(snap.events_source) : "—"}</b></span>
     <span class="seg push seg--opt">REV <b>${snap?.revision ?? "—"}</b></span>
     <span class="seg seg--keep">POLL <b>${state.lastFetchAt ? fmtTime(state.lastFetchAt) : "—"}</b></span>
     <span class="seg seg--opt">LAT <b>${state.latencyMs ?? "—"}ms</b></span>

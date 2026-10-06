@@ -3,9 +3,9 @@
 // terminal frame with each area stating why it is empty and what will appear.
 
 import { html, raw, cx } from "../core/html.js";
-import { fmtCount, fmtDateTime, fmtNum, humanize, isNil } from "../core/format.js";
+import { fmtCount, fmtDateTime, fmtNum, humanize, isNil, fmtLimit } from "../core/format.js";
 import { toneClass } from "../core/tones.js";
-import { source, findMemory, findStrategy, handoffFor } from "../core/state.js";
+import { source, sourceReason, findMemory, findStrategy, handoffFor } from "../core/state.js";
 import {
   pageHeader,
   panel,
@@ -31,6 +31,16 @@ import {
   agentLabel,
   slotView,
   absence,
+  absenceShort,
+  noStrategyLabel,
+  memoryAbsent,
+  slotCounts,
+  countText,
+  countVal,
+  kindsTotal,
+  originCount,
+  windowOrigins,
+  eventsEmptyTitle,
   headline,
   slotSwitcher,
   slotGlyph,
@@ -53,6 +63,12 @@ import {
   pad2,
 } from "./_agents-common.js";
 import { qtyVal } from "./_ops-common.js";
+
+/** A RiskLimit value with its unit and declared currency (fmtLimit); null is empty. */
+function limitVal(v, l) {
+  const f = fmtLimit(v, l);
+  return f.empty ? val(null) : val(f.text, { unit: f.suffix ? ` ${f.suffix}` : "" });
+}
 
 const CONTROL_KEYS = ["ASSIGN_STRATEGY", "START_SIMULATION", "HALT_AGENT", "TRIP_KILL_SWITCH"];
 const CONTROL_ICONS = { ASSIGN_STRATEGY: "assign", START_SIMULATION: "play", HALT_AGENT: "stop", TRIP_KILL_SWITCH: "power" };
@@ -100,6 +116,10 @@ function terminalHead(ctx, sv, res) {
   const conns = a?.connections ?? [];
   const connected = conns.filter((c) => c.state === "CONNECTED").length;
   const ev = sv.slot?.events;
+  const c = slotCounts(ctx, sv);
+  // Events carry a record origin: split per origin when the loaded window holds every event of this slot.
+  const split = c.exact && eventsAvailable(ctx, res) ? windowOrigins(res?.events, c.total) : null;
+  const evInvalid = c.invalid;
   const meta = [
     ["MODE", a?.assignment ? badge(a.assignment.mode) : val(null)],
     ["MARKET", val(a?.market)],
@@ -107,8 +127,8 @@ function terminalHead(ctx, sv, res) {
     ["SIGNAL", a?.signal ? badge(a.signal.state) : val(null)],
     ["HEARTBEAT", ageVal(a?.last_heartbeat, ctx.now)],
     ["LINKS", sv.reported ? (conns.length ? val(`${connected}/${conns.length}`, { unit: " UP" }) : html`<span class="ag-none">NONE</span>`) : val(null)],
-    ["EVENTS", ev?.available ? val(fmtCount(ev.count)) : val(null)],
-    ["LAST EVENT", ev?.last_ts ? ageVal(ev.last_ts, ctx.now) : ev?.available ? html`<span class="ag-none">NONE</span>` : val(null)],
+    ["EVENTS", split ? originCount(split) : c.exact ? html`${countVal(c, c.total)}<span class="unit"> ALL ORIGINS</span>` : countVal(c, c.total)],
+    ["LAST EVENT", ev?.last_ts ? ageVal(ev.last_ts, ctx.now) : ev?.available && !evInvalid ? html`<span class="ag-none">NONE</span>` : val(null)],
   ];
   const actions = actionsByKey(ctx, CONTROL_KEYS);
   const blockers = [...new Set(actions.flatMap((x) => x.blockers ?? []))];
@@ -181,7 +201,7 @@ function strategyArea(ctx, sv) {
   if (!asg || !s) {
     return html`
       <div class="ag-nostrat" data-empty-state="no-active-strategy">
-        <div class="ag-nostrat__title">${icon("sleep", "icon")}<span>${sv.status === "NOT_REPORTED" ? "NO STRATEGY REPORTED" : "NO ACTIVE STRATEGY"}</span></div>
+        <div class="ag-nostrat__title">${icon("sleep", "icon")}<span>${noStrategyLabel(sv)}</span></div>
         <div class="ag-nostrat__reason">${absence(sv) ?? `${agentLabel(sv.n)} declares no strategy assignment.`}</div>
         <div class="ag-nostrat__hint">When deployment assigns a strategy, its id, version, mode, approval reference and package id appear here, with the strategy's handoff state.</div>
       </div>
@@ -220,7 +240,7 @@ function strategyArea(ctx, sv) {
           ho.steps.map((x) => ({ key: x.step, label: HANDOFF_LABEL[x.step] ?? humanize(x.step), state: x.state })),
           { cls: "ag-steps--compact" },
         )
-      : emptyState({ title: "Handoff not derived", reason: source(ctx, "strategies")?.status === "OK" ? `${s.strategy_id} is not in the strategy registry.` : "strategies.json is not connected.", compact: true })}`;
+      : emptyState({ title: "Handoff not derived", reason: source(ctx, "strategies")?.status === "OK" ? `${s.strategy_id} is not in the strategy registry.` : sourceReason(source(ctx, "strategies")), compact: true })}`;
 }
 
 function signalArea(ctx, sv) {
@@ -251,7 +271,7 @@ function pnlArea(ctx, sv) {
       ${cell("Day", metric(p?.day ?? null), "Current session")}
       ${cell("Drawdown", metric(dd), "Declared by the agent")}
       ${cell("P&L mode", p ? badge(p.mode) : val(null), "Declared with the P&L")}
-      ${cell("As of", p ? ageVal(p.as_of, ctx.now) : val(null), p ? fmtDateTime(p.as_of) : "Not reported")}
+      ${cell("As of", p ? ageVal(p.as_of, ctx.now) : val(null), p ? fmtDateTime(p.as_of) : absenceShort(sv) ?? "Not declared")}
     </div>
     ${p ? "" : html`<div class="ag-pnl__foot"><span class="muted">${absence(sv) ?? `${agentLabel(sv.n)} declares no P&L.`}</span></div>`}
   `;
@@ -266,7 +286,7 @@ function riskArea(ctx, sv) {
     (l) => html`<div class="ag-limit" data-limit="${l.key}">
       <div class="ag-limit__head"><span class="ag-limit__label">${l.label}</span>${badge(l.state)}</div>
       ${meter(l.used, l.limit, { state: l.state })}
-      <div class="ag-limit__nums"><span>USED ${val(isNil(l.used) ? null : fmtNum(l.used, l.unit === "count" || l.unit === "contracts" ? 0 : 2))}</span><span>LIMIT ${val(fmtNum(l.limit, l.unit === "count" || l.unit === "contracts" ? 0 : 2))} <span class="muted">${humanize(l.unit)}</span></span></div>
+      <div class="ag-limit__nums"><span>USED ${limitVal(l.used, l)}</span><span>LIMIT ${limitVal(l.limit, l)}</span></div>
     </div>`,
   )}</div>`;
 }
@@ -358,12 +378,11 @@ function memoryArea(ctx, sv) {
   if (!refs.length) {
     return areaEmpty(sv, { title: "Memory links unknown", none: "No memory references", hint: "Memories this agent recalls and writes — lessons, failed mechanisms, observations — are linked here.", iconName: "memory", code: "memory" });
   }
-  const memOk = source(ctx, "memory")?.status === "OK";
   return html`<div class="ag-mems">${refs.map((id) => {
     const m = findMemory(ctx, id);
     return html`<a class="ag-mem" href="${memoryHref(id)}" data-memory-ref="${id}">
       <span class="ag-mem__id">${id}</span>
-      <span class="ag-mem__title">${m ? m.title : memOk ? "Not found in memory store" : "memory.json not connected"}</span>
+      <span class="ag-mem__title">${m ? m.title : memoryAbsent(ctx)}</span>
       <span class="ag-mem__meta">${m ? html`${chip(humanize(m.type))}${badge(m.validation_state)}${originBadge(m.origin)}` : ""}</span>
     </a>`;
   })}</div>`;
@@ -382,6 +401,16 @@ function alertsArea(ctx, sv) {
       ${al.ref ? html`<span class="ref">${al.ref}</span>` : ""}
     </div>`,
   )}</div>`;
+}
+
+/** Why AT-13 lists nothing: from exact whole-stream counts, never from the loaded window alone. */
+function researchEmptyReason(ctx, n, res, counts, total) {
+  if (!eventsAvailable(ctx, res) || !counts.avail || isNil(total)) return eventsAbsence(ctx, res, { slot: n });
+  if (counts.invalid) {
+    return `No valid line records a research-kind event for ${agentLabel(n)} in its latest ${fmtCount(EVENT_WINDOW)} events; ${fmtCount(counts.invalidLines)} line(s) of agent_events.jsonl were rejected by the contract and cannot be attributed.`;
+  }
+  if (total === 0) return `agent_events.jsonl is connected; ${agentLabel(n)} has recorded no research-kind events.`;
+  return `${agentLabel(n)} has ${fmtCount(total)} research-kind event(s), none among its latest ${fmtCount(EVENT_WINDOW)} events — open the activity view to filter by kind.`;
 }
 
 /* ------------------------------------------------------------------ view */
@@ -409,6 +438,9 @@ export default {
     const all = res?.events ?? [];
     const recent = all.slice(0, ACTIVITY_ROWS);
     const research = all.filter((e) => RESEARCH_KINDS.includes(e.kind)).slice(0, RESEARCH_ROWS);
+    // Research-kind total over the whole stream (derived), not the loaded window.
+    const counts = slotCounts(ctx, sv);
+    const researchTotal = kindsTotal(counts.byKind, RESEARCH_KINDS);
     const bars = a?.bars ?? [];
     const equity = a?.equity ?? [];
     const why = absence(sv);
@@ -481,6 +513,7 @@ export default {
             maxHeight: 620,
             prompt: recent.length ? `sentry://agents/${pad2(n)} — activity` : null,
             empty: logEmpty({
+              title: eventsEmptyTitle(ctx, res),
               reason: eventsAbsence(ctx, res, { slot: n }),
               hint: "Observations, signal evaluations, no-trade calls, decisions, orders and fills will stream here.",
             }),
@@ -491,13 +524,15 @@ export default {
           ${panel({
             code: "AT-13",
             title: "Research activity",
-            sub: "Hypotheses · tests · evaluations · learning · proposals",
+            sub: research.length && !isNil(countText(counts, researchTotal))
+              ? `Latest ${fmtCount(research.length)} of ${countText(counts, researchTotal)} research-kind events`
+              : "Hypotheses · tests · evaluations · learning · proposals",
             body: eventLog(ctx, research, {
               compact: true,
               maxHeight: 300,
               empty: logEmpty({
-                title: "NO RESEARCH ACTIVITY",
-                reason: evOk ? `${agentLabel(n)} has recorded no research-kind events in its latest ${fmtCount(EVENT_WINDOW)} events.` : eventsAbsence(ctx, res, { slot: n }),
+                title: eventsEmptyTitle(ctx, res, "NO RESEARCH ACTIVITY", "NO VALID RESEARCH EVENT LINE"),
+                reason: researchEmptyReason(ctx, n, res, counts, researchTotal),
               }),
             }),
           })}

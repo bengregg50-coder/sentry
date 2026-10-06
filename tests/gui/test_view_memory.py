@@ -130,7 +130,9 @@ def test_empty_agents_shows_five_empty_lanes(empty_page):
     assert _attrs(empty_page, "[data-agent-lane]", "data-agent-lane") == ["1", "2", "3", "4", "5"]
     assert _attrs(empty_page, ".mem-lane.is-empty", "data-agent-lane") == ["1", "2", "3", "4", "5"]
     for slot in range(1, 6):
-        assert "NO AGENT MEMORIES" in empty_page.inner_text(f'[data-agent-lane="{slot}"]').upper()
+        lane = empty_page.inner_text(f'[data-agent-lane="{slot}"]').upper()
+        # nothing is connected: the lane says so, never a "no memories" fact
+        assert "SOURCES NOT CONNECTED" in lane and "NO AGENT MEMORIES" not in lane, lane
     assert empty_page.is_visible('[data-empty-state="cross-agent-unavailable"]')
 
 
@@ -239,7 +241,11 @@ def test_fixture_agent_memories_attributed_to_agent_02(fixture_page):
     # the fixture's recall is of agent 02's own memory: no cross-agent sharing is claimed
     assert fixture_page.query_selector_all(".mem-xagent") == []
     assert fixture_page.is_visible('[data-empty-state="cross-agent-none"]')
-    assert fixture_page.inner_text('[data-cell="2-2"]').strip() == "1"
+    # a matrix cell is counted per origin of the recall events behind it
+    assert _attrs(fixture_page, '[data-cell="2-2"] [data-origin]', "data-origin") == ["SYNTHETIC_FIXTURE"]
+    assert fixture_page.inner_text('[data-cell="2-2"] [data-origin] .v').strip() == "1"
+    for slot in (1, 3, 4, 5):
+        assert "NO AGENT MEMORIES RECORDED" in fixture_page.inner_text(f'[data-agent-lane="{slot}"]').upper()
 
 
 def test_fixture_overview_values(fixture_page):
@@ -247,8 +253,10 @@ def test_fixture_overview_values(fixture_page):
     assert _attrs(fixture_page, ".mem-recent__row", "data-memory-id") == [f"FX-M000{i}" for i in range(6, 0, -1)]
     assert fixture_page.get_attribute(".mem-growth", "data-growth-points") == "6"
     assert _attrs(fixture_page, ".mem-loop__node", "data-connected") == ["1"] * 7
-    assert fixture_page.inner_text('.mem-flow [data-step="DISCOVER"] .step__count').strip() == "2"
-    assert fixture_page.get_attribute('.mem-flow [data-step="TEST"]', "data-state") == "NOT_REPORTED"
+    assert _split(fixture_page, '.mem-flow [data-step="DISCOVER"] .step__count') == {"SYNTHETIC_FIXTURE": "2"}
+    # APPLICABILITY_TEST is a contract event kind: a connected stream without one has none recorded (0), not "not reported"
+    assert fixture_page.get_attribute('.mem-flow [data-step="TEST"]', "data-state") == "NONE_RECORDED"
+    assert _split(fixture_page, '.mem-flow [data-step="TEST"] .step__count') == {"NONE": "0"}
 
 
 def test_fixture_loop_never_counts_better_stages(fixture_page):
@@ -367,7 +375,7 @@ def test_cross_agent_recall_is_shown_when_the_data_proves_it(browser, state_fact
         v = visit(page, "/memory/agents")
         assert v.clean, v.describe()
         assert _attrs(page, '[data-agent-lane="2"] .mem-xagent', "data-cross-agent") == ["4"]
-        assert page.inner_text('[data-cell="2-4"]').strip() == "1"
+        assert _split(page, '[data-cell="2-4"]') == {"SYNTHETIC_FIXTURE": "1"}
         assert "FX-M0003" in _attrs(page, '[data-agent-lane="4"] .mem-lane__mem', "data-memory-id")
         page.close()
     finally:
@@ -418,3 +426,354 @@ def test_missing_memory_store_keeps_graph_from_other_sources(browser, state_fact
         page.close()
     finally:
         server.should_exit = True
+
+
+# ---------------------------------------------------------------- per-origin counts: never one merged figure
+
+
+def _split(page, selector):
+    """{origin: shown number} of the per-origin split rendered inside the first `selector`."""
+    return page.evaluate(
+        """(sel) => {
+            const host = document.querySelector(sel);
+            if (!host) return null;
+            return Object.fromEntries([...host.querySelectorAll('[data-origin]')]
+                .map(e => [e.dataset.origin, e.querySelector('.v').textContent.trim()]));
+        }""",
+        selector,
+    )
+
+
+def _stat_split(page, label):
+    """Per-origin split shown in the stat tile labelled `label` (None when the tile shows no split)."""
+    return page.evaluate(
+        """(label) => {
+            const s = [...document.querySelectorAll('.view .stat')]
+                .find(x => x.querySelector('.stat__label').textContent.trim().toUpperCase() === label.toUpperCase());
+            if (!s) throw new Error('no stat ' + label);
+            const parts = [...s.querySelectorAll('.stat__value [data-origin]')];
+            if (!parts.length) return null;
+            return Object.fromEntries(parts.map(e => [e.dataset.origin, e.querySelector('.v').textContent.trim()]));
+        }""",
+        label,
+    )
+
+
+def _as_shown(counts):
+    return {k: str(v) for k, v in counts.items() if v}
+
+
+def _mixed_origins(doc):
+    """FX-M0001..4 ORIGINAL, FX-M0005..6 RECONSTRUCTED (the store mixes origins)."""
+    for m in doc["data"]["memories"]:
+        m["origin"] = "RECONSTRUCTED" if m["memory_id"] in ("FX-M0005", "FX-M0006") else "ORIGINAL"
+
+
+def test_mixed_origin_store_is_never_shown_as_one_total(browser, state_factory):
+    from collections import Counter
+
+    from atp.gui.command_centre.api import build_snapshot
+    from atp.gui.command_centre.provider import FileStateProvider
+
+    state = state_factory({"memory": _mixed_origins})
+    snap = build_snapshot(FileStateProvider(state))
+    ms = snap["derived"]["memory_stats"]
+    mems = snap["documents"]["memory"]["memories"]
+    url, server = _serve(state)
+    try:
+        page = new_page(browser, url, width=1920)
+        v = visit(page, "/memory")
+        assert v.clean, v.describe()
+        # MEM-01: each tile is derive's per-origin map (or the same definition counted per origin)
+        assert _stat_split(page, "Total memories") == _as_shown(ms["by_origin"]) == {"ORIGINAL": "4", "RECONSTRUCTED": "2"}
+        assert _stat_split(page, "High confidence") == _as_shown(ms["high_confidence_by_origin"]) == {"ORIGINAL": "2", "RECONSTRUCTED": "1"}
+        assert _stat_split(page, "Unresolved") == _as_shown(ms["unresolved_by_origin"]) == {"ORIGINAL": "1", "RECONSTRUCTED": "1"}
+        rejected = Counter(m["origin"] for m in mems if m["type"] == "REJECTED_ASSUMPTION" or m["status"] == "REJECTED")
+        assert _stat_split(page, "Rejected assumptions") == _as_shown(rejected)
+        assert sum(rejected.values()) == ms["rejected_assumptions"]
+        assert _stat_split(page, "Contradicted") == {"NONE": "0"} and ms["contradicted"] == 0
+        # no tile shows the merged figure (6 memories, 3 high-confidence)
+        tiles = page.eval_on_selector_all(".view .stat__value", "els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim())")
+        assert "6" not in tiles and "3" not in tiles, tiles
+        assert _split(page, '[data-total="evidence"]') == {"ORIGINAL": "6", "RECONSTRUCTED": "1"}
+        # composition bars carry the split; the growth chart draws one line per origin
+        assert _split(page, '.mem-bar[data-bar="VALIDATED"]') == {"ORIGINAL": "3", "RECONSTRUCTED": "1"}
+        assert page.get_attribute(".mem-growth", "data-growth-series") == "ORIGINAL RECONSTRUCTED"
+        assert sorted(_attrs(page, ".mem-growth__line", "data-series")) == ["ORIGINAL", "RECONSTRUCTED"]
+        assert "6" not in page.inner_text(".mem-growth__legend")
+        # MEM-06 counts are per origin too
+        assert _split(page, '.mem-flow [data-step="DISCOVER"] .step__count') == {"ORIGINAL": "1", "RECONSTRUCTED": "1"}
+
+        visit(page, "/memory/findings")
+        assert _split(page, ".mem-filterbar .tab .count") == {"ORIGINAL": "3", "RECONSTRUCTED": "2"}
+        assert _stat_split(page, "Shown") == {"ORIGINAL": "3", "RECONSTRUCTED": "2"}
+        assert page.inner_text(".mem-list-panel .panel__sub").startswith("3 original · 2 reconstructed")
+
+        visit(page, "/memory/evidence")
+        assert _stat_split(page, "Evidence items") == {"ORIGINAL": "6", "RECONSTRUCTED": "1"}
+        assert _stat_split(page, "Untraceable") == {"RECONSTRUCTED": "1"}
+
+        visit(page, "/memory/graph")
+        assert _stat_split(page, "Memory nodes") == {"ORIGINAL": "4", "RECONSTRUCTED": "2"}
+
+        visit(page, "/memory/agents")
+        assert _stat_split(page, "Agent-sourced memories") == {"ORIGINAL": "1", "RECONSTRUCTED": "1"}
+        assert _split(page, '[data-agent-lane="2"] .mem-lane__stat:first-child') == {"ORIGINAL": "1", "RECONSTRUCTED": "1"}
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_fixture_counts_are_tagged_with_their_origin(fixture_page):
+    visit(fixture_page, "/memory")
+    assert _stat_split(fixture_page, "Total memories") == {"SYNTHETIC_FIXTURE": "6"}
+    snap = _fixture_snapshot()
+    growth = snap["derived"]["memory_stats"]["growth"]
+    # a single-origin store draws exactly derive's growth series, one line
+    assert fixture_page.get_attribute(".mem-growth", "data-growth-series") == "SYNTHETIC_FIXTURE"
+    assert int(fixture_page.get_attribute(".mem-growth", "data-growth-points")) == len(growth)
+    assert fixture_page.inner_text('[data-series-key="SYNTHETIC_FIXTURE"] b').strip() == str(growth[-1]["cumulative"])
+    visit(fixture_page, "/memory/agents")
+    # every memory event of the stream was fetched (checked against derive's exact per-kind counts)
+    assert _stat_split(fixture_page, "Memory writes") == {"SYNTHETIC_FIXTURE": "1"}
+    hints = fixture_page.eval_on_selector_all(".mem-stats-6 .stat__hint", "els => els.map(e => e.textContent.trim())")
+    assert hints.count("Whole stream") == 3, hints
+
+
+# ---------------------------------------------------------------- source status: not connected ≠ not produced ≠ invalid
+
+MEMORY_ROUTES = ["/memory", "/memory/graph", "/memory/findings", "/memory/lessons", "/memory/evidence", "/memory/agents", "/memory/item/FX-M0003"]
+
+
+def test_missing_memory_store_says_not_produced_never_not_connected(browser, state_factory):
+    url, server = _serve(state_factory(drop=("memory",)))
+    try:
+        page = new_page(browser, url)
+        for route in MEMORY_ROUTES:
+            v = visit(page, route, settle_ms=150)
+            assert v.clean, v.describe()
+            text = view_text(page).upper()
+            assert "NOT CONNECTED" not in text, route
+            assert "NOT PRODUCED" in text, route
+        visit(page, "/memory/item/FX-M0003")
+        assert page.inner_text('[data-empty-state="source-memory-MISSING"] .empty__title').strip().upper() == "MEMORY STORE NOT PRODUCED"
+        visit(page, "/memory")
+        assert page.eval_on_selector(".mem-growth-empty .t", "e => e.textContent.trim()") == "Memory growth not produced"
+        assert page.get_attribute('.mem-flow [data-step="DISCOVER"]', "data-state") == "NOT_PRODUCED"
+        # the event stream is still readable: its steps keep reporting
+        assert page.get_attribute('.mem-flow [data-step="STORE"]', "data-state") == "REPORTING"
+        visit(page, "/memory/agents")
+        lane = page.inner_text('[data-agent-lane="1"]').upper()
+        assert "NONE IN AVAILABLE SOURCES" in lane and "MEMORY.JSON NOT PRODUCED" in lane, lane
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_invalid_memory_store_is_a_contract_error_never_not_connected(browser, state_factory):
+    def invalid(doc):
+        doc["data"]["memories"][0]["confidence"] = "VERY_HIGH"  # not a contract value
+
+    url, server = _serve(state_factory({"memory": invalid}))
+    try:
+        page = new_page(browser, url)
+        for route in MEMORY_ROUTES:
+            v = visit(page, route, settle_ms=150)
+            assert v.clean, v.describe()
+            text = view_text(page).upper()
+            assert "NOT CONNECTED" not in text, route
+            assert "CONTRACT ERROR" in text or "REJECTED BY THE CONTRACT" in text or "DOES NOT CONFORM" in text, route
+        visit(page, "/memory/item/FX-M0003")
+        assert page.inner_text('[data-empty-state="source-memory-INVALID"] .empty__title').strip().upper() == "MEMORY STORE REJECTED BY THE CONTRACT"
+        visit(page, "/memory")
+        assert _stat_split(page, "Total memories") is None
+        assert "CONTRACT ERROR" in page.inner_text(".view .stat").upper()
+        assert page.get_attribute('.mem-flow [data-step="DISCOVER"]', "data-state") == "INVALID"
+        visit(page, "/memory/graph")
+        assert "memory.json rejected by the contract" in page.inner_text('[data-graph-missing="memory"]')
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_no_findings_means_none_from_checks_that_ran(browser, state_factory):
+    def resolved(doc):
+        for m in doc["data"]["memories"]:
+            m["related_memories"] = []  # no unresolved memory reference left; FX-M0004 is then referenced by nothing
+            if m["memory_id"] == "FX-M0004":
+                m["source"]["programme_id"] = None  # ... and references nothing
+
+    url, server = _serve(state_factory({"memory": resolved}, drop=("strategies",)))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/memory")
+        assert page.is_visible('[data-empty-state="memory-no-findings"]')
+        reason = page.inner_text('[data-empty-state="memory-no-findings"] .empty__reason')
+        assert reason.startswith("None from the memory cross-checks that ran"), reason
+        # strategies.json is missing, so strategy references were not checked — and it says so
+        assert "Strategy references were not checked — strategies.json not produced" in reason, reason
+        assert "CONSISTENT" not in view_text(page).upper()
+        visit(page, "/memory/item/FX-M0004")
+        assert page.is_visible('[data-empty-state="memory-relations-none"]')
+        # references from strategies cannot be checked when strategies.json is missing
+        text = view_text(page)
+        assert "no record references it in its lineage" not in text
+        assert "strategies.json not produced" in text
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- applicability tests (APPLICABILITY_TEST events)
+
+
+def test_applicability_test_events_are_counted(browser, state_factory):
+    import json
+
+    state = state_factory()
+    path = state / "agent_events.jsonl"
+    event = {
+        "event_id": "FX-E0100",
+        "ts": "2026-01-20T12:10:00+00:00",
+        "agent_slot": 3,
+        "kind": "APPLICABILITY_TEST",
+        "mode": "SIM",
+        "summary": "Agent 03 tested whether FX-M0003 applies to its market",
+        "refs": {"memory_ids": ["FX-M0003"]},
+        "origin": "ORIGINAL",
+    }
+    path.write_text(path.read_text().rstrip("\n") + "\n" + json.dumps(event) + "\n")
+    url, server = _serve(state)
+    try:
+        page = new_page(browser, url)
+        visit(page, "/memory")
+        assert page.get_attribute('.mem-flow [data-step="TEST"]', "data-state") == "REPORTING"
+        assert _split(page, '.mem-flow [data-step="TEST"] .step__count') == {"ORIGINAL": "1"}
+        visit(page, "/memory/agents")
+        assert _stat_split(page, "Applicability tests") == {"ORIGINAL": "1"}
+        assert _attrs(page, '[data-agent-lane="3"] .mem-lane__ev', "data-kind") == ["APPLICABILITY_TEST"]
+        visit(page, "/memory/item/FX-M0003")
+        assert "FX-E0100" in _attrs(page, ".mem-evlist [data-event-id]", "data-event-id")
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- layout regressions
+
+
+def test_empty_values_keep_the_empty_colour(browser, state_factory):
+    def unreported(doc):
+        for m in doc["data"]["memories"]:
+            if m["memory_id"] == "FX-M0003":
+                for e in m["evidence"]:
+                    e["recorded_at"] = None
+                    e["independent"] = None
+
+    url, server = _serve(state_factory({"memory": unreported}))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/memory/item/FX-M0003")
+        colours = page.evaluate(
+            """() => {
+                const probe = document.createElement('span');
+                probe.style.color = 'var(--faint)';
+                document.body.appendChild(probe);
+                const faint = getComputedStyle(probe).color;
+                probe.remove();
+                return {faint, foot: [...document.querySelectorAll('.mem-ev__foot .v.is-empty')].map(e => getComputedStyle(e).color),
+                        all: [...document.querySelectorAll('.view .v.is-empty')].map(e => getComputedStyle(e).color)};
+            }"""
+        )
+        assert len(colours["foot"]) >= 2, colours
+        assert set(colours["foot"]) == {colours["faint"]}, colours
+        assert set(colours["all"]) == {colours["faint"]}, colours
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_lessons_panel_is_not_stretched_to_the_side_column(browser, fixture_url):
+    for width in (1920, 2560):
+        page = new_page(browser, fixture_url, width=width)
+        visit(page, "/memory/lessons")
+        g = page.evaluate(
+            """() => {
+                const p = document.querySelector('.mem-list-panel').getBoundingClientRect();
+                const c = [...document.querySelectorAll('.mem-list-panel .mem-card')].map(e => e.getBoundingClientRect().bottom);
+                const side = document.querySelector('.mem-side').getBoundingClientRect();
+                return {panelBottom: p.bottom, lastCard: Math.max(...c), sideBottom: side.bottom};
+            }"""
+        )
+        page.close()
+        assert g["panelBottom"] - g["lastCard"] < 40, (width, g)  # ends with its card, not in blank panel
+        assert g["panelBottom"] < g["sideBottom"], (width, g)
+
+
+def _rows_fill(page, container_sel, item_sel):
+    """For each container: every visual row of items spans the container's full inner width (no empty track)."""
+    return page.evaluate(
+        """([cs, is]) => [...document.querySelectorAll(cs)].map(c => {
+            const box = c.getBoundingClientRect();
+            const bl = parseFloat(getComputedStyle(c).borderLeftWidth) || 0, br = parseFloat(getComputedStyle(c).borderRightWidth) || 0;
+            const rows = {};
+            for (const it of c.querySelectorAll(is)) {
+                const r = it.getBoundingClientRect();
+                (rows[Math.round(r.top)] ??= []).push([r.left, r.right]);
+            }
+            return Object.values(rows).map(items => ({
+                left: Math.min(...items.map(x => x[0])) - (box.left + bl),
+                right: (box.right - br) - Math.max(...items.map(x => x[1])),
+                n: items.length,
+            }));
+        })""",
+        [container_sel, item_sel],
+    )
+
+
+def test_card_check_grid_never_leaves_a_filler_cell(browser, fixture_url):
+    for width in (1024, 1280, 1440, 1920):
+        page = new_page(browser, fixture_url, width=width)
+        visit(page, "/memory/findings")
+        grids = _rows_fill(page, ".mem-card__checks", ".mem-card__check")
+        page.close()
+        assert grids, width
+        for rows in grids:
+            assert [r["n"] for r in rows] in ([5], [3, 2]), (width, rows)
+            for r in rows:
+                assert abs(r["left"]) <= 1.5 and abs(r["right"]) <= 1.5, (width, rows)
+
+
+def test_agent_lanes_wrap_without_an_empty_slot(browser, fixture_url):
+    for width in (1024, 1280, 1440, 1920, 2560):
+        page = new_page(browser, fixture_url, width=width)
+        visit(page, "/memory/agents")
+        (rows,) = _rows_fill(page, ".mem-lanes", ".mem-lane")
+        six = page.evaluate(
+            """() => [...document.querySelectorAll('.mem-stats-6 > .stat-row')].map(r =>
+                Object.values([...r.children].reduce((a, s) => { const t = Math.round(s.getBoundingClientRect().top); a[t] = (a[t] ?? 0) + 1; return a; }, {})))"""
+        )
+        page.close()
+        assert [r["n"] for r in rows] in ([5], [3, 2]), (width, rows)
+        for r in rows:
+            assert abs(r["left"]) <= 1.5 and abs(r["right"]) <= 1.5, (width, rows)
+        # six activity stats: one row of six or two rows of three
+        assert six and all(s in ([6], [3, 3]) for s in six), (width, six)
+
+
+def test_graph_type_tabs_never_overlap(browser, fixture_url):
+    for width in (1024, 1440):
+        page = new_page(browser, fixture_url, width=width)
+        visit(page, "/memory/graph")
+        boxes = page.eval_on_selector_all(
+            ".mem-graph-tabs .tab", "els => els.map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })"
+        )
+        nodes = page.evaluate(
+            """() => { const s = [...document.querySelectorAll('.mem-stats-6 .stat')][0]; return s.querySelector('.stat__value').getBoundingClientRect().height; }"""
+        )
+        page.close()
+        for i, a in enumerate(boxes):
+            for b in boxes[i + 1 :]:
+                overlap = min(a[2], b[2]) - max(a[0], b[0]) > 1 and min(a[3], b[3]) - max(a[1], b[1]) > 1
+                assert not overlap, (width, a, b)
+        assert nodes < 40, (width, nodes)  # the per-origin Nodes split fits on one line

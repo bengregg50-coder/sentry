@@ -4,8 +4,8 @@
 // connected source is a fact and is shown as 0.
 
 import { html, cx } from "../core/html.js";
-import { fmtAge, fmtDate, fmtTime, fmtNum, humanize, pad2, isNil, EMPTY } from "../core/format.js";
-import { doc, source, derived, sourceReason, sourceShort } from "../core/state.js";
+import { fmtAge, fmtDate, fmtTime, fmtNum, humanize, pad2, isNil, EMPTY, fmtLimit } from "../core/format.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle } from "../core/state.js";
 import { toneOf, toneClass } from "../core/tones.js";
 import { fetchEvents } from "../core/api.js";
 import {
@@ -53,6 +53,13 @@ import {
   originTone,
   splitVal,
   splitText,
+  presentOrigins,
+  ORIGIN_TAG,
+  subsystemState,
+  subsystemReason,
+  checkSummary,
+  EVENT_WINDOW,
+  eventOriginSplit,
 } from "./_command-common.js";
 
 const ACTIVE_PROGRAMME = new Set(["RUNNING", "SPEC_FROZEN"]);
@@ -69,20 +76,25 @@ const SUBSYSTEM_HREF = {
   memory: "#/memory",
 };
 
-function undeclaredDetail(state) {
-  if (state === "NOT_CONNECTED") return "No source connected";
-  if (state === "REPORTING") return "Sources reporting · state not declared";
-  if (state === "SOURCE_ERROR") return "A source failed to load — see State Sources";
-  return "Status not declared";
+function subsystemDetail(ctx, s) {
+  const d = s.declared;
+  // A declaration contradicted by its own documents: the contradiction is the detail.
+  if (d && s.source_problem) {
+    return html`<span class="${cx("cc-tonetext", toneClass(s.state))}" data-source-problem>${s.source_problem}</span>`;
+  }
+  if (d) return d.detail ?? html`<span class="muted">No detail declared</span>`;
+  return html`<span class="muted">${subsystemReason(ctx, s)}</span>`;
 }
 
 function subsystemCell(ctx, s) {
   const d = s.declared;
-  const tone = toneOf(s.state);
-  return html`<a class="${cx("cc-sys", toneClass(s.state))}" href="${SUBSYSTEM_HREF[s.key] ?? "#/"}" data-subsystem="${s.key}" data-state="${s.state}">
-    <div class="cc-sys__head">${dot(s.state, { pulse: tone === "info" })}<span class="cc-sys__label">${s.label}</span>${d?.version ? html`<span class="cc-sys__ver">v${d.version}</span>` : ""}</div>
-    <div class="cc-sys__state">${badge(s.state)}<span class="cc-sys__hb" title="Declared heartbeat">HB ${val(d?.heartbeat_at ? fmtAge(d.heartbeat_at, ctx.now) : null)}</span></div>
-    <div class="cc-sys__detail" title="${d?.detail ?? ""}">${d ? d.detail ?? html`<span class="muted">No detail declared</span>` : html`<span class="muted">${undeclaredDetail(s.state)}</span>`}</div>
+  const state = subsystemState(s);
+  const tone = toneOf(state);
+  const detailTitle = d ? (s.source_problem ?? d.detail ?? "") : subsystemReason(ctx, s);
+  return html`<a class="${cx("cc-sys", toneClass(state))}" href="${SUBSYSTEM_HREF[s.key] ?? "#/"}" data-subsystem="${s.key}" data-state="${state}">
+    <div class="cc-sys__head">${dot(state, { pulse: tone === "info" })}<span class="cc-sys__label">${s.label}</span>${d?.version ? html`<span class="cc-sys__ver">v${d.version}</span>` : ""}</div>
+    <div class="cc-sys__state">${badge(state)}<span class="cc-sys__hb" title="Declared heartbeat">HB ${val(d?.heartbeat_at ? fmtAge(d.heartbeat_at, ctx.now) : null)}</span></div>
+    <div class="cc-sys__detail" title="${detailTitle}">${subsystemDetail(ctx, s)}</div>
     <div class="cc-sys__srcs">${Object.entries(s.sources ?? {}).map(([k, st]) => statusLine(ctx, k, st))}</div>
   </a>`;
 }
@@ -161,7 +173,7 @@ function trialAccounting(ctx, ta, rSrc) {
   if (!connected) note = html`<b>${sourceShort(rSrc)}</b> — the research ledger's declared trial counts appear here.`;
   else if (!d) note = "Trial accounting not declared — research.json carries no trial_accounting block.";
   else note = html`Ledger-declared · never summed here${d.as_of ? html` · ${fmtDate(d.as_of)}` : ""}`;
-  return html`<a class="cc-acct" href="#/research" data-trial-accounting="${!connected ? "NOT_CONNECTED" : d ? "DECLARED" : "NOT_DECLARED"}">
+  return html`<a class="cc-acct" href="#/research" data-trial-accounting="${!connected ? srcState(rSrc) : d ? "DECLARED" : "NOT_DECLARED"}">
     <span class="cc-acct__head">${icon("history")}Trial accounting</span>
     ${fig("reconstructed_baseline", "Reconstructed baseline", d?.reconstructed_baseline, html`<span class="${cx("cc-split__tag", originTone("RECONSTRUCTED"))}">RECON</span>`, "Rebuilt after source loss — declared by the ledger")}
     ${fig("live_recorded", "Live-recorded", d?.live_recorded, "", "Recorded at the time by the live ledger")}
@@ -199,7 +211,7 @@ function researchStatus(ctx) {
     span: 12,
     code: "CMD-02",
     title: "Research status",
-    sub: "Declared by the research ledger and strategy registry — counted per record origin, never merged or estimated",
+    sub: "Ledger- and registry-declared · counted per record origin, never merged or estimated",
     actions: go("RESEARCH OVERVIEW", "#/research"),
     cls: "cc-panel-kpi",
     body: html`<div class="cc-cq"><div class="cc-kpis">
@@ -273,6 +285,9 @@ function pipelineHero(ctx) {
   const sSrc = source(ctx, "strategies");
   const eligible = rs.strategies_available ? controls?.deployment_eligible ?? [] : null;
   const recon = items ? countWhere(items, (i) => i.origin === "RECONSTRUCTED") : 0;
+  const rSrc = source(ctx, "research");
+  // Why there are no outcome counts, worded from each source's own status.
+  const pipeSources = `Outcome counts unavailable — research.json ${sourceShort(rSrc).toLowerCase()}, strategies.json ${sourceShort(sSrc).toLowerCase()}.`;
 
   const outcome = (key, label, split, cls) =>
     html`<span class="${cx("cc-outcome", cls, !hasOtherOrigins(split) && !originalOf(split) && "is-zero")}" data-terminal="${key}"><i></i>${label}<b>${splitVal(split, { cls: "cc-split--sm" })}</b></span>`;
@@ -283,11 +298,11 @@ function pipelineHero(ctx) {
         originSplit(items, (i) => !i.terminal),
         "cc-outcome--active",
       )}</div>`
-    : html`<span class="muted small">Outcome counts appear when research.json or strategies.json is connected.</span>`;
+    : html`<span class="muted small" data-outcomes-unavailable>${pipeSources}</span>`;
 
   let gate;
-  if (eligible === null) gate = html`<span class="muted">${sourceShort(sSrc)} — strategy registry unavailable</span>`;
-  else if (eligible.length === 0) gate = html`<span class="text-2">No strategy is validated, approved and packaged.</span>`;
+  if (eligible === null) gate = html`<span class="muted">${sourceTitle(sSrc, "Strategy registry")}</span>`;
+  else if (eligible.length === 0) gate = html`<span class="text-2">No strategy in strategies.json is validated, approved and packaged.</span>`;
   else gate = html`<span class="cluster">${eligible.map((id) => refLink(id, `#/strategy/${encodeURIComponent(id)}`))}</span>`;
 
   return panel({
@@ -295,7 +310,7 @@ function pipelineHero(ctx) {
     variant: "hero",
     code: "CMD-03",
     title: "Research → deployment pipeline",
-    sub: "Discovery → Validation → Deployment · items reaching each stage, with where they stopped",
+    sub: "Items reaching each stage, and where they stopped",
     actions: go("RESEARCH OVERVIEW", "#/research"),
     cls: "panel--accent cc-panel-pipe",
     body: html`
@@ -308,7 +323,7 @@ function pipelineHero(ctx) {
         <div class="cc-pipe-foot__row">
           <span class="cc-pipe-foot__k">Deployment gate</span>
           ${gate}
-          <span class="cc-pipe-foot__rule">${icon("lock")}Only validated, approved and packaged strategies enter deployment</span>
+          <span class="cc-pipe-foot__rule">${icon("lock")}Rule · only validated, approved and packaged strategies may enter deployment</span>
         </div>
         <div class="cc-pipe-foot__row cc-pipe-foot__legend">
           ${legend([
@@ -322,7 +337,7 @@ function pipelineHero(ctx) {
               ? html`Tracked once each — hypotheses: ${splitText(originSplit(items, (i) => i.kind === "HYPOTHESIS"))} / strategies: ${splitText(originSplit(items, (i) => i.kind === "STRATEGY"))}${
                   recon ? html` · <span class="${cx("cc-tonetext", toneClass("RECONSTRUCTED"))}" data-recon-items="${recon}">${recon} reconstructed item(s) included</span>` : ""
                 }`
-              : sourceReason(source(ctx, "research"))
+              : ""
           }</span>
         </div>
       </div>`,
@@ -345,15 +360,26 @@ function systemLoop(ctx) {
   const hypSplit = originSplit(hyps);
   const knowSplit = originSplit(mems);
   const stratSplit = originSplit(strategies);
+  // Agent events carry a record origin too; split exactly when the fetched window holds the whole stream.
+  const evSplit = isOk(ev) ? eventOriginSplit(ctx.extra?.events) : null;
+  const obs = evSplit
+    ? { value: originalOf(evSplit), split: evSplit, sub: "orig events" }
+    : { value: isOk(ev) ? ev.valid_events : null, sub: isOk(ev) ? "events · all origins" : "agent events", lines: isOk(ev) };
   const nodes = [
     { key: "RESEARCH", label: "RESEARCH", src: "research", value: originalOf(hypSplit), split: hypSplit, sub: "orig hypotheses" },
     { key: "KNOWLEDGE", label: "KNOWLEDGE", src: "memory", value: originalOf(knowSplit), split: knowSplit, sub: "orig memories" },
     { key: "STRATEGIES", label: "STRATEGIES", src: "strategies", value: originalOf(stratSplit), split: stratSplit, sub: "orig in registry" },
     { key: "AGENTS", label: "AGENTS", src: "agents", value: conn("agents") ? countWhere(slots, (s) => ACTIVE_AGENT.has(s.status)) : null, sub: "active of 5" },
-    { key: "OBSERVATIONS", label: "OBSERVATIONS", src: "agent_events", value: isOk(ev) ? ev.valid_events : null, sub: "agent events" },
+    { key: "OBSERVATIONS", label: "OBSERVATIONS", src: "agent_events", ...obs },
   ].map((n) => ({ ...n, connected: conn(n.src) }));
   const connected = nodes.filter((n) => n.connected).length;
   const otherOrigins = nodes.some((n) => hasOtherOrigins(n.split));
+  const countCell = (n) => {
+    if (n.split !== undefined) return splitVal(n.split, { cls: "cc-split--sm" }) ?? val(null);
+    // A stream too long for the fetched window: its valid-line count, labelled as such (not an origin count).
+    if (n.lines) return html`${val(fc(n.value))}<span class="cc-loop__unit" title="Valid lines in agent_events.jsonl, all origins — the stream exceeds the ${fc(EVENT_WINDOW)}-event window used to split it by origin">LINES</span>`;
+    return val(fc(n.value));
+  };
 
   return panel({
     span: 4,
@@ -369,13 +395,13 @@ function systemLoop(ctx) {
             const src = source(ctx, n.src);
             return html`<li data-loop-node="${n.key}" data-connected="${n.connected ? "1" : "0"}">
               ${dot(srcState(src))}<span class="cc-loop__name">${n.label}</span>
-              <span class="cc-loop__file">${src?.file ?? n.src}</span>
-              <span class="cc-loop__count">${n.split !== undefined ? splitVal(n.split, { cls: "cc-split--sm" }) ?? val(null) : val(fc(n.value))}</span>
+              <span class="cc-loop__file" title="${src?.file ?? n.src}">${src?.file ?? n.src}</span>
+              <span class="cc-loop__count">${countCell(n)}</span>
               <span class="${cx("cc-loop__state cc-tonetext", toneClass(srcState(src)))}">${sourceShort(src)}</span>
             </li>`;
           })}
         </ul>
-        <div class="cc-loop__return">${icon("history")}<span>Observations flow back into <b>knowledge</b> → <b>better research</b>. Arcs animate only where both ends are connected; counts are declared, never estimated. Ring values for research, knowledge and strategies count ORIGINAL records${
+        <div class="cc-loop__return">${icon("history")}<span>Observations flow back into <b>knowledge</b> → <b>better research</b>. Arcs animate only where both ends are connected; counts are declared, never estimated. Ring values for research, knowledge, strategies${evSplit ? " and observations" : ""} count ORIGINAL records${
           otherOrigins ? html`; <span data-loop-other-origins>other origins are listed above, never merged</span>` : ""
         }.</span></div>
       </div>
@@ -393,7 +419,11 @@ function eventFeed(ctx) {
   }
   if (ctx.extra?.error) return emptyLine("Event stream unavailable", ctx.extra.error, "alert");
   const events = res?.events ?? [];
-  if (events.length === 0) return emptyLine("No agent events recorded", "agent_events.jsonl is connected and empty.");
+  if (events.length === 0) {
+    return isOk(evSrc)
+      ? emptyLine("No agent events recorded", "agent_events.jsonl is connected and empty.")
+      : emptyLine("No valid agent events", `agent_events.jsonl has ${fc(evSrc.invalid_lines ?? 0)} line(s) that do not conform to the event contract and none that do.`, "alert");
+  }
   return html`<div class="cc-feed">${events.slice(0, 6).map(
     (e) => html`<a class="cc-feed__row" href="#/agents/${e.agent_slot}/activity" data-event="${e.event_id}">
       <span class="cc-feed__ts">${fmtTime(e.ts)}</span>
@@ -414,6 +444,12 @@ function tradingFloor(ctx) {
   const reporting = countWhere(slots, (s) => s.reported);
   const active = countWhere(slots, (s) => ACTIVE_AGENT.has(s.status));
   const assigned = countWhere(slots, (s) => s.has_strategy);
+  // Stream total per record origin when the fetched window covers it; otherwise valid lines, labelled as all origins.
+  const evSplit = isOk(evSrc) || evSrc?.status === "INVALID" ? eventOriginSplit(ctx.extra?.events) : null;
+  let evCount;
+  if (evSplit) evCount = html`<span data-event-origins>${splitText(evSplit)} event(s)</span>`;
+  else if (isOk(evSrc) || evSrc?.status === "INVALID") evCount = html`${fc(evSrc.valid_events)} valid line(s) · all origins`;
+  else evCount = sourceShort(evSrc);
   return panel({
     span: 12,
     code: "CMD-04",
@@ -425,7 +461,7 @@ function tradingFloor(ctx) {
     cls: "cc-panel-floor",
     body: html`<div class="agent-grid cc-floor">${slots.map((s) => agentMini(s, { now: ctx.now }))}</div>
       <div class="cc-floor__feed">
-        ${subhead(html`${icon("live")}Latest agent events`, html`${isOk(evSrc) ? html`${evSrc.valid_events} recorded` : sourceShort(evSrc)}${
+        ${subhead(html`${icon("live")}Latest agent events`, html`${evCount}${
           evSrc?.invalid_lines ? html` · <span class="${cx("cc-tonetext", toneClass("WARNING"))}">${evSrc.invalid_lines} invalid line(s)</span>` : ""
         }`)}
         ${eventFeed(ctx)}
@@ -434,6 +470,40 @@ function tradingFloor(ctx) {
 }
 
 /* ------------------------------------------------------------ research focus */
+
+/**
+ * The current research family. Only ResearchFocus.family declares it; the families
+ * declared on the focus programme / hypothesis records are listed beside it with
+ * their record ids when they differ — never chosen between or promoted to "the" family.
+ */
+function focusFamily(f, research, rSrc) {
+  let state;
+  let value;
+  if (!research) {
+    state = srcState(rSrc);
+    value = val(null);
+  } else if (f?.family) {
+    state = "DECLARED";
+    value = html`<span class="cc-fam__v">${f.family}</span>`;
+  } else {
+    state = "NOT_DECLARED";
+    value = html`<span class="cc-fam__none" title="${f ? "The focus block declares no family" : "research.json declares no focus"}">NOT DECLARED</span>`;
+  }
+  const linked = [];
+  if (research && f) {
+    const prog = f.programme_id ? research.programmes.find((p) => p.programme_id === f.programme_id) : null;
+    const hyp = f.hypothesis_id ? research.hypotheses.find((h) => h.hypothesis_id === f.hypothesis_id) : null;
+    if (prog?.family && prog.family !== f.family) linked.push(["PROGRAMME", prog.programme_id, prog.family]);
+    if (hyp?.family && hyp.family !== f.family) linked.push(["HYPOTHESIS", hyp.hypothesis_id, hyp.family]);
+  }
+  return html`<div class="cc-fam" data-focus-family="${state}">
+    <span class="cc-fam__k">Research family</span>
+    <span class="cc-fam__body">${value}${linked.map(
+      ([kind, id, fam]) =>
+        html`<span class="cc-fam__link" data-family-of="${kind}" title="Family declared on ${kind.toLowerCase()} ${id}; shown as declared there, not taken as the focus family"><i>${kind} ${id}</i><b>${fam}</b></span>`,
+    )}</span>
+  </div>`;
+}
 
 function researchFocus(ctx) {
   const research = doc(ctx, "research");
@@ -447,20 +517,21 @@ function researchFocus(ctx) {
     focusBody = html`${kv([
       ["Programme", null],
       ["Hypothesis", null],
-    ])}<div class="cc-focus__summary">${emptyLine(sourceShort(rSrc), "The research engine's current focus and next action appear here.")}</div>`;
+    ])}${focusFamily(null, null, rSrc)}<div class="cc-focus__summary">${emptyLine(sourceTitle(rSrc, "Research focus"), "The research engine's current focus, family and next action appear here.")}</div>`;
   } else if (!f) {
-    focusBody = emptyLine("No current focus declared", "research.json is connected but carries no focus block.");
+    focusBody = html`${emptyLine("No current focus declared", "research.json is connected but carries no focus block.")}${focusFamily(null, research, rSrc)}`;
   } else {
     focusBody = html`${kv([
       ["Programme", f.programme_id ? html`<span class="ref">${f.programme_id}</span>` : null],
       ["Hypothesis", f.hypothesis_id ? refLink(f.hypothesis_id, `#/research/hypotheses?focus=${encodeURIComponent(f.hypothesis_id)}`) : null],
     ])}
+      ${focusFamily(f, research, rSrc)}
       <p class="cc-focus__summary">${f.summary ?? html`<span class="muted">No summary declared</span>`}</p>
       <div class="cc-focus__next"><span class="cc-focus__nextk">NEXT ACTION</span><span>${f.next_action ?? val(null)}</span></div>`;
   }
 
   let progBody;
-  if (!research) progBody = emptyLine("Not connected", "Programmes with status RUNNING or SPEC FROZEN are listed here.");
+  if (!research) progBody = emptyLine(sourceTitle(rSrc, "Programmes"), "Programmes with status RUNNING or SPEC FROZEN are listed here.");
   else if (progs.length === 0)
     progBody = emptyLine("None running or frozen", `${research.programmes.length} programme(s) recorded; none is RUNNING or SPEC FROZEN.`);
   else
@@ -472,7 +543,7 @@ function researchFocus(ctx) {
     )}</div>`;
 
   let hypBody;
-  if (!hyps) hypBody = emptyLine("Not connected", "Hypothesis outcomes — including every rejection — are counted here.");
+  if (!hyps) hypBody = emptyLine(sourceTitle(rSrc, "Hypotheses"), "Hypothesis outcomes — including every rejection — are counted here.");
   else if (hyps.length === 0) hypBody = emptyLine("No hypotheses recorded", "research.json is connected and lists no hypotheses.");
   else {
     const order = ["TESTING", "PREREGISTERED", "PROPOSED", "PENDING", "VALIDATED", "REJECTED", "BLOCKED_BY_DATA", "ABANDONED"];
@@ -486,7 +557,7 @@ function researchFocus(ctx) {
     span: 4,
     code: "CMD-05",
     title: "Research focus",
-    sub: "Current focus, active programmes, outcomes",
+    sub: "Focus, family, programmes, outcomes",
     actions: go("HYPOTHESES", "#/research/hypotheses"),
     cls: "lg-span-12",
     body: html`<div class="cc-focus">${focusBody}</div>
@@ -499,12 +570,39 @@ function researchFocus(ctx) {
 
 /* ------------------------------------------------------------ memory */
 
+/**
+ * Cumulative memories per day, one series per record origin (days grouped as
+ * derive.memory_stats.growth groups them: the created_at date as written).
+ * Origins are separate series on a shared day axis, never one merged line.
+ */
+function growthByOrigin(mems) {
+  if (!Array.isArray(mems) || mems.length === 0) return null;
+  const day = (m) => String(m.created_at ?? "").slice(0, 10);
+  const days = [...new Set(mems.map(day))].sort();
+  const split = originSplit(mems);
+  const series = presentOrigins(split).map((o) => {
+    const perDay = new Map();
+    for (const m of mems) if ((m.origin ?? "UNDECLARED") === o) perDay.set(day(m), (perDay.get(day(m)) ?? 0) + 1);
+    let n = 0;
+    return { origin: o, total: split[o], values: days.map((d) => (n += perDay.get(d) ?? 0)) };
+  });
+  return { first: days[0], last: days[days.length - 1], series };
+}
+
+function growthRow(s, multi) {
+  const tag = ORIGIN_TAG[s.origin] ?? s.origin;
+  return html`<div class="cc-growth__row" data-growth-origin="${s.origin}" title="${fc(s.total)} ${humanize(s.origin).toLowerCase()} memories, cumulative by day">
+    <span class="${cx("cc-split__tag", s.origin !== "ORIGINAL" && originTone(s.origin))}">${tag}</span>
+    <div class="cc-growth__chart">${sparkline(s.values, { width: 320, height: multi ? 22 : 30 })}</div>
+    <span class="cc-growth__n">${val(fc(s.total))}</span>
+  </div>`;
+}
+
 function memoryPanel(ctx) {
   const ms = derived(ctx, "memory_stats") ?? {};
   const mSrc = source(ctx, "memory");
   const memDoc = doc(ctx, "memory");
   const byId = new Map((memDoc?.memories ?? []).map((m) => [m.memory_id, m]));
-  const growth = ms.available ? ms.growth : null;
   const empty = sourceShort(mSrc);
   const mems = ms.available ? memDoc?.memories ?? null : null;
   const rejectedAssumption = (m) => m.type === "REJECTED_ASSUMPTION" || m.status === "REJECTED";
@@ -521,13 +619,12 @@ function memoryPanel(ctx) {
       </li>`;
     })}</ul>`;
 
-  const first = growth?.[0];
-  const last = growth?.[growth.length - 1];
+  const growth = ms.available ? growthByOrigin(mems) : null;
   return panel({
     span: 4,
     code: "CMD-06",
     title: "Memory",
-    sub: "Evidence-backed knowledge SENTRY has accumulated",
+    sub: "Evidence-backed knowledge, per origin",
     actions: go("MEMORY", "#/memory"),
     cls: "lg-span-6 cc-panel-mem",
     body: html`${statRow(
@@ -538,15 +635,17 @@ function memoryPanel(ctx) {
       ],
       { min: 96 },
     )}
-      <div class="cc-growth">
+      <div class="cc-growth" data-growth-series="${growth ? growth.series.length : 0}">
         <div class="cc-growth__head"><span class="label">Knowledge growth</span><span class="small muted">${
-          growth && growth.length
-            ? html`cumulative, all origins (${splitText(originSplit(mems))}) · ${fmtDate(first.date)} → ${fmtDate(last.date)}`
+          growth
+            ? html`cumulative per origin · ${fmtDate(growth.first)} → ${fmtDate(growth.last)}`
             : ms.available
               ? "No memories recorded"
               : empty
         }</span></div>
-        <div class="cc-growth__chart">${sparkline(growth ? growth.map((g) => g.cumulative) : null, { width: 320, height: 34 })}</div>
+        ${growth
+          ? growth.series.map((s) => growthRow(s, growth.series.length > 1))
+          : html`<div class="cc-growth__chart">${sparkline(null, { width: 320, height: 30 })}</div>`}
       </div>
       ${subhead(
         "Recently recorded",
@@ -567,19 +666,16 @@ const LIMIT_GROUPS = [
   ["daily_limits", "Daily"],
   ["execution_limits", "Execution"],
 ];
-const LIMIT_SUFFIX = { pct: "%", bps: " bps", contracts: " ct", count: "", ratio: "", currency: "" };
-
-function fmtLimitValue(v, unit) {
-  if (isNil(v)) return null;
-  const dp = Number.isInteger(v) ? 0 : 2;
-  return fmtNum(v, dp) + (LIMIT_SUFFIX[unit] ?? "");
+function fmtLimitValue(v, l) {
+  const f = fmtLimit(v, l);
+  return f.empty ? null : `${f.text}${f.suffix ? ` ${f.suffix}` : ""}`;
 }
 
 function limitRow(l) {
-  const used = fmtLimitValue(l.used, l.unit);
+  const used = fmtLimitValue(l.used, l);
   return html`<div class="cc-limit" data-limit="${l.key}" data-state="${l.state}">
     <span class="cc-limit__label" title="${l.label}">${l.label}</span>
-    <span class="cc-limit__nums">${val(used)}<span class="muted"> / </span><span class="v" data-v>${fmtLimitValue(l.limit, l.unit)}</span></span>
+    <span class="cc-limit__nums">${val(used)}<span class="muted"> / </span><span class="v" data-v>${fmtLimitValue(l.limit, l)}</span></span>
     ${badge(l.state)}
     <div class="cc-limit__meter">${meter(l.used, l.limit, { state: l.state })}</div>
   </div>`;
@@ -603,7 +699,7 @@ function riskPanel(ctx) {
     cls: "lg-span-12 cc-panel-risk",
     body: html`<div class="${cx("cc-kill", toneClass(ksState))}" data-kill-switch="${ksState}">
         <div class="cc-kill__main">${icon("power")}<span class="cc-kill__k">Kill switch</span>${badge(ksState)}</div>
-        <div class="cc-kill__detail">${risk ? ks?.detail ?? (ks ? "No detail declared" : "risk.json carries no kill switch block") : "Kill-switch state appears when risk.json is connected."}${
+        <div class="cc-kill__detail">${risk ? ks?.detail ?? (ks ? "No detail declared" : "risk.json carries no kill switch block") : `${sourceTitle(rSrc, "risk.json")} — the kill-switch state is read from it.`}${
           ks?.tripped_at ? html` · tripped ${fmtAge(ks.tripped_at, ctx.now)}` : ""
         }</div>
         ${kill ? html`<div class="cc-kill__btn">${controlButton(kill, "power")}</div>` : ""}
@@ -705,30 +801,41 @@ function alertsPanel(ctx) {
   const findings = derived(ctx, "consistency") ?? [];
   const research = doc(ctx, "research");
   const rSrc = source(ctx, "research");
-  const anyOk = DOC_KEYS.some((k) => isOk(source(ctx, k))) || isOk(source(ctx, "agent_events"));
+  const cov = checkSummary(ctx);
+  // Severity counts are facts only about the check families that ran (derived.check_coverage).
+  const counted = cov.available ? cov.anyRan : DOC_KEYS.some((k) => isOk(source(ctx, k))) || isOk(source(ctx, "agent_events"));
   const notices = research?.integrity_notices ?? null;
+  const skipped = cov.skipped.length;
+  let none;
+  if (counted) {
+    none = emptyLine(
+      "No findings",
+      cov.available
+        ? `None from the ${cov.ran} of ${cov.total} check families that ran${skipped ? `; ${skipped} did not run (a source unavailable or a bound not declared)` : ""}.`
+        : "None from the checks that ran.",
+      "shield",
+    );
+  } else {
+    none = emptyLine(
+      ctx.snap?.provider?.location ? "No cross-checks ran" : "Not connected",
+      ctx.snap?.provider?.location ? "No contract document is available, so nothing has been cross-checked." : "No SENTRY state directory is configured, so nothing has been cross-checked.",
+    );
+  }
   return panel({
     span: 4,
     code: "CMD-07",
     title: "Alerts",
-    sub: "Consistency findings and integrity notices",
+    sub: counted && cov.available ? `Findings · ${cov.ran} of ${cov.total} check families ran` : "Consistency findings and integrity notices",
     actions: go("GOVERNANCE", "#/governance"),
     cls: "lg-span-6 cc-panel-alerts",
-    body: html`<div class="cc-sev">${SEVERITIES.map((s) => {
-        const n = anyOk ? countWhere(findings, (f) => f.severity === s) : null;
+    body: html`<div class="cc-sev" data-checks-ran="${cov.available ? cov.ran : ""}">${SEVERITIES.map((s) => {
+        const n = counted ? countWhere(findings, (f) => f.severity === s) : null;
         return html`<div class="cc-sev__item" data-severity="${s}">${dot(n ? s : null)}<span class="cc-sev__k">${s}</span>${val(isNil(n) ? null : String(n))}</div>`;
       })}</div>
-      ${findingsList(findings, {
-        limit: 4,
-        empty: emptyLine(
-          "No findings",
-          anyOk ? "Connected state is internally consistent." : "Nothing is connected, so there is nothing to cross-check.",
-          "shield",
-        ),
-      })}
+      ${findingsList(findings, { limit: 4, empty: none })}
       ${subhead("Integrity notices", notices ? `${notices.length} declared` : sourceShort(rSrc))}
       ${notices === null
-        ? emptyLine("Not connected", "Integrity notices declared by the research engine appear here.")
+        ? emptyLine(sourceTitle(rSrc, "Integrity notices"), "Integrity notices declared by the research engine appear here.")
         : notices.length === 0
           ? emptyLine("No integrity notices declared", null, "shield")
           : html`${integrityNotices(notices.slice(0, 2))}${notices.length > 2 ? html`<a class="small cc-more" href="#/governance">+${notices.length - 2} more on Governance →</a>` : ""}`}`,
@@ -759,7 +866,8 @@ export default {
     const ev = ctx.snap?.events_source;
     if (!ev || (ev.status !== "OK" && ev.status !== "INVALID")) return { events: null };
     try {
-      return { events: await fetchEvents({ limit: 6 }) };
+      // The feed shows the latest six; the window lets the stream be counted per record origin.
+      return { events: await fetchEvents({ limit: EVENT_WINDOW }) };
     } catch (err) {
       return { events: null, error: String(err?.message ?? err) };
     }
@@ -773,7 +881,7 @@ export default {
         kicker: "MISSION CONTROL",
         code: "CMD",
         title: "Command Centre",
-        sub: "SENTRY control room. Research discovers and validates; governance approves; agents observe and trade; memory records what is learned. Every value is producer-declared — empty means not reported, never zero.",
+        sub: "SENTRY control room. Research discovers and validates; governance approves; agents may run only approved strategies; memory records what is learned. Every value is producer-declared — empty means not reported, never zero.",
         right: html`<span class="cc-headchip" data-sources-ok="${okCount}">${icon("sources")}SOURCES <b>${okCount}/${DOC_KEYS.length}</b></span>
           <span class="cc-headchip">${icon("live")}EVENTS <b>${sourceShort(source(ctx, "agent_events"))}</b></span>
           <span class="cc-headchip">${icon("clock")}SNAPSHOT <b>${fmtTime(snap.generated_at)}Z</b></span>`,
@@ -796,13 +904,13 @@ function doctrine() {
     span: 4,
     code: "CMD-12",
     title: "Operating doctrine",
-    sub: "The standards every displayed state is held to",
+    sub: "Policy every displayed state is held to",
     cls: "lg-span-12",
     body: html`<div class="doctrine cc-doctrine">
-      <div class="doctrine__item"><b>NO-TRADE &gt; WEAK TRADE</b><span>An empty trading floor is a valid, displayed outcome.</span></div>
-      <div class="doctrine__item"><b>NO EDGE &gt; FAKE EDGE</b><span>Failed research families stay visible; nothing is backfilled or estimated.</span></div>
-      <div class="doctrine__item"><b>EVIDENCE BEFORE PROMOTION</b><span>Only validated, approved and packaged strategies reach an agent.</span></div>
-      <div class="doctrine__item"><b>VERSIONS, NOT EDITS</b><span>Agents never silently modify a live strategy; improvements become new versions.</span></div>
+      <div class="doctrine__item"><b>NO-TRADE &gt; WEAK TRADE</b><span>An empty trading floor is a valid outcome and is displayed as one.</span></div>
+      <div class="doctrine__item"><b>NO EDGE &gt; FAKE EDGE</b><span>Failed research families stay visible; this view backfills and estimates nothing.</span></div>
+      <div class="doctrine__item"><b>EVIDENCE BEFORE PROMOTION</b><span>Only validated, approved and packaged strategies may reach an agent; the cross-checks flag any that do not.</span></div>
+      <div class="doctrine__item"><b>VERSIONS, NOT EDITS</b><span>Agents must never silently modify a live strategy; improvements become new versions.</span></div>
       <div class="doctrine__item"><b>ACCURACY &gt; POLISH</b><span>Absent values render as —; a reported zero renders as 0.</span></div>
     </div>`,
   });

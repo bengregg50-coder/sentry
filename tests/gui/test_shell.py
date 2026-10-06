@@ -224,7 +224,7 @@ def test_collapsed_navigation_keeps_every_route_reachable(browser, fixture_url):
     assert page.evaluate("document.getElementById('app').dataset.nav") == "open"
     assert page.is_visible('.nav__link[href="#/research/oos"]')
     page.click('.nav__link[href="#/research/oos"]')
-    page.wait_for_function("location.hash === '#/research/oos'")
+    page.wait_for_function("() => location.hash === '#/research/oos'")
     assert page.evaluate("document.getElementById('app').dataset.nav") != "open"
     # status bar: nothing cut mid-token, the POLL segment stays visible
     sw, cw = page.evaluate("() => { const s = document.getElementById('statusbar'); return [s.scrollWidth, s.clientWidth] }")

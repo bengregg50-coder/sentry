@@ -385,7 +385,8 @@ def test_robustness_battery_matrix_and_kind_filter(browser, fixture_url):
     # battery tiles: the matching check is counted as REPORTED (any state), never as a bare
     # n/m that reads as passes, and each reported state is shown beside it
     cost = page.locator('.rsb-bat[data-kind="COST_SENSITIVITY"]')
-    assert " ".join(cost.locator('[data-check-reported="cost_sensitivity"]').inner_text().split()) == "REPORTED 3/5"
+    # the fixture's strategies are all SYNTHETIC_FIXTURE records: the count carries that origin tag
+    assert " ".join(cost.locator('[data-check-reported="cost_sensitivity"]').inner_text().split()) == "REPORTED 3/5 SYNTH"
     assert _split(page, '.rsb-bat[data-kind="COST_SENSITIVITY"] [data-check-split]') == [["PASS", "2"], ["FAIL", "1"]]
     assert _split(page, '.rsb-bat[data-kind="MONTE_CARLO"] [data-check-split]') == [["NOT_RUN", "2"]]
     assert _split(page, '.rsb-bat[data-kind="REGIME"] [data-check-split]') == [["INCONCLUSIVE", "2"]]
@@ -416,7 +417,7 @@ def test_oos_strategy_checks_split_by_reported_state(browser, fixture_url):
     visit(page, "/research/oos")
     stat = page.locator(".stat").filter(has=page.locator('[data-check-reported="out_of_sample"]'))
     assert "OOS CHECKS REPORTED" in stat.inner_text().upper()
-    assert " ".join(stat.locator('[data-check-reported="out_of_sample"]').inner_text().split()) == "4/ 5"
+    assert " ".join(stat.locator('[data-check-reported="out_of_sample"]').inner_text().split()) == "4/5 SYNTH"
     # 4 of 5 report it, and only 2 of those passed: the split says so plainly
     assert _split(page, '[data-check-split="out_of_sample"]') == [["PASS", "2"], ["FAIL", "1"], ["PENDING", "1"]]
     page.close()
@@ -482,6 +483,309 @@ def test_oos_undated_window_is_listed_not_drawn(browser, state_factory):
         assert sorted(listed) == ["CONFIRMATION", "HOLDOUT", "OUT_OF_SAMPLE", "PRIMARY_EVIDENCE"]
         years = page.eval_on_selector_all(".rsb-tl svg text[data-v]", "els => els.map(e => e.textContent)")
         assert "1970" not in years and years[0] == "2000"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- unavailable sources: status-accurate wording
+
+ALL_ROUTES = ROUTES + ["/research/robustness?kind=REGIME"]
+_RSG = ("research", "strategies", "governance")
+
+
+def _unavailable(state_factory, status: str):
+    """research / strategies / governance made MISSING, INVALID (one extra field) or UNREADABLE."""
+    if status == "MISSING":
+        return state_factory(drop=_RSG)
+
+    def bad(doc):
+        doc["data"]["unexpected_field"] = 1
+
+    target = state_factory({k: bad for k in _RSG})
+    if status == "UNREADABLE":
+        for k in _RSG:
+            (target / f"{k}.json").write_text("{not json")
+    return target
+
+
+@pytest.mark.parametrize(
+    "status,label,cell_state",
+    [("MISSING", "NOT PRODUCED", "NOT_PRODUCED"), ("INVALID", "CONTRACT ERROR", "INVALID"), ("UNREADABLE", "UNREADABLE", "UNREADABLE")],
+)
+def test_unavailable_sources_are_named_by_status_never_not_connected(browser, state_factory, status, label, cell_state):
+    """Not connected ≠ not produced ≠ contract error ≠ unreadable: every label, title and sub says which."""
+    url, server = start_server(_unavailable(state_factory, status))
+    try:
+        page = new_page(browser, url)
+        broken = status != "MISSING"
+        for route in ALL_ROUTES:
+            v = visit(page, route)
+            assert v.clean, v.describe()
+            text = view_text(page).upper()
+            assert "NOT CONNECTED" not in text, f"{route}: 'not connected' shown for a {status} source"
+            assert label in text, route
+            # empty-state titles name the document, never a panel noun that reads as a research verdict
+            assert "HYPOTHESES REJECTED" not in text and "CROSS-CHECKS REJECTED" not in text and "CHECKS REJECTED" not in text
+            assert page.locator('[data-empty-state^="source-research-"], [data-empty-state^="source-strategies-"]').count() >= 1
+            offs = page.eval_on_selector_all(".rsb-off", "els => els.map(e => [e.dataset.sourceOff, e.className])")
+            assert offs, route
+            for st, cls in offs:
+                assert st == status
+                # a present-but-rejected/unreadable document is a failure (bad tone); an absent one is quiet
+                assert ("tone-bad" in cls) == broken, (route, cls)
+            assert (page.locator(".rsb-src-bad.tone-bad").count() > 0) == broken, route
+            assert present_values(page) == [], route
+        visit(page, "/research/validation")
+        states = page.eval_on_selector_all(".rsb-checks__row .rsb-cell", "els => els.map(e => [e.dataset.state, e.textContent.trim().toUpperCase()])")
+        assert len(states) == 13 and all(s == [cell_state, label] for s in states), states
+        assert page.get_attribute(".rsb-gate", "data-gate") == "unknown"
+        assert ("is-bad" in page.get_attribute(".rsb-gate", "class")) == broken
+        visit(page, "/research/history?focus=FX-T003")
+        assert "CANNOT BE LOCATED" in view_text(page).upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_empty_mode_still_says_not_connected(browser, empty_url):
+    page = new_page(browser, empty_url)
+    for route in ROUTES:
+        visit(page, route)
+        offs = page.eval_on_selector_all(".rsb-off", "els => els.map(e => [e.dataset.sourceOff, e.textContent.trim(), e.className])")
+        assert offs and all(s == "NOT_CONFIGURED" and t == "NOT CONNECTED" and "tone-bad" not in c for s, t, c in offs), (route, offs[:3])
+    page.close()
+
+
+# ---------------------------------------------------------------- validation gate: active strategies only
+
+
+def test_validation_gate_counts_active_strategies_and_names_excluded_validated(browser, state_factory):
+    """A RETIRED strategy whose current version is VALIDATED is excluded by name — 'none validated' stays true."""
+
+    def only_ended(doc):
+        doc["data"]["strategies"] = [s for s in doc["data"]["strategies"] if s["strategy_id"] in ("FX-S004", "FX-S005")]
+
+    url, server = start_server(state_factory({"strategies": only_ended}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/research/validation")
+        assert v.clean, v.describe()
+        gate = page.locator(".rsb-gate")
+        assert gate.get_attribute("data-gate") == "none" and gate.get_attribute("data-validated") == "0"
+        why = " ".join(page.inner_text("[data-gate-why]").split())
+        assert "none is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded)" in why
+        assert "2 synthetic fixture strategies" in why and "(0 strategies active)" in why
+        assert "has a current version declared VALIDATED" not in why  # the old, false wording
+        assert "Nothing is deployment-eligible." in why
+        assert page.get_attribute("[data-excluded-validated]", "data-excluded-validated") == "FX-S004"
+        assert "FX-S004 V1 (RETIRED)" in " ".join(page.inner_text("[data-excluded-validated]").upper().split())
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_validation_gate_count_is_per_origin(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/research/validation")
+    gate = page.locator(".rsb-gate")
+    assert gate.get_attribute("data-gate") == "some" and gate.get_attribute("data-validated") == "1"
+    # FX-S003 is a SYNTHETIC_FIXTURE record: its count carries the origin tag; FX-S004 (RETIRED) is named, not counted
+    assert " ".join(gate.locator(".rsb-gate__v .rsb-split").inner_text().split()) == "1 SYNTH"
+    assert page.get_attribute("[data-excluded-validated]", "data-excluded-validated") == "FX-S004"
+    page.close()
+
+
+def test_mixed_origin_strategy_counts_are_never_merged(browser, state_factory):
+    def mix(doc):
+        for s in doc["data"]["strategies"]:
+            s["origin"] = "ORIGINAL" if s["strategy_id"] in ("FX-S001", "FX-S002", "FX-S003") else "RECONSTRUCTED"
+
+    url, server = start_server(state_factory({"strategies": mix}))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/research/robustness")
+        rep = page.locator('[data-check-reported="cost_sensitivity"] .rsb-split__n')
+        assert rep.count() == 2
+        parts = [" ".join(t.split()) for t in rep.all_inner_texts()]
+        assert parts[0].endswith("/3") and parts[1].endswith("/2 RECON"), parts
+        # the reported-state split gets one tagged line per origin
+        assert page.locator('.rsb-bat[data-kind="COST_SENSITIVITY"] .rsb-cksplit-o__row').count() == 2
+        assert "3 original · 2 reconstructed strategies" in view_text(page)
+        visit(page, "/research/oos")
+        assert page.locator('[data-check-reported="out_of_sample"] .rsb-split__n').count() == 2
+        visit(page, "/research/validation")
+        assert "3 original · 2 reconstructed strategies × 13 checks" in view_text(page)
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- statements of fact are conditioned
+
+
+def test_oos_separation_not_reported_asserts_nothing(browser, state_factory):
+    def drop_check(doc):
+        doc["data"]["checks"] = [c for c in doc["data"]["checks"] if c["key"] != "oos_separation"]
+
+    url, server = start_server(state_factory({"governance": drop_check}))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/research/oos")
+        sep = page.locator('.rsb-sep[data-check="oos_separation"]')
+        assert sep.get_attribute("data-state") == "NOT_REPORTED"
+        d = sep.locator(".rsb-sep__d").inner_text()
+        assert not d.startswith("Holdout data untouched") and "nothing is asserted" in d
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_oos_names_programmes_declaring_windows_without_frozen_spec(browser, fixture_url, state_factory):
+    page = new_page(browser, fixture_url)
+    visit(page, "/research/oos")
+    assert page.get_attribute('[data-note="windows-fixed"]', "data-unfrozen") == "0"
+    page.close()
+
+    def unfreeze(doc):
+        for p in doc["data"]["programmes"]:
+            if p["programme_id"] == "FX-P02":
+                p["frozen_at"] = None
+                p["status"] = "PROPOSED"
+
+    url, server = start_server(state_factory({"research": unfreeze}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/research/oos")
+        assert v.clean, v.describe()
+        assert page.get_attribute('[data-note="windows-fixed"]', "data-unfrozen") == "1"
+        assert page.get_attribute("[data-unfrozen-ids]", "data-unfrozen-ids") == "FX-P02"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_validation_findings_empty_is_coverage_phrased(browser, state_factory):
+    def single(doc):
+        doc["data"]["strategies"] = [s for s in doc["data"]["strategies"] if s["strategy_id"] == "FX-S001"]
+        doc["data"]["proposals"] = []
+
+    url, server = start_server(state_factory({"strategies": single}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/research/validation")
+        assert v.clean, v.describe()
+        assert page.locator(".finding").count() == 0
+        # "no findings" means only "none from the checks that ran", never "the declared state is sound"
+        assert page.locator('[data-empty-state="strategy-checks-none"]').count() == 1
+        assert "NO FINDINGS FROM THE STRATEGY CROSS-CHECKS THAT RAN" in view_text(page).upper()
+        assert "PASSES THE COMMAND CENTRE" not in view_text(page).upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- empty values stay faint
+
+
+def test_empty_values_stay_faint_in_coloured_containers(browser, fixture_url, empty_url):
+    """CSS that colours .v nodes must not override .is-empty (the faint dash of an absent value)."""
+    js = """() => { const e = document.createElement('i'); e.style.color = 'var(--faint)'; document.body.append(e); const faint = getComputedStyle(e).color; e.remove();
+      for (const host of document.querySelectorAll('.rsb-metrics__row, .rsb-gate__elig, .rsb-trial')) {
+        const v = document.createElement('span'); v.className = 'v is-empty probe-empty'; v.setAttribute('data-v', ''); v.textContent = '—'; host.append(v); }
+      const n = document.createElement('span'); n.className = 'v is-empty rsb-num probe-empty'; n.textContent = '#—'; document.querySelector('.view').append(n);
+      return [...document.querySelectorAll('.view .v.is-empty, .view [data-v][data-empty]')].filter(el => el.offsetParent !== null)
+        .map(el => [getComputedStyle(el).color === faint, el.className, el.parentElement.className]); }"""
+    for base in (fixture_url, empty_url):
+        page = new_page(browser, base)
+        for route in ROUTES[:5]:
+            visit(page, route)
+            nodes = page.evaluate(js)
+            assert nodes, route
+            bright = [n for n in nodes if not n[0]]
+            assert bright == [], (base, route, bright[:4])
+        page.close()
+
+
+# ---------------------------------------------------------------- long registers are paged
+
+
+def _scaled(state_factory, n: int = 130):
+    """n extra trials of each of BACKTEST / ROBUSTNESS / OOS (alternating ORIGINAL / RECONSTRUCTED)."""
+
+    def grow(doc):
+        trials = doc["data"]["trials"]
+        base = next(t for t in trials if t["trial_id"] == "FX-T001")
+        extra = []
+        for kind in ("BACKTEST", "ROBUSTNESS", "OOS"):
+            for i in range(n):
+                t = dict(base)
+                k = len(extra)
+                t.update(trial_id=f"PG-T{k:04d}", trial_number=1000 + k, kind=kind, stage=kind, origin="RECONSTRUCTED" if i % 2 else "ORIGINAL")
+                t["evidence_state"] = "RECONSTRUCTED" if i % 2 else base["evidence_state"]
+                extra.append(t)
+        trials.extend(extra)
+
+    return state_factory({"research": grow})
+
+
+def _pager(page):
+    el = page.locator(".rsb-pager").first
+    return {k: el.get_attribute(f"data-rows-{k}") for k in ("from", "shown", "before", "hidden")}, " ".join(el.inner_text().split())
+
+
+def test_long_registers_are_paged_and_totals_come_from_full_arrays(browser, state_factory):
+    url, server = start_server(_scaled(state_factory))
+    try:
+        page = new_page(browser, url)
+        # backtests: 5 fixture + 130 = 135 records (4+65 original, 1+65 reconstructed); first 100 rendered
+        v = visit(page, "/research/backtests")
+        assert v.clean, v.describe()
+        assert page.locator(".rsb-reg tr[data-trial]").count() == 100
+        attrs, text = _pager(page)
+        assert attrs == {"from": "0", "shown": "100", "before": "0", "hidden": "35"}
+        assert "ROWS 1–100 SHOWN" in text and "original" in text and "reconstructed" in text
+        records = page.locator(".stat").filter(has_text="Records").locator(".rsb-split")
+        assert " ".join(records.inner_text().split()) == "69 66 RECON"  # never a page count, never merged
+        page.click('.rsb-pager a[data-pager="all"]')
+        page.wait_for_function("() => document.querySelectorAll('.rsb-reg tr[data-trial]').length === 135")
+        assert page.locator(".rsb-pager").count() == 0
+        # robustness and OOS registers
+        for route, total in (("/research/robustness", 132), ("/research/oos", 133)):
+            visit(page, route)
+            assert page.locator("tr[data-trial][data-kind], tr[data-trial][data-oos-state]").count() == 100, route
+            attrs, _ = _pager(page)
+            assert attrs["hidden"] == str(total - 100), route
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_history_ledger_paged_by_programme_and_focus_opens_its_page(browser, state_factory):
+    url, server = start_server(_scaled(state_factory))
+    try:
+        page = new_page(browser, url, height=700)
+        visit(page, "/research/history")
+        assert page.locator("tr[data-trial]").count() == 100
+        attrs, text = _pager(page)
+        assert attrs["hidden"] == str(11 + 390 - 100)
+        # the group head counts the whole group, and says how much of it is on this page
+        gh = page.locator('.rsb-gh__n').first
+        assert int(gh.get_attribute("data-group-total")) > int(gh.get_attribute("data-group-shown"))
+        assert "ON THIS PAGE" in gh.inner_text().upper()
+        # a focused trial beyond the first page opens the page holding it, not every row before it
+        v = visit(page, "/research/history?focus=PG-T0380", settle_ms=600)
+        assert v.clean, v.describe()
+        assert page.eval_on_selector_all('tr[data-focus="1"]', "els => els.map(e => e.dataset.trial)") == ["PG-T0380"]
+        assert page.locator("tr[data-trial]").count() <= 100
+        attrs, text = _pager(page)
+        assert int(attrs["before"]) > 0 and "EARLIER" in text.upper()
+        in_view = page.evaluate("() => { const r = document.querySelector('tr[data-focus=\"1\"]').getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight }")
+        assert in_view
+        # "show earlier" keeps the focus and grows the window upward
+        page.click('.rsb-pager a[data-pager^="earlier-"]')
+        page.wait_for_function("() => document.querySelectorAll('tr[data-trial]').length > 100")
+        assert page.locator('tr[data-focus="1"]').count() == 1
         page.close()
     finally:
         server.should_exit = True

@@ -9,8 +9,8 @@
 
 import { html } from "../core/html.js";
 import { fmtCount, fmtDate, fmtDateTime, isNil } from "../core/format.js";
-import { doc, source, derived, sourceReason, sourceShort, currentVersion, findingsFor } from "../core/state.js";
-import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, findingsList, metric, control, tabs, val } from "../components/ui.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle, currentVersion, findingsFor } from "../core/state.js";
+import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, findingsList, metric, tabs, val } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 import * as S from "./_strategies-common.js";
 import { lifecycleDiagram, lifecycleRoster, deliveryFlow } from "./_strategies-flow.js";
@@ -25,26 +25,31 @@ function filterOf(ctx) {
 
 /* ---------------------------------------------------------------- tabs + filter definition */
 
-function categoryTabs(ctx, F) {
-  const sum = derived(ctx, "research_summary");
-  const connected = !!sum?.strategies_available;
+/**
+ * Category tabs. Each count is split by record origin ("3 · 2 RECON"), counted from the same
+ * registry rows the filter lists — never one number across ORIGINAL and RECONSTRUCTED records.
+ * No count at all while the registry is unavailable.
+ */
+function categoryTabs(F, rows) {
   return tabs(
     S.FILTER_ORDER.map((k) => {
       const f = S.FILTERS[k];
-      return { key: k, href: "#" + f.path, label: f.tab, count: connected && !isNil(sum[f.summaryKey]) ? fmtCount(sum[f.summaryKey]) : null };
+      const split = rows ? S.originSplit(rows.filter((r) => f.test(r.s, r.v)).map((r) => r.s)) : null;
+      return { key: k, href: "#" + f.path, label: f.tab, count: split ? S.splitInline(split, { cls: "st-split--tab" }) : null };
     }),
     F.key,
   );
 }
 
 function filterStrip(F, listed, rows, ssrc) {
+  const all = rows ? S.originSplit(rows.map((r) => r.s)) : null;
   return html`<div class="st-filterdef" data-filter="${F.key}">
     <span class="st-filterdef__k">${icon("sources")}FILTER · ${F.tab.toUpperCase()}</span>
     <span class="st-filterdef__def">${F.definition}</span>
-    <span class="st-filterdef__n">${
+    <span class="st-filterdef__n" data-filter-count>${
       rows
-        ? html`<b class="mono">${fmtCount(listed.length)}</b> of <b class="mono">${fmtCount(rows.length)}</b> registered ${S.plural(rows.length, "strategy", "strategies")} listed`
-        : html`<span class="st-nodata">${sourceShort(ssrc)} · NOTHING TO FILTER</span>`
+        ? html`${S.splitInline(S.originSplit(listed.map((r) => r.s)))} of ${S.splitInline(all)} registered ${S.plural(rows.length, "strategy", "strategies")} listed`
+        : html`${S.offLabel(ssrc)}<span class="st-nodata"> · NOTHING TO FILTER</span>`
     }</span>
   </div>`;
 }
@@ -66,9 +71,10 @@ function excludedNote(excl) {
 
 function verdict(ctx, st, ssrc, rows) {
   if (!st) {
-    return html`<div class="st-verdict is-nc" data-validated-state="not-connected">
+    // The registry is unavailable — say why exactly (not connected ≠ not produced ≠ contract error ≠ unreadable).
+    return html`<div class="st-verdict is-nc ${S.offTone(ssrc)}" data-validated-state="unavailable" data-source-status="${ssrc?.status ?? ""}">
       <div class="st-verdict__k">VALIDATED STRATEGIES · CURRENT VERSIONS</div>
-      <div class="st-verdict__word" data-validated-count>NOT CONNECTED</div>
+      <div class="st-verdict__word" data-validated-count>${sourceShort(ssrc)}</div>
       <div class="st-verdict__why">${sourceReason(ssrc)} No strategy is shown as validated until the strategy registry reports it — none is assumed.</div>
     </div>`;
   }
@@ -79,7 +85,7 @@ function verdict(ctx, st, ssrc, rows) {
       <div class="st-verdict__word" data-validated-count>NO VALIDATED STRATEGIES</div>
       <div class="st-verdict__why">${
         rows.length
-          ? html`The registry is connected and lists ${fmtCount(rows.length)} ${S.plural(rows.length, "strategy", "strategies")}; none is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
+          ? html`The registry is connected and lists ${S.splitInline(S.originSplit(rows.map((r) => r.s)))} ${S.plural(rows.length, "strategy", "strategies")}; none is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
           : "The registry is connected and lists no strategies."
       } No-trade is a valid outcome — no edge found is better than a fake edge found.</div>
     </div>`;
@@ -93,7 +99,7 @@ function verdict(ctx, st, ssrc, rows) {
   </div>`;
 }
 
-function registryCounts(rows) {
+function registryCounts(rows, ssrc) {
   const by = (pred) => (rows ? S.originSplit(rows.filter(pred).map((r) => r.s)) : null);
   const tiles = [
     ["Registered", by(() => true), "All statuses"],
@@ -104,16 +110,17 @@ function registryCounts(rows) {
     ["Rejected", by((r) => r.s.status === "REJECTED"), "Kept on record"],
   ];
   return statRow(
-    tiles.map(([label, split, hint]) => stat({ label, value: split ? S.splitVal(split) : null, hint, emptyLabel: "NOT CONNECTED", size: "sm" })),
+    tiles.map(([label, split, hint]) => stat({ label, value: split ? S.splitVal(split) : null, hint, emptyLabel: sourceShort(ssrc), size: "sm" })),
     { min: 104 },
   );
 }
 
-function eligibility(ctx, st) {
+function eligibility(ctx, st, ssrc) {
   const ids = derived(ctx, "controls")?.deployment_eligible;
   const head = html`<div class="st-elig__k">DEPLOYMENT-ELIGIBLE <span class="st-faint">VALIDATED · APPROVED · PACKAGED — DERIVED FROM DECLARED STATE</span></div>`;
-  if (!st) return html`<div class="st-elig">${head}<div class="st-elig__v">${val(null)} <span class="st-nodata">REGISTRY NOT CONNECTED</span></div></div>`;
-  if (!ids?.length) return html`<div class="st-elig">${head}<div class="st-elig__v"><span class="st-none-word">NONE</span> <span class="small muted">No current version is validated, approved and packaged.</span></div></div>`;
+  if (!st) return html`<div class="st-elig">${head}<div class="st-elig__v">${val(null)} ${S.offLabel(ssrc, "REGISTRY")}</div></div>`;
+  if (!ids) return html`<div class="st-elig">${head}<div class="st-elig__v">${val(null)} <span class="st-nodata">NOT DERIVED</span></div></div>`;
+  if (!ids.length) return html`<div class="st-elig">${head}<div class="st-elig__v"><span class="st-none-word">NONE</span> <span class="small muted">No current version in the registry is declared validated, approved and packaged.</span></div></div>`;
   return html`<div class="st-elig">${head}<div class="st-elig__v cluster">${ids.map((id) => {
     const s = st.strategies.find((x) => x.strategy_id === id);
     return html`<span class="st-idchip"><a class="ref" href="${S.strategyHref(id)}">${id}</a>${s ? badge(s.status) : ""}</span>`;
@@ -175,7 +182,7 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
   let empty;
   if (!st) {
     empty = sourceEmpty(ssrc, {
-      title: F.key === "validated" ? "Validated strategies — not connected" : "Strategy registry not connected",
+      title: sourceTitle(ssrc, F.key === "validated" ? "Validated strategies" : "Strategy registry"),
       hint: "Each strategy will be listed with its record origin, name, mechanism, market, status, current version, validation status, headline net return, Sharpe and max drawdown (each tagged with its evidence basis), assigned agent and last update.",
     });
   } else if (F.key === "validated") {
@@ -184,7 +191,7 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
       <div class="st-novalid__title">NO VALIDATED STRATEGIES</div>
       <div class="st-novalid__reason">${
         rows.length
-          ? html`None of the ${fmtCount(rows.length)} registered ${S.plural(rows.length, "strategy", "strategies")} is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
+          ? html`None of the ${S.splitInline(S.originSplit(rows.map((r) => r.s)))} registered ${S.plural(rows.length, "strategy", "strategies")} is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
           : "The strategy registry is connected and lists no strategies."
       } Under SENTRY policy only a validated version may proceed to approval, packaging and an agent.</div>
       <div class="st-novalid__doctrine"><span>NO-TRADE &gt; WEAK TRADE</span><span>NO EDGE FOUND &gt; FAKE EDGE FOUND</span></div>
@@ -212,14 +219,16 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
 
 /* ---------------------------------------------------------------- delivery flow */
 
-function flowStages(ctx, st, rows) {
+function flowStages(ctx, st, rows, ssrc) {
   const eligibleIds = derived(ctx, "controls")?.deployment_eligible ?? [];
   const agentsSrc = source(ctx, "agents");
   const slots = derived(ctx, "agent_slots");
   const mem = doc(ctx, "memory");
+  // an unavailable source names its status under the empty value instead of a unit
+  const unit = (ok, text, src, what) => (ok ? text : `${what} · ${sourceShort(src)}`);
   const ops = ["portfolio", "risk", "execution", "live"];
   return [
-    { key: "LIBRARY", code: "STR", label: "Strategy library", desc: "Registered strategies and their immutable versions", href: "#/strategies", value: rows ? S.originSplit(rows.map((r) => r.s)) : null, unit: "REGISTERED" },
+    { key: "LIBRARY", code: "STR", label: "Strategy library", desc: "Registered strategies and their immutable versions", href: "#/strategies", value: rows ? S.originSplit(rows.map((r) => r.s)) : null, unit: unit(rows, "REGISTERED", ssrc, "REGISTRY") },
     {
       key: "VALIDATION",
       code: "VAL",
@@ -227,7 +236,7 @@ function flowStages(ctx, st, rows) {
       desc: "Research engine declares the current version VALIDATED",
       href: "#/research/validation",
       value: rows ? S.originSplit(rows.filter((r) => S.FILTERS.validated.test(r.s, r.v)).map((r) => r.s)) : null,
-      unit: "VALIDATED",
+      unit: unit(rows, "VALIDATED", ssrc, "REGISTRY"),
     },
     {
       key: "DEPLOYMENT",
@@ -236,7 +245,7 @@ function flowStages(ctx, st, rows) {
       desc: "Governance approval and a sealed deployment package",
       href: "#/governance",
       value: st ? S.originSplit(st.strategies.filter((s) => eligibleIds.includes(s.strategy_id))) : null,
-      unit: "ELIGIBLE",
+      unit: unit(st, "ELIGIBLE", ssrc, "REGISTRY"),
     },
     {
       key: "AGENT",
@@ -245,7 +254,7 @@ function flowStages(ctx, st, rows) {
       desc: "Assigned to one of five agent slots — simulation first",
       href: "#/agents",
       value: agentsSrc?.status === "OK" && slots ? slots.filter((x) => x.has_strategy).length : null,
-      unit: "SLOTS RUNNING A STRATEGY",
+      unit: unit(agentsSrc?.status === "OK", "SLOTS DECLARING AN ASSIGNMENT", agentsSrc, "AGENTS"),
     },
     {
       key: "OPERATIONS",
@@ -264,7 +273,7 @@ function flowStages(ctx, st, rows) {
       desc: "Outcomes recorded as evidence-backed memory",
       href: "#/memory",
       value: mem ? S.originSplit(mem.memories.filter((m) => m.related_strategies?.length)) : null,
-      unit: "MEMORIES CITING A STRATEGY",
+      unit: unit(mem, "MEMORIES CITING A STRATEGY", source(ctx, "memory"), "MEMORY"),
     },
   ];
 }
@@ -314,7 +323,7 @@ function proposalsTable(st, ssrc) {
     rowAttrs: (p) => html`data-proposal="${p.proposal_id}"`,
     empty: st
       ? emptyState({ title: "No improvement proposals recorded", reason: "No agent or researcher has proposed a change to any strategy.", compact: true })
-      : sourceEmpty(ssrc, { compact: true, title: "Proposals not connected", hint: "Each proposed improvement will appear with its base version and — if released — the new version it became." }),
+      : sourceEmpty(ssrc, { compact: true, title: sourceTitle(ssrc, "Proposals"), hint: "Each proposed improvement will appear with its base version and — if released — the new version it became." }),
     maxHeight: 340,
   });
 }
@@ -330,9 +339,9 @@ export default {
     const rows = st ? st.strategies.map((s) => ({ s, v: currentVersion(s) })) : null;
     const listed = rows ? rows.filter((r) => F.test(r.s, r.v)).sort(S.byStrategyId) : null;
     const highlight = new Set(F.key === "all" || !listed ? [] : listed.map((r) => r.s.status));
-    const findings = findingsFor(ctx, "strategies");
+    // filed under "strategies", or referencing a registered strategy / proposal from any check
+    const findings = st ? S.strategyFindings(ctx, [...st.strategies.map((x) => x.strategy_id), ...st.proposals.map((p) => p.proposal_id)]) : findingsFor(ctx, "strategies");
     const controls = derived(ctx, "controls");
-    const anyConnected = !!ctx.snap && Object.values(ctx.snap.sources ?? {}).some((x) => x.status === "OK");
 
     return html`
       ${pageHeader({
@@ -343,16 +352,16 @@ export default {
         right: html`${sourceTag(ssrc, { now: ctx.now })}`,
       })}
 
-      ${categoryTabs(ctx, F)}
+      ${categoryTabs(F, rows)}
       ${filterStrip(F, listed, rows, ssrc)}
 
       <div class="grid">
         ${panel({
           span: 8,
-          cls: "lg-span-12",
+          cls: "lg-span-12 st-lcpanel",
           code: "STR-01",
           title: "Strategy lifecycle",
-          sub: rows ? `Current status of ${fmtCount(rows.length)} registered ${S.plural(rows.length, "strategy", "strategies")}` : sourceReason(ssrc),
+          sub: rows ? html`Current status of ${S.splitInline(S.originSplit(rows.map((r) => r.s)))} registered ${S.plural(rows.length, "strategy", "strategies")}` : sourceReason(ssrc),
           body: html`<div class="st-lc-wrap">${lifecycleDiagram(rows, { highlight })}${lifecycleRoster(rows, { hrefFor: (s) => S.strategyHref(s.strategy_id) })}</div>
             <div class="st-lc-legend">
               <span>COUNT = STRATEGIES WHOSE CURRENT STATUS IS THIS · SPLIT BY RECORD ORIGIN, NEVER MERGED</span>
@@ -361,11 +370,11 @@ export default {
         })}
         ${panel({
           span: 4,
-          cls: "lg-span-12",
+          cls: "lg-span-12 st-verdictpanel",
           code: "STR-02",
           title: "Registry verdict",
           sub: "Declared by the research engine",
-          body: html`${verdict(ctx, st, ssrc, rows)}<div class="st-gap"></div><div class="st-kpis">${registryCounts(rows)}</div>${eligibility(ctx, st)}`,
+          body: html`${verdict(ctx, st, ssrc, rows)}<div class="st-gap"></div><div class="st-kpis">${registryCounts(rows, ssrc)}</div>${eligibility(ctx, st, ssrc)}`,
           variant: "accent",
         })}
       </div>
@@ -375,7 +384,7 @@ export default {
           span: 12,
           code: "STR-03",
           title: `Strategy registry · ${F.tab}`,
-          sub: rows ? `${fmtCount(listed.length)} listed · current version shown · select a row for the full strategy record` : sourceReason(ssrc),
+          sub: rows ? html`${S.splitInline(S.originSplit(listed.map((r) => r.s)))} listed · current version shown · select a row for the full strategy record` : sourceReason(ssrc),
           body: registryTable(ctx, F, st, ssrc, listed, rows),
           cls: "st-regpanel",
         })}
@@ -387,44 +396,34 @@ export default {
           code: "STR-04",
           title: "From library to live",
           sub: "The path a validated strategy must take — every hand-off gated and recorded",
-          body: deliveryFlow(flowStages(ctx, st, rows)),
+          body: deliveryFlow(flowStages(ctx, st, rows, ssrc)),
         })}
       </div>
 
-      <div class="grid">
-        ${panel({
-          span: 7,
-          cls: "lg-span-12",
-          code: "STR-05",
-          title: "Improvement proposals",
-          sub: "A proposal may only become a new version — never an edit",
-          body: html`${S.label("PROPOSALS BY STATE", "each step is gated; agents may not release a version")}${proposalFlow(st)}${S.label("RECORDED PROPOSALS", st ? `${fmtCount(st.proposals.length)} on record · newest first` : null)}${proposalsTable(st, ssrc)}`,
-        })}
-        <div class="span-5 lg-span-12 stack st-pair">
+      <div class="grid st-cols" data-cols="proposals">
+        <div class="st-col st-col--main span-8">
           ${panel({
-            code: "STR-06",
-            title: "Strategy findings",
-            sub: "Cross-checks of declared strategy state — not verdicts",
-            body: findingsList(findings, {
-              empty: emptyState({
-                title: st ? "No strategy findings" : "Strategy findings — not connected",
-                reason: st
-                  ? "Declared strategy state passes the Command Centre's cross-checks."
-                  : anyConnected
-                    ? "The strategy registry is not connected, so there is nothing to cross-check."
-                    : "Nothing is connected, so there is nothing to cross-check.",
-                compact: true,
-                iconName: "shield",
-              }),
-            }),
+            cls: "st-o1",
+            code: "STR-05",
+            title: "Improvement proposals",
+            sub: "A proposal may only become a new version — never an edit",
+            body: html`${S.label("PROPOSALS BY STATE", "each step is gated; agents may not release a version")}${proposalFlow(st)}${S.label("RECORDED PROPOSALS", st ? `${fmtCount(st.proposals.length)} on record · newest first` : null)}${proposalsTable(st, ssrc)}`,
           })}
+        </div>
+        <div class="st-col st-col--rail span-4">
           ${panel({
+            cls: "st-o2 st-half",
             code: "STR-07",
             title: "Deployment controls",
             sub: "Locked — reasons computed from state",
-            body: controls
-              ? html`<div class="stack st-controls">${controls.actions.filter((a) => DEPLOY_ACTIONS.includes(a.key)).map((a) => control(a))}</div>`
-              : emptyState({ title: "No snapshot", compact: true }),
+            body: controls ? S.lockedControls(controls.actions.filter((a) => DEPLOY_ACTIONS.includes(a.key))) : emptyState({ title: "No snapshot", compact: true }),
+          })}
+          ${panel({
+            cls: "st-o3 st-half",
+            code: "STR-06",
+            title: "Strategy findings",
+            sub: "Cross-checks of declared strategy state — not verdicts",
+            body: findingsList(findings, { empty: S.noFindingsState(ctx, st, ssrc) }),
           })}
         </div>
       </div>

@@ -271,12 +271,17 @@
   min-width: 0;
 }
 
+/* up to two lines, so a source problem ("Declared ONLINE, but research.json is
+   INVALID") is read whole rather than cut mid-sentence; full text in the title */
 .cc-sys__detail {
   font-size: var(--fs-xs);
+  line-height: 1.35;
   color: var(--text-2);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   min-height: 15px;
 }
 
@@ -395,6 +400,24 @@
 .cc-split--hero .cc-split__tag {
   font-size: 10px;
   padding: 2px 6px;
+}
+
+/* inside a handoff step count */
+.cc-split--step {
+  gap: 2px 6px;
+}
+
+.cc-split--step .cc-split__n {
+  gap: 3px;
+}
+
+.cc-split--step .cc-split__n + .cc-split__n {
+  padding-left: 6px;
+}
+
+.cc-split--step .cc-split__tag {
+  padding: 0 3px;
+  font-size: 7.5px;
 }
 
 /* ---------- CMD-02 research KPIs ---------- */
@@ -807,6 +830,13 @@
   white-space: nowrap;
 }
 
+.cc-loop__unit {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
 
 
 .cc-loop__return {
@@ -847,6 +877,41 @@
 }
 
 /* ---------- CMD-04 trading floor ---------- */
+
+/* Five slots, never a 3 + 2 grid with an empty sixth cell: five across, or
+   three over two (the lower pair half-width each), or two over two over one. */
+.cc-panel-floor .panel__body {
+  container-type: inline-size;
+}
+
+.cc-floor {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@container (max-width: 1099px) {
+  .cc-floor {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .cc-floor > * {
+    grid-column: span 2;
+  }
+  .cc-floor > :nth-child(n + 4) {
+    grid-column: span 3;
+  }
+}
+
+@container (max-width: 640px) {
+  .cc-floor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cc-floor > *,
+  .cc-floor > :nth-child(n + 4) {
+    grid-column: auto;
+  }
+  .cc-floor > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
 
 .cc-floor__feed {
   margin-top: 4px;
@@ -975,14 +1040,16 @@
   gap: 6px;
 }
 
-/* items grow to fill a row but never shrink below their per-origin counts */
+/* Chips keep their content width (per-origin counts + label are never clipped)
+   and never stretch, so a wrapped last chip is not a full-width orphan bar. */
 .cc-hypstat__item {
-  flex: 1 0 auto;
-  min-width: 118px;
+  flex: 0 0 auto;
+  min-width: 104px;
+  max-width: 100%;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 5px 9px 5px 8px;
   border: 1px solid var(--line);
   border-left: 2px solid var(--tone, var(--muted));
   border-radius: 0 var(--radius) var(--radius) 0;
@@ -993,8 +1060,6 @@
   text-transform: uppercase;
   color: var(--text-2);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .cc-hypstat__item b {
@@ -1006,9 +1071,73 @@
 }
 
 .cc-hypstat__k {
+  flex: none;
+}
+
+/* current research family (focus-declared; linked records' families labelled beside it) */
+
+.cc-fam {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.cc-fam__k {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cc-fam__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.cc-fam__v {
+  overflow-wrap: anywhere;
+}
+
+.cc-fam__none {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
+.cc-fam__link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.cc-fam__link i {
+  flex: none;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.cc-fam__link b {
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- CMD-06 memory ---------- */
@@ -1041,6 +1170,31 @@
   display: block;
   width: 100%;
   height: auto;
+}
+
+/* one cumulative series per record origin, never one merged line */
+.cc-growth__row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.cc-growth__row + .cc-growth__row {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dotted var(--line);
+}
+
+.cc-growth__row .cc-split__tag {
+  justify-self: start;
+}
+
+.cc-growth__n {
+  min-width: 22px;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--text);
 }
 
 .cc-mem {
@@ -1460,32 +1614,46 @@
   min-width: 0;
 }
 
-.cc-node__kv span {
+.cc-node__kv > span {
   flex: none;
   letter-spacing: 0.1em;
   color: var(--muted);
 }
 
+/* values wrap rather than being cut off; only the (titled) path is ellipsised */
 .cc-node__kv b {
   margin-left: auto;
   font-weight: 500;
   color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: right;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 
+.cc-node__kv--path b {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* declared status / heartbeat / detail: wraps (up to three lines) instead of
+   cutting the producer's detail off; the full text is in the title. */
 .cc-node__meta {
   font-family: var(--font-mono);
   font-size: 9px;
+  line-height: 1.5;
   letter-spacing: 0.08em;
   color: var(--muted);
   padding-top: 6px;
   border-top: 1px dotted var(--line-2);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.cc-node__meta--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .cc-link {
@@ -1527,9 +1695,10 @@
 .cc-link__sub {
   font-family: var(--font-mono);
   font-size: 8.5px;
+  line-height: 1.25;
   letter-spacing: 0.06em;
   color: var(--faint);
-  white-space: nowrap;
+  text-align: center;
 }
 
 .cc-link.is-on .cc-link__sub {
@@ -1827,27 +1996,74 @@
 
 /* ---------- SYS-03 learning ---------- */
 
+/* Two lanes — agent stages | gated stages — side by side when the panel holds all
+   twelve steps (one row, as one flow), stacked below that so nothing scrolls:
+   the gated lane then sits under the agent lane on the same step columns. */
+.cc-panel-learn .panel__body {
+  container-type: inline-size;
+}
+
 .cc-learn {
+  display: grid;
+  grid-template-columns: minmax(0, var(--afr, 9fr)) minmax(0, var(--gfr, 3fr));
+  grid-template-rows: auto auto;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(7, 10, 15, 0.3);
 }
 
+.cc-learn__lane {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  min-width: 0;
+}
+
+.cc-learn__lane--gov {
+  border-left: 1px dashed rgba(245, 158, 11, 0.55);
+}
+
 .cc-learn .steps {
   overflow: visible;
   grid-auto-columns: minmax(92px, 1fr);
-  min-width: calc(var(--n, 12) * 92px);
 }
 
 .cc-learn .step {
   padding-right: 8px;
 }
 
-.cc-learn__zones {
-  display: grid;
-  min-width: calc(var(--n, 12) * 92px);
+/* the boundary is the gated lane's own edge */
+.cc-learn .step--boundary::before {
+  display: none;
+}
+
+/* side by side the two lanes read as one flow: carry the connector across */
+.cc-learn__lane--agent .step:last-child::after {
+  display: block;
+  right: -1px;
+}
+
+.cc-learn .cc-zone {
   border-bottom: 1px solid var(--line);
+}
+
+@container (max-width: 1120px) {
+  .cc-learn {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cc-learn__lane--gov {
+    border-left: 0;
+    border-top: 1px dashed rgba(245, 158, 11, 0.55);
+  }
+  .cc-learn .steps {
+    grid-template-columns: repeat(var(--cols, 9), minmax(0, 1fr));
+    grid-auto-columns: minmax(0, 1fr);
+    min-width: calc(var(--cols, 9) * 88px);
+  }
+  .cc-learn__lane--agent .step:last-child::after {
+    display: none;
+  }
 }
 
 .cc-zone {
@@ -1858,7 +2074,7 @@
   min-width: 0;
 }
 
-.cc-zone span {
+.cc-zone > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1868,7 +2084,7 @@
   color: var(--cyan-2);
 }
 
-.cc-zone span .icon {
+.cc-zone > span .icon {
   width: 12px;
   height: 12px;
 }
@@ -1892,11 +2108,10 @@
 }
 
 .cc-zone--gov {
-  border-left: 1px dashed rgba(245, 158, 11, 0.55);
   background: linear-gradient(90deg, rgba(59, 130, 246, 0.08), transparent 80%);
 }
 
-.cc-zone--gov span {
+.cc-zone--gov > span {
   color: var(--blue-2);
 }
 

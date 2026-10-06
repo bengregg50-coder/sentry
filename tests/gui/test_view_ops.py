@@ -26,6 +26,13 @@ def _text(page, selector: str) -> str:
     return (page.text_content(selector) or "").strip()
 
 
+def _step_counts(page) -> dict[str, str]:
+    """Deployment-path stepper counts by step key (text as displayed)."""
+    return page.evaluate(
+        "Object.fromEntries([...document.querySelectorAll('.ops-path .step')].map(s => [s.dataset.step, (s.querySelector('.step__count')?.textContent || '').trim()]))"
+    )
+
+
 def _unallocated(page) -> int:
     return page.evaluate("[...document.querySelectorAll('.ops-none')].filter(e => e.textContent.trim() === 'UNALLOCATED').length")
 
@@ -156,6 +163,8 @@ def test_live_fixture_sim_mode_and_live_trading_disabled(browser, fixture_url):
     assert _attr(page, "[data-engine-state]", "data-engine-state") == "RUNNING"
     assert _attr(page, ".ops-ladder__rung[data-current]", "data-rung") == "SIM"
     assert _attr(page, '[data-interlock="research_live_separation"]', "data-state") == "PASS"
+    # A declared check without detail is described as the check, never as "not reported".
+    assert "REPORTS NO" not in _text(page, '[data-interlock="research_live_separation"]').upper()
     assert _attr(page, '[data-interlock="kill_switch"]', "data-state") == "ARMED"
     # Fixture approvals are SIM-scope only: no LIVE-scope approval is on record.
     assert "NONE ON RECORD" in _text(page, '[data-interlock="live_scope_approvals"]').upper()
@@ -165,14 +174,24 @@ def test_live_fixture_sim_mode_and_live_trading_disabled(browser, fixture_url):
     row = page.locator('tr:has([data-path-strategy="FX-S003"])')
     states = row.locator("[data-step-state]").evaluate_all("els => els.map(e => e.dataset.stepState)")
     assert states == ["COMPLETE", "COMPLETE", "COMPLETE", "COMPLETE", "RUNNING", "NOT_REACHED"]
-    # Stepper: both fixture approvals are SIM scope. The approval step counts any scope and says
-    # so; its LIVE-scope subset is 0, agreeing with the LIVE-scope approvals interlock.
+    # Stepper: fixture approvals are SIM scope. The approval step counts any scope and says so;
+    # its LIVE-scope subset is 0, agreeing with the LIVE-scope approvals interlock. Withdrawn
+    # strategies (FX-S004 RETIRED, FX-S005 REJECTED) are listed but never counted on the path.
     approval = '.ops-path .step[data-step="APPROVAL"]'
     assert "LIVE" not in _text(page, f"{approval} .step__label").upper()
     assert "ANY SCOPE" in _text(page, f"{approval} .step__detail").upper()
-    assert _text(page, f"{approval} .step__count") == "2"
+    assert _step_counts(page) == {
+        "VALIDATION": "1", "APPROVAL": "1", "DEPLOYMENT_PACKAGE": "1", "AGENT_ASSIGNMENT": "1", "SIMULATION": "0", "LIVE": "0",
+    }
     assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == "0"
     assert _text(page, "[data-live-scope-approvals] .v") == "0"
+    # The ongoing simulation is shown as running, not as a completed step.
+    assert _attr(page, "[data-sim-running]", "data-sim-running") == "1"
+    assert _attr(page, "[data-path-withdrawn]", "data-path-withdrawn") == "2"
+    assert page.locator('tr:has([data-path-strategy="FX-S004"]) [data-withdrawn]').count() == 1
+    assert page.locator('tr:has([data-path-strategy="FX-S003"]) [data-withdrawn]').count() == 0
+    # One origin in the registry: plain counts, no per-origin split.
+    assert page.locator(".ops-path [data-origin-split]").count() == 0
     # No live findings: the tile says so once; no second full-width empty state repeats it.
     assert _attr(page, '[data-interlock="live_findings"]', "data-state") == ""
     assert "NO FINDINGS" in _text(page, '[data-interlock="live_findings"] .badge').upper()
@@ -282,10 +301,11 @@ def test_live_scope_approval_is_counted_apart_from_any_scope(browser, state_fact
         v = visit(page, "/live")
         assert v.clean, v.describe()
         approval = '.ops-path .step[data-step="APPROVAL"]'
-        # Any-scope approvals stay 2 (FX-S003 LIVE SMALL + FX-S004 SIM); only one is LIVE scope.
-        assert _text(page, f"{approval} .step__count") == "2"
+        # FX-S003 (LIVE SMALL) is the one active approval; withdrawn FX-S004 (SIM) is not counted.
+        assert _text(page, f"{approval} .step__count") == "1"
         assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == "1"
         assert _attr(page, '[data-interlock="live_scope_approvals"]', "data-state") == "APPROVED"
+        assert page.locator('[data-interlock="live_scope_approvals"] [data-live-approved="FX-S003"]').count() == 1
         page.close()
     finally:
         server.should_exit = True
@@ -386,3 +406,269 @@ def test_tripped_kill_switch_and_breach_limit_render_red(browser, state_factory)
         page.close()
     finally:
         server.should_exit = True
+
+
+# --------------------------------------------------------------------------- round 2 regressions
+
+
+def _set_scope(doc, strategy_id, scope):
+    for s in doc["data"]["strategies"]:
+        if s["strategy_id"] == strategy_id:
+            cur = next(v for v in s["versions"] if v["version"] == s["current_version"])
+            cur["approval"]["scope"] = scope
+
+
+def test_withdrawn_live_scope_approval_is_not_counted_for_live(browser, state_factory):
+    # FX-S004 is RETIRED. A LIVE-scope approval on its current version is not a path to live
+    # capital: the interlock and the stepper both leave it out and say so.
+    url, server = start_server(state_factory({"strategies": lambda d: _set_scope(d, "FX-S004", "LIVE")}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/live")
+        assert v.clean, v.describe()
+        tile = '[data-interlock="live_scope_approvals"]'
+        assert "NONE ON RECORD" in _text(page, f"{tile} .badge").upper()
+        assert "tone-ok" not in _attr(page, tile, "class")
+        assert _attr(page, f"{tile} [data-live-withdrawn]", "data-live-withdrawn") == "1"
+        assert "FX-S004" in _text(page, f"{tile} [data-live-withdrawn]")
+        assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == "0"
+        assert _step_counts(page)["APPROVAL"] == "1"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_deployment_path_counts_are_kept_per_origin(browser, state_factory):
+    # A registry mixing ORIGINAL and RECONSTRUCTED strategies never shows one merged step count.
+    def mix(doc):
+        for s in doc["data"]["strategies"]:
+            s["origin"] = "RECONSTRUCTED" if s["strategy_id"] == "FX-S003" else "ORIGINAL"
+
+    url, server = start_server(state_factory({"strategies": mix}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/live")
+        assert v.clean, v.describe()
+        split = page.evaluate(
+            """() => Object.fromEntries([...document.querySelectorAll('.ops-path .step')].map(s => [
+                s.dataset.step,
+                Object.fromEntries([...s.querySelectorAll('.step__count [data-origin]')].map(n => [n.dataset.origin, n.querySelector('.v').textContent.trim()])),
+            ]))"""
+        )
+        # Active population: FX-S001 / FX-S002 ORIGINAL, FX-S003 RECONSTRUCTED (FX-S004/5 withdrawn).
+        assert split["VALIDATION"] == {"ORIGINAL": "0", "RECONSTRUCTED": "1"}
+        assert split["APPROVAL"] == {"ORIGINAL": "0", "RECONSTRUCTED": "1"}
+        assert split["LIVE"] == {"ORIGINAL": "0", "RECONSTRUCTED": "0"}
+        assert "RECON" in _text(page, '.ops-path .step[data-step="VALIDATION"] .step__count')
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_missing_sources_say_not_produced_not_not_connected(browser, state_factory):
+    url, server = start_server(state_factory(drop=("portfolio", "execution", "agents", "strategies")))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/portfolio")
+        assert _text(page, "[data-portfolio-mode] .badge") == "NOT PRODUCED"
+        titles = page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim())")
+        assert "Exposures not produced" in titles and "Positions not produced" in titles, titles
+        assert not [t for t in titles if "not connected" in t.lower()], titles
+        assert "not produced" in _text(page, ".chart__empty .t").lower()
+        # Agent slots without agents.json claim no status (never the SLEEPING default).
+        statuses = page.eval_on_selector_all(".view td .badge", "els => els.map(e => e.textContent.trim())")
+        assert "SLEEPING" not in statuses and statuses.count("NOT PRODUCED") == 10, statuses
+
+        visit(page, "/execution")
+        titles = page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim())")
+        assert {"Open orders not produced", "Fills not produced", "Connections not produced"} <= set(titles), titles
+        assert not [t for t in titles if "not connected" in t.lower()], titles
+
+        visit(page, "/risk")
+        heads = page.eval_on_selector_all("[data-agent-limits] [data-slot-status]", "els => els.map(e => e.dataset.slotStatus)")
+        assert heads == ["NOT_CONNECTED"] * 5
+        assert "SLEEPING" not in _text(page, '[data-agent-limits="1"]').upper()
+        assert "NOT PRODUCED" in _text(page, '[data-agent-limits="1"]').upper()
+
+        visit(page, "/live")
+        tile = '[data-interlock="live_scope_approvals"]'
+        assert _text(page, f"{tile} .badge") == "NOT PRODUCED"
+        assert _text(page, '[data-interlock="live_agents"] .badge') == "NOT PRODUCED"
+        assert "Strategy registry not produced" in page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim())")
+        assert "not connected" not in _text(page, ".ops-path-note").lower()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_invalid_sources_read_as_contract_errors(browser, state_factory):
+    def break_doc(doc):
+        doc["data"] = {"nonsense": True}
+
+    url, server = start_server(state_factory({"risk": break_doc, "governance": break_doc, "portfolio": break_doc}))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/risk")
+        assert _attr(page, "[data-kill-switch]", "data-kill-switch") == "INVALID"
+        assert _text(page, ".ops-ks__state") == "CONTRACT ERROR"
+        assert "tone-bad" in _attr(page, "[data-kill-switch]", "class")
+        titles = page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim())")
+        assert "Portfolio limits rejected by the contract" in titles and "Breaches rejected by the contract" in titles, titles
+        # The risk checks did not run: never "No risk findings".
+        assert page.locator('[data-empty-state="no-risk-findings"]').count() == 0
+        assert page.locator('[data-empty-state="risk-checks-not-run"]').count() == 1
+        assert "CONTRACT ERROR" in _text(page, '[data-empty-state="risk-checks-not-run"] .empty__title').upper()
+
+        visit(page, "/live")
+        for key in ("kill_switch", "research_live_separation"):
+            assert _attr(page, f'[data-interlock="{key}"]', "data-state") == "INVALID", key
+            assert _text(page, f'[data-interlock="{key}"] .badge') == "CONTRACT ERROR", key
+
+        visit(page, "/portfolio")
+        assert _attr(page, "[data-portfolio-mode]", "data-portfolio-mode") == "INVALID"
+        assert "tone-bad" in _attr(page, "[data-portfolio-mode] .badge", "class")
+        assert "conforms to the state contract" in _text(page, ".chart__empty .r")
+
+        visit(page, "/execution")
+        assert "Execution limits rejected by the contract" in page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim())")
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_empty_slot_badges_say_not_connected_and_empty_values_stay_faint(browser, empty_url):
+    page = new_page(browser, empty_url)
+    visit(page, "/portfolio")
+    statuses = page.eval_on_selector_all(".view td .badge", "els => els.map(e => e.textContent.trim())")
+    assert statuses and set(statuses) == {"NOT CONNECTED"}, statuses
+    visit(page, "/live")
+    # An empty value node keeps the faint empty colour: no .v rule overrides .is-empty.
+    colours = page.evaluate(
+        """() => {
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--faint)';
+            document.body.appendChild(probe);
+            const faint = getComputedStyle(probe).color;
+            probe.remove();
+            const node = document.querySelector('[data-live-scope-approvals] .v.is-empty');
+            return { faint, node: node ? getComputedStyle(node).color : null };
+        }"""
+    )
+    assert colours["node"] == colours["faint"], colours
+    page.close()
+
+
+@pytest.mark.parametrize("width,per_row", [(1024, [3, 3]), (1440, [3, 3]), (1920, [6]), (2560, [6])])
+def test_portfolio_book_tiles_never_orphan(browser, fixture_url, width, per_row):
+    page = new_page(browser, fixture_url, width=width)
+    v = visit(page, "/portfolio")
+    assert v.clean, v.describe()
+    rows = page.evaluate(
+        """() => {
+            const rows = new Map();
+            for (const el of document.querySelectorAll('.ops-book__stats .stat-row > .stat')) {
+                const top = Math.round(el.getBoundingClientRect().top);
+                rows.set(top, (rows.get(top) || 0) + 1);
+            }
+            return [...rows.keys()].sort((a, b) => a - b).map((k) => rows.get(k));
+        }"""
+    )
+    assert rows == per_row, (width, rows)
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1920, 2560])
+@pytest.mark.parametrize("route", ROUTES)
+def test_ops_paired_panels_leave_no_large_blank(browser, fixture_url, empty_url, width, route):
+    # Panels sharing a row stretch to the taller one; the pairing keeps the unused bottom small
+    # (was 161px under the portfolio exposures panel at 1920).
+    for base in (fixture_url, empty_url):
+        page = new_page(browser, base, width=width)
+        v = visit(page, route, settle_ms=600)
+        assert v.clean, v.describe()
+        blanks = _paired_blanks(page)
+        assert blanks, "expected paired panels"
+        assert all(b <= 80 for _, b in blanks), (base, width, route, blanks)
+        page.close()
+
+
+def _paired_blanks(page) -> list:
+    return page.evaluate(
+        """() => [...document.querySelectorAll('.view .grid')].filter(g => g.children.length > 1).flatMap(g => [...g.children].map(p => {
+            const body = p.querySelector('.panel__body');
+            const last = body.lastElementChild;
+            const pad = parseFloat(getComputedStyle(body).paddingBottom) || 0;
+            return [p.querySelector('.panel__code')?.textContent.trim(), Math.round(body.getBoundingClientRect().bottom - pad - last.getBoundingClientRect().bottom)];
+        }))"""
+    )
+
+
+@pytest.mark.parametrize("width", [1024, 1280])
+def test_live_path_matrix_fits_without_horizontal_scroll(browser, fixture_url, width):
+    # The withdrawn marker wraps under the strategy id instead of widening the column.
+    page = new_page(browser, fixture_url, width=width)
+    v = visit(page, "/live")
+    assert v.clean, v.describe()
+    over = page.evaluate(
+        "(() => { const w = document.querySelector('tr:has([data-path-strategy]) ').closest('.table-wrap'); return w.scrollWidth - w.clientWidth; })()"
+    )
+    assert over <= 1, (width, over)
+    page.close()
+
+
+def _row_extents(page, selector: str) -> list[dict]:
+    """Per visual row: element count and the row's left / right edge (rounded px), top to bottom."""
+    return page.evaluate(
+        """(sel) => {
+            const rows = new Map();
+            for (const el of document.querySelectorAll(sel)) {
+                const r = el.getBoundingClientRect();
+                const top = Math.round(r.top);
+                const row = rows.get(top) || { n: 0, left: Infinity, right: -Infinity };
+                row.n += 1;
+                row.left = Math.min(row.left, Math.round(r.left));
+                row.right = Math.max(row.right, Math.round(r.right));
+                rows.set(top, row);
+            }
+            return [...rows.keys()].sort((a, b) => a - b).map((k) => rows.get(k));
+        }""",
+        selector,
+    )
+
+
+@pytest.mark.parametrize("width", [1024, 1280, 1440, 1920])
+def test_risk_grids_leave_no_orphan_beside_a_void(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    v = visit(page, "/risk")
+    assert v.clean, v.describe()
+    # Five agent slots: one row of five, or 3 + 2 with the second row spanning the full width.
+    slots = _row_extents(page, "[data-agent-limits]")
+    assert [r["n"] for r in slots] in ([5], [3, 2]), slots
+    assert all(abs(r["left"] - slots[0]["left"]) <= 2 and abs(r["right"] - slots[0]["right"]) <= 2 for r in slots), slots
+    # Section limit panels (RSK-03..05): one row of three, or two + one spanning the row.
+    sections = page.evaluate(
+        """() => [...document.querySelectorAll('.view .panel')]
+            .filter(p => ['RSK-03', 'RSK-04', 'RSK-05'].includes(p.querySelector('.panel__code')?.textContent.trim()))
+            .map(p => { const r = p.getBoundingClientRect(); return { top: Math.round(r.top), left: Math.round(r.left), right: Math.round(r.right) }; })"""
+    )
+    tops = sorted({s["top"] for s in sections})
+    assert len(tops) in (1, 2), sections
+    rows = [[s for s in sections if s["top"] == t] for t in tops]
+    left, right = min(s["left"] for s in sections), max(s["right"] for s in sections)
+    for row in rows:
+        assert min(s["left"] for s in row) - left <= 2 and right - max(s["right"] for s in row) <= 2, (width, sections)
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1024, 1280])
+@pytest.mark.parametrize("route", ROUTES)
+def test_ops_tables_fit_at_narrow_widths(browser, fixture_url, width, route):
+    page = new_page(browser, fixture_url, width=width)
+    v = visit(page, route)
+    assert v.clean, v.describe()
+    over = page.evaluate(
+        "[...document.querySelectorAll('.view .table-wrap')].map(w => [w.closest('.panel')?.querySelector('.panel__code')?.textContent.trim(), w.scrollWidth - w.clientWidth]).filter(x => x[1] > 1)"
+    )
+    assert over == [], (width, route, over)
+    assert page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0
+    page.close()

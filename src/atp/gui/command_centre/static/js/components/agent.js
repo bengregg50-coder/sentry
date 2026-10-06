@@ -50,7 +50,7 @@ export function agentMini(slot, { now } = {}) {
     <div class="agent-mini__strategy">${strat ? strategyLine(strat) : noneLine(slot, status)}</div>
     <div class="agent-mini__trace">${sparkline(a?.equity?.map((p) => p.v), { width: 200, height: 26 })}</div>
     <dl class="agent-mini__kv">
-      <div><dt>MARKET</dt><dd>${val(a?.market)}</dd></div>
+      <div><dt>MARKET</dt><dd title="${a?.market ?? ""}">${val(a?.market)}</dd></div>
       <div><dt>POSITION</dt><dd>${pos ? val(`${pos.side} ${pos.quantity}`) : val(null)}</dd></div>
       <div><dt>P&amp;L · DAY</dt><dd class="agent-mini__pnl">${a?.pnl?.day ? metric(a.pnl.day) : val(null)}</dd></div>
       <div><dt>HEARTBEAT</dt><dd>${val(a?.last_heartbeat ? fmtAge(a.last_heartbeat, now) : null)}</dd></div>

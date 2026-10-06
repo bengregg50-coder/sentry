@@ -1,11 +1,14 @@
 // Memory Overview — what SENTRY has learned, how it is distributed, how it
-// grows, and how memory closes the self-improvement loop. Totals come from
-// derived.memory_stats; distributions are display counts of memory.json rows.
-// Nothing here rates a memory: confidence and validation are declared.
+// grows, and how memory closes the self-improvement loop. Every record count
+// is shown per record origin (ORIGINAL untagged, RECON / SYNTH tagged), never
+// as one merged figure: derive's own per-origin maps are used where
+// derived.memory_stats has them, otherwise memory.json rows are counted by the
+// same declared fields. Nothing here rates a memory: confidence and validation
+// are declared.
 
 import { html } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, humanize } from "../core/format.js";
-import { doc, source, derived, sourceReason, sourceShort, findingsFor, currentVersion } from "../core/state.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle, findingsFor, currentVersion } from "../core/state.js";
 import { pageHeader, panel, badge, stat, statRow, val, originBadge, emptyState, sourceEmpty, findingsList } from "../components/ui.js";
 import { steps } from "../components/flow.js";
 import { icon } from "../components/icons.js";
@@ -18,52 +21,70 @@ import {
   memState,
   memoryIndex,
   memHref,
-  countBy,
   tally,
   flattenEvidence,
   originSplit,
+  originCounts,
+  splitVal,
+  splitSize,
   sectionLabel,
   sourceTags,
   bars,
   typeBadge,
   untraceableBadge,
   anatomy,
+  memoryChecksRan,
+  loadMemoryEvents,
+  memEvents,
 } from "./_memory-common.js";
 import { memLoop } from "./_memory-loop.js";
-import { growthChart } from "./_memory-chart.js";
-
-function distribution(stats, field, keys) {
-  const avail = !!stats?.available;
-  return keys.map((k) => ({ key: k, n: avail ? tally(stats[field], k) : null }));
-}
+import { growthChart, growthSeries } from "./_memory-chart.js";
 
 /* ------------------------------------------------------------ MEM-01 store totals */
 
+// The same definitions as derive_memory_stats(): display counting of declared fields only.
+const isHigh = (m) => m.confidence === "HIGH" && m.validation_state === "VALIDATED";
+const isUnresolved = (m) => m.validation_state === "UNVERIFIED" || m.validation_state === "PROVISIONAL" || m.status === "REVIEW";
+const isRejectedAssumption = (m) => m.type === "REJECTED_ASSUMPTION" || m.status === "REJECTED";
+const isContradicted = (m) => m.validation_state === "CONTRADICTED";
+
+/**
+ * Per-origin split of one memory_stats class: derive's own by-origin map when
+ * the snapshot has one, else memory.json rows counted by the same declared
+ * fields. null when memory.json is not available.
+ */
+function statSplit(st, derivedKey, pred) {
+  if (!st.stats?.available || !st.mems) return null;
+  const m = st.stats[derivedKey];
+  return m ? { ...m } : originCounts(st.mems, pred);
+}
+
 function storeTotals(ctx, st) {
-  const { stats, src, mems } = st;
-  const avail = !!stats?.available;
-  const s = (k) => (avail ? fmtCount(stats[k]) : null);
+  const { src, mems } = st;
   const why = sourceShort(src);
   const evRows = flattenEvidence(mems);
   const untraceable = mems ? mems.filter((m) => m.evidence.length === 0) : null;
+  const tile = (label, split, hint, title) =>
+    stat({ label, value: splitVal(split, { cls: "mem-split--lg" }), hint, emptyLabel: why, size: "lg", title });
   return html`
     ${statRow(
       [
-        stat({ label: "Total memories", value: s("total"), hint: "All records in memory.json", emptyLabel: why, size: "lg" }),
-        stat({ label: "High confidence", value: s("high_confidence_findings"), hint: "HIGH · VALIDATED", emptyLabel: why, size: "lg", title: "Memories declared HIGH confidence and VALIDATED" }),
-        stat({ label: "Unresolved", value: s("unresolved"), hint: "Unverified or in review", emptyLabel: why, size: "lg", title: "Validation state UNVERIFIED or PROVISIONAL, or status REVIEW" }),
-        stat({ label: "Rejected assumptions", value: s("rejected_assumptions"), hint: "Type or status rejected", emptyLabel: why, size: "lg", title: "Type REJECTED_ASSUMPTION or status REJECTED" }),
-        stat({ label: "Contradicted", value: s("contradicted"), hint: "Declared CONTRADICTED", emptyLabel: why, size: "lg", title: "Validation state CONTRADICTED" }),
+        tile("Total memories", statSplit(st, "by_origin", null), "All records · per origin", "Every memory in memory.json, counted per record origin"),
+        tile("High confidence", statSplit(st, "high_confidence_by_origin", isHigh), "HIGH · VALIDATED", "Memories declared HIGH confidence and VALIDATED"),
+        tile("Unresolved", statSplit(st, "unresolved_by_origin", isUnresolved), "Unverified or in review", "Validation state UNVERIFIED or PROVISIONAL, or status REVIEW"),
+        tile("Rejected assumptions", statSplit(st, "rejected_assumptions_by_origin", isRejectedAssumption), "Type or status rejected", "Type REJECTED_ASSUMPTION or status REJECTED"),
+        tile("Contradicted", statSplit(st, "contradicted_by_origin", isContradicted), "Declared CONTRADICTED", "Validation state CONTRADICTED"),
       ],
       { min: 150 },
     )}
     <div class="mem-totals-foot">
-      <div class="mem-totals-foot__item"><span class="mem-k">BY ORIGIN</span>${originSplit(mems)}</div>
-      <div class="mem-totals-foot__item"><span class="mem-k">EVIDENCE ITEMS</span>${val(evRows ? fmtCount(evRows.length) : null)}</div>
-      <div class="mem-totals-foot__item"><span class="mem-k">UNTRACEABLE</span>${
-        untraceable ? html`${val(fmtCount(untraceable.length))}${untraceable.length ? html` <a class="mem-more" href="#/memory/evidence">REVIEW ${icon("expand")}</a>` : ""}` : val(null)
+      <div class="mem-totals-foot__item" data-total="evidence"><span class="mem-k">EVIDENCE ITEMS</span>${splitVal(originCounts(evRows, null, (e) => e.memory.origin), { cls: "mem-split--sm" }) ?? val(null)}</div>
+      <div class="mem-totals-foot__item" data-total="untraceable"><span class="mem-k">UNTRACEABLE</span>${
+        untraceable
+          ? html`${splitVal(originCounts(untraceable), { cls: "mem-split--sm" })}${untraceable.length ? html` <a class="mem-more" href="#/memory/evidence">REVIEW ${icon("expand")}</a>` : ""}`
+          : val(null)
       }</div>
-      <div class="mem-totals-foot__note">Totals are declared by derive.memory_stats. Origins are counted separately and never merged.</div>
+      <div class="mem-totals-foot__note">Counted per record origin — ORIGINAL untagged, other origins tagged — never merged. Definitions match derive.memory_stats; evidence items take the origin of their memory.</div>
     </div>`;
 }
 
@@ -162,13 +183,19 @@ function loopPanel(ctx, st) {
 
 /* ------------------------------------------------------------ MEM-02 composition */
 
+// Each distribution counts memory.json rows by a declared field, per record
+// origin (a bar's number is split whenever a record is not ORIGINAL).
+const FIELD = { by_type: "type", by_validation_state: "validation_state", by_status: "status", by_confidence: "confidence" };
+
 function composition(st) {
-  const { stats, src } = st;
-  const col = (title, field, keys, opts) => html`<div class="mem-comp__col">${sectionLabel(title)}${bars(distribution(stats, field, keys), opts)}</div>`;
+  const { stats, src, mems } = st;
+  const rows = (field, keys) => keys.map((k) => ({ key: k, split: mems ? originCounts(mems, (m) => m[FIELD[field]] === k) : null }));
+  const originRows = ORIGINS.map((k) => ({ key: k, n: stats?.available ? tally(stats.by_origin, k) : null }));
+  const col = (title, body) => html`<div class="mem-comp__col">${sectionLabel(title)}${body}</div>`;
   return html`<div class="mem-comp">
-    <div class="mem-comp__group">${col("By type", "by_type", MEMORY_TYPES, { neutral: true })}</div>
-    <div class="mem-comp__group">${col("By validation state", "by_validation_state", VALIDATION_STATES)}${col("By status", "by_status", STATUSES)}</div>
-    <div class="mem-comp__group">${col("By confidence", "by_confidence", CONFIDENCE)}${col("By origin", "by_origin", ORIGINS)}
+    <div class="mem-comp__group">${col("By type", bars(rows("by_type", MEMORY_TYPES), { neutral: true }))}</div>
+    <div class="mem-comp__group">${col("By validation state", bars(rows("by_validation_state", VALIDATION_STATES)))}${col("By status", bars(rows("by_status", STATUSES)))}</div>
+    <div class="mem-comp__group">${col("By confidence", bars(rows("by_confidence", CONFIDENCE)))}${col("By origin", bars(originRows))}
       ${stats?.available ? "" : html`<div class="mem-comp__why">${icon("info")}<span>${sourceReason(src)} Each distribution appears here once memories are recorded.</span></div>`}
     </div>
   </div>`;
@@ -179,7 +206,7 @@ function composition(st) {
 function recent(st) {
   const { stats, mems, src } = st;
   if (!stats?.available || !mems) {
-    return sourceEmpty(src, { title: "No memories to show", hint: "The ten most recently created memories appear here, newest first, each linked to its evidence." });
+    return sourceEmpty(src, { title: sourceTitle(src, "Memory store"), hint: "The ten most recently created memories appear here, newest first, each linked to its evidence." });
   }
   const idx = memoryIndex(mems);
   const rows = (stats.recent ?? []).map((id) => idx.get(id)).filter(Boolean);
@@ -202,59 +229,66 @@ function recent(st) {
 /* ------------------------------------------------------------ MEM-05 growth */
 
 function growth(st) {
-  const { stats, src } = st;
-  const g = stats?.available ? stats.growth ?? [] : null;
-  const first = g && g.length ? g[0].date : null;
-  const last = g && g.length ? g[g.length - 1].date : null;
+  const { src, mems } = st;
+  const series = growthSeries(mems);
+  const days = series ? [...new Set(series.flatMap((s) => s.points.map((p) => p.date)))].sort() : null;
   return html`
-    ${growthChart(g, {
+    ${growthChart(series, {
       height: 196,
-      emptyTitle: g ? "No memories recorded yet" : "Memory growth not connected",
-      emptyReason: g ? "The cumulative count is drawn from real creation dates only." : sourceReason(src),
+      emptyTitle: series ? "No memories recorded yet" : sourceTitle(src, "Memory growth"),
+      emptyReason: series ? "Each origin's cumulative count is drawn from real creation dates only." : sourceReason(src),
     })}
     <div class="mem-growth-kv">
-      <div><span class="mem-k">FIRST RECORD</span>${val(first)}</div>
-      <div><span class="mem-k">LATEST ADDITION</span>${val(last)}</div>
-      <div><span class="mem-k">DAYS WITH ADDITIONS</span>${val(g ? fmtCount(g.length) : null)}</div>
+      <div><span class="mem-k">FIRST RECORD</span>${val(days && days.length ? days[0] : null)}</div>
+      <div><span class="mem-k">LATEST ADDITION</span>${val(days && days.length ? days[days.length - 1] : null)}</div>
+      <div><span class="mem-k">DAYS WITH ADDITIONS</span>${val(days ? fmtCount(days.length) : null)}</div>
     </div>`;
 }
 
 /* ------------------------------------------------------------ MEM-06 shared learning flow */
 
+/** Step state for a count: never "none recorded" when its source is unavailable. */
+function flowState(split, src, ok) {
+  if (!ok) return src ? { NOT_CONFIGURED: "NOT_CONNECTED", MISSING: "NOT_PRODUCED", INVALID: "INVALID", UNREADABLE: "UNREADABLE" }[src.status] ?? src.status : "UNAVAILABLE";
+  return splitSize(split) > 0 ? "REPORTING" : "NONE_RECORDED";
+}
+
 function sharedFlow(ctx, st) {
-  const { mems } = st;
-  const learning = derived(ctx, "learning");
-  const stageCount = (k) => {
-    if (!learning?.events_available) return null;
-    const s = learning.stages.find((x) => x.key === k);
-    return s ? s.count : null;
-  };
+  const { mems, src } = st;
+  const ev = memEvents(ctx, ctx.extra);
   const evRows = flattenEvidence(mems);
-  const stance = evRows ? countBy(evRows, (e) => e.stance) : null;
-  const sup = stance ? tally(stance, "SUPPORTS") : null;
-  const con = stance ? tally(stance, "CONTRADICTS") : null;
-  const state = (n, connected) => (!connected ? "NOT_CONNECTED" : n > 0 ? "REPORTING" : "NONE_RECORDED");
-  const agentMems = mems ? mems.filter((m) => m.source.actor === "AGENT") : null;
-  const reviewed = mems ? mems.filter((m) => !isNil(m.last_reviewed)) : null;
-  const writes = stageCount("WRITE_MEMORY");
-  const recalls = stageCount("RECALL");
+  const kindSplit = (kind) => (ev.ok ? originCounts(ev.events, (e) => e.kind === kind) : null);
+  const memOk = !!mems;
+  const step = (key, label, split, ok, stateSrc, detail, owner) => ({
+    key,
+    label,
+    count: ok ? splitVal(split, { cls: "mem-split--step" }) : null,
+    state: flowState(split, stateSrc, ok),
+    detail,
+    owner,
+  });
+  const sup = memOk ? originCounts(evRows, (e) => e.stance === "SUPPORTS", (e) => e.memory.origin) : null;
+  const con = memOk ? originCounts(evRows, (e) => e.stance === "CONTRADICTS", (e) => e.memory.origin) : null;
+  const evScope = ev.ok && !ev.complete ? " · latest fetched" : "";
   const list = [
-    { key: "DISCOVER", label: "Agent discovers", count: agentMems ? agentMems.length : null, state: state(agentMems?.length, !!mems), detail: "agent-sourced memories", owner: "AGENT" },
-    { key: "STORE", label: "Stores evidence-backed memory", count: writes, state: state(writes, !isNil(writes)), detail: "memory-write events", owner: "AGENT → MEMORY" },
-    { key: "RETRIEVE", label: "Another agent retrieves", count: recalls, state: state(recalls, !isNil(recalls)), detail: "recall events · all agents", owner: "MEMORY → AGENT" },
-    { key: "TEST", label: "Tests applicability", count: null, state: "NOT_REPORTED", detail: "no contract field yet", owner: "AGENT · RESEARCH" },
+    step("DISCOVER", "Agent discovers", memOk ? originCounts(mems, (m) => m.source.actor === "AGENT") : null, memOk, src, "agent-sourced memories", "AGENT"),
+    step("STORE", "Stores evidence-backed memory", kindSplit("MEMORY_WRITE"), ev.ok, ev.src, `memory-write events${evScope}`, "AGENT → MEMORY"),
+    step("RETRIEVE", "Another agent retrieves", kindSplit("MEMORY_RECALL"), ev.ok, ev.src, `recall events · all agents${evScope}`, "MEMORY → AGENT"),
+    step("TEST", "Tests applicability", kindSplit("APPLICABILITY_TEST"), ev.ok, ev.src, `applicability-test events${evScope}`, "AGENT · RESEARCH"),
     {
       key: "VERDICT",
       label: "Confirms or contradicts",
-      count: stance ? `${fmtCount(sup)} / ${fmtCount(con)}` : null,
-      state: state(stance ? sup + con : null, !!stance),
+      count: memOk ? html`<span class="mem-verdict-n"><span data-verdict="supports">${splitVal(sup, { cls: "mem-split--step" })}</span><span class="mem-verdict-n__sep">/</span><span data-verdict="contradicts">${splitVal(con, { cls: "mem-split--step" })}</span></span>` : null,
+      state: memOk ? (splitSize(sup) + splitSize(con) > 0 ? "REPORTING" : "NONE_RECORDED") : flowState(null, src, false),
       detail: "supporting / contradicting items",
       owner: "EVIDENCE",
     },
-    { key: "UPDATE", label: "Updates shared knowledge", count: reviewed ? reviewed.length : null, state: state(reviewed?.length, !!mems), detail: "memories with a recorded review", owner: "MEMORY" },
+    step("UPDATE", "Updates shared knowledge", memOk ? originCounts(mems, (m) => !isNil(m.last_reviewed)) : null, memOk, src, "memories with a recorded review", "MEMORY"),
   ];
   return html`${steps(list, { cls: "mem-flow" })}
-    <div class="mem-flow-note">${icon("info")}<span>Counts are shown only where the contract records them. Cross-agent recall — agent X retrieving what agent Y wrote — is resolved per event on <a class="ref" href="#/memory/agents">Agent Memories</a>.</span></div>`;
+    <div class="mem-flow-note">${icon("info")}<span>Counts are per record origin and shown only where the contract records them${
+      ev.ok && !ev.complete ? html` — event counts cover the latest events fetched, not the whole stream` : ""
+    }. Cross-agent recall — agent X retrieving what agent Y wrote — is resolved per event on <a class="ref" href="#/memory/agents">Agent Memories</a>.</span></div>`;
 }
 
 /* ------------------------------------------------------------ MEM-07 philosophy */
@@ -269,6 +303,27 @@ function philosophy() {
 
 /* ------------------------------------------------------------ MEM-08 integrity */
 
+/**
+ * "No findings" only ever means none from the checks that ran
+ * (derived.check_coverage) — never "memory state is consistent".
+ */
+function noFindings(ctx) {
+  const cov = memoryChecksRan(ctx);
+  if (!cov.ran) {
+    return emptyState({ title: "Cross-checks not run", reason: cov.note ?? "derive did not run the memory cross-checks for this snapshot.", compact: true, code: "memory-checks-not-run" });
+  }
+  const strat = source(ctx, "strategies");
+  return emptyState({
+    title: "No findings",
+    reason: `None from the memory cross-checks that ran: HIGH or VALIDATED without supporting evidence, VALIDATED with contradicting evidence, unresolved memory references${
+      strat?.status === "OK" ? ", unresolved strategy references" : `. Strategy references were not checked — ${sourceTitle(strat, "strategies.json")}`
+    }.`,
+    compact: true,
+    iconName: "shield",
+    code: "memory-no-findings",
+  });
+}
+
 function integrity(ctx, st) {
   const { mems, src } = st;
   if (!mems) return sourceEmpty(src, { compact: true, title: "Integrity checks need memory.json", hint: "Cross-checks of memory state (unsupported confidence, contradicted validations, unresolved references) appear here." });
@@ -277,7 +332,7 @@ function integrity(ctx, st) {
   return html`<div class="mem-integrity">
     <div class="mem-integrity__col">
       ${sectionLabel("Consistency findings", "section · memory")}
-      ${findingsList(findings, { empty: emptyState({ title: "No findings", reason: "Connected memory state is internally consistent.", compact: true, iconName: "shield" }) })}
+      ${findingsList(findings, { empty: noFindings(ctx) })}
     </div>
     <div class="mem-integrity__col">
       ${sectionLabel("Untraceable memories", "no evidence attached")}
@@ -294,6 +349,7 @@ function integrity(ctx, st) {
 
 export default {
   title: "Memory Overview",
+  load: loadMemoryEvents,
   render(ctx) {
     const st = memState(ctx);
     return html`
@@ -307,7 +363,7 @@ export default {
 
       <div class="grid">
         <div class="span-8 xl-span-12 stack">
-          ${panel({ code: "MEM-01", title: "Memory store", sub: st.mems ? "Declared totals" : sourceReason(st.src), body: storeTotals(ctx, st) })}
+          ${panel({ code: "MEM-01", title: "Memory store", sub: st.mems ? "Per record origin · never merged" : sourceReason(st.src), body: storeTotals(ctx, st) })}
           ${panel({ code: "MEM-02", title: "Composition", sub: "Distribution of recorded memories", body: composition(st), cls: "mem-grow" })}
         </div>
         <div class="span-4 xl-span-12 mem-loop-col">${loopPanel(ctx, st)}</div>

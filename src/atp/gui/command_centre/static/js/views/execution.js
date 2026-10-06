@@ -5,7 +5,7 @@
 
 import { html } from "../core/html.js";
 import { fmtDateTime, fmtCount, fmtNum, humanize, isNil } from "../core/format.js";
-import { doc, source, derived, sourceReason, sourceShort } from "../core/state.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle } from "../core/state.js";
 import { pageHeader, panel, badge, stat, statRow, sourceTag, table, val, emptyState } from "../components/ui.js";
 import {
   SLOTS,
@@ -21,6 +21,8 @@ import {
   provenance,
   ghostHead,
   slotAbsence,
+  slotBadge,
+  untilAvailable,
   mcell,
   limitRow,
 } from "./_ops-common.js";
@@ -55,7 +57,7 @@ function quality(ctx, ex, src) {
 /** Execution-limit declarations from risk.json, shown beside the stats they bound. */
 function execLimits(ctx) {
   const risk = doc(ctx, "risk");
-  if (!risk) return absent(ctx, "risk", { title: "Execution limits not connected", hint: "Declared limits on order flow and fill quality appear here with used vs limit." });
+  if (!risk) return absent(ctx, "risk", { what: "Execution limits", hint: "Declared limits on order flow and fill quality appear here with used vs limit." });
   if (!risk.execution_limits.length)
     return emptyState({ title: "No execution limits declared", reason: "risk.json is connected and declares no execution limits. None are assumed.", compact: true, code: "no-exec-limits" });
   return html`<div class="ops-limits ops-limits--grid">${risk.execution_limits.map((l) => limitRow(l, { compact: true }))}</div>`;
@@ -78,14 +80,14 @@ function slippage(ctx, ex, src) {
   return html`<div class="ops-slip-block">
       <div class="ops-slip-block__head"><span class="label label--accent">Book · execution.json</span></div>
       ${slipPair(st?.slippage_bps_mean, st?.slippage_model_bps)}
-      ${st ? "" : html`<div class="ops-note">${ex ? "No execution stats declared." : `${sourceReason(src) ?? ""} Realised slippage is set against the cost model once execution.json is produced.`}</div>`}
+      ${st ? "" : html`<div class="ops-note">${ex ? "No execution stats declared." : `${sourceReason(src) ?? ""} Realised slippage is set against the cost model ${untilAvailable(src, "the execution layer")}.`}</div>`}
     </div>
     <div class="ops-slip-block">
       <div class="ops-slip-block__head"><span class="label label--accent">Per agent · agents.json</span></div>
       ${agentRows.length
         ? agentRows.map((s) => html`<div class="ops-slip-agent" data-slip-agent="${s.slot}"><a class="ops-slot-link" href="#/agents/${s.slot}">${slotName(s.slot)}</a>${slipPair(s.agent.execution.slippage_bps_mean, s.agent.execution.slippage_model_bps)}</div>`)
         : emptyState({
-            title: source(ctx, "agents")?.status === "OK" ? "No agent execution blocks" : `Agents ${sourceShort(source(ctx, "agents"))}`,
+            title: source(ctx, "agents")?.status === "OK" ? "No agent execution blocks" : sourceTitle(source(ctx, "agents"), "Agent execution blocks"),
             reason: source(ctx, "agents")?.status === "OK" ? "No agent declares execution statistics." : sourceReason(source(ctx, "agents")),
             compact: true,
             code: "no-agent-exec",
@@ -111,7 +113,7 @@ const ORDER_COLS = [
 
 function orders(ctx, ex) {
   const head = ghostHead(ORDER_COLS.map((c) => c.label), { cls: "ops-ghost-head--10" });
-  if (!ex) return html`${head}${absent(ctx, "execution", { title: "Orders not connected", hint: "Working and partially filled orders appear here with agent, type, limit and mode." })}`;
+  if (!ex) return html`${head}${absent(ctx, "execution", { what: "Open orders", hint: "Working and partially filled orders appear here with agent, type, limit and mode." })}`;
   return table({
     dense: true,
     columns: ORDER_COLS,
@@ -138,7 +140,7 @@ const FILL_COLS = [
 
 function fills(ctx, ex) {
   const head = ghostHead(FILL_COLS.map((c) => c.label), { cls: "ops-ghost-head--10" });
-  if (!ex) return html`${head}${absent(ctx, "execution", { title: "Fills not connected", hint: "Every fill appears with price, slippage in bps and its mode (SIM / PAPER / LIVE)." })}`;
+  if (!ex) return html`${head}${absent(ctx, "execution", { what: "Fills", hint: "Every fill appears with price, slippage in bps and its mode (SIM / PAPER / LIVE)." })}`;
   const rows = [...ex.fills].sort((a, b) => (a.executed_at < b.executed_at ? 1 : -1));
   return table({
     dense: true,
@@ -157,7 +159,7 @@ function perAgent(ctx) {
     dense: true,
     columns: [
       { key: "slot", label: "Slot", render: (r) => html`<a class="ops-slot-link" href="#/agents/${r.slot}">${slotName(r.slot)}</a>` },
-      { key: "status", label: "Status", render: (r) => badge(r.status ?? "NOT_REPORTED") },
+      { key: "status", label: "Status", render: (r) => slotBadge(ctx, r) },
       { key: "p50", label: "Latency p50", num: true, render: (r) => numVal(r.agent?.execution?.latency_ms_p50, 1, "ms") },
       { key: "p95", label: "Latency p95", num: true, render: (r) => numVal(r.agent?.execution?.latency_ms_p95, 1, "ms") },
       { key: "slip", label: "Slippage mean", num: true, render: (r) => numVal(r.agent?.execution?.slippage_bps_mean, 2, "bps") },
@@ -227,7 +229,7 @@ export default {
                 now: ctx.now,
                 empty: emptyState({ title: "No connections declared", reason: "execution.json is connected and declares no broker or feed connections.", compact: true, iconName: "link", code: "no-connections" }),
               })
-            : html`${ghostHead(["Connection", "Kind", "State", "Heartbeat"], { cls: "ops-ghost-head--4" })}${absent(ctx, "execution", { title: "Connections not connected", hint: "Broker and market-data links appear here with state and last heartbeat." })}`,
+            : html`${ghostHead(["Connection", "Kind", "State", "Heartbeat"], { cls: "ops-ghost-head--4" })}${absent(ctx, "execution", { what: "Connections", hint: "Broker and market-data links appear here with state and last heartbeat." })}`,
           cls: "lg-span-12",
         })}
         ${panel({

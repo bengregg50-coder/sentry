@@ -4,7 +4,7 @@
 // Findings = every type except LESSON; lessons = LESSON.
 
 import { html } from "../core/html.js";
-import { fmtCount, humanize } from "../core/format.js";
+import { humanize } from "../core/format.js";
 import { sourceReason, sourceShort } from "../core/state.js";
 import { pageHeader, panel, emptyState, sourceEmpty, tabs, stat, statRow } from "../components/ui.js";
 import { icon } from "../components/icons.js";
@@ -15,8 +15,9 @@ import {
   CONFIDENCE,
   memState,
   qhref,
-  countBy,
-  tally,
+  originCounts,
+  splitVal,
+  splitText,
   memoryCard,
   bars,
   sectionLabel,
@@ -43,14 +44,19 @@ const KINDS = {
   },
 };
 
-function filterChips(label, key, values, counts, ctx, path) {
+/** Chip / tab count: per record origin, never one merged figure. */
+function facetCount(rows, pred) {
+  return rows ? splitVal(originCounts(rows, pred), { cls: "mem-split--sm" }) : null;
+}
+
+function filterChips(label, key, values, rows, field, ctx, path) {
   const active = ctx.query[key] ?? null;
   return html`<div class="mem-chips" data-filter="${key}">
     <span class="mem-chips__label">${label}</span>
     <a class="mem-chip" href="${qhref(path, ctx.query, { [key]: null })}" aria-current="${active ? "false" : "true"}">ALL</a>
     ${values.map(
       (v) => html`<a class="mem-chip" href="${qhref(path, ctx.query, { [key]: v })}" aria-current="${active === v ? "true" : "false"}" data-value="${v}">${humanize(v)}${
-        counts ? html`<span class="mem-chip__n">${fmtCount(tally(counts, v))}</span>` : ""
+        rows ? html`<span class="mem-chip__n">${facetCount(rows, (m) => m[field] === v)}</span>` : ""
       }</a>`,
     )}
   </div>`;
@@ -75,13 +81,13 @@ export default {
 
     // Tab counts respect the other active filters (type/status), not the state filter itself.
     const forTabs = pool ? pool.filter((m) => (!typeF || m.type === typeF) && (!statusF || m.status === statusF)) : null;
-    const stateCounts = forTabs ? countBy(forTabs, (m) => m.validation_state) : null;
-    const typeCounts = pool ? countBy(pool.filter((m) => (!stateF || m.validation_state === stateF) && (!statusF || m.status === statusF)), (m) => m.type) : null;
-    const statusCounts = pool ? countBy(pool.filter((m) => (!stateF || m.validation_state === stateF) && (!typeF || m.type === typeF)), (m) => m.status) : null;
+    const forType = pool ? pool.filter((m) => (!stateF || m.validation_state === stateF) && (!statusF || m.status === statusF)) : null;
+    const forStatus = pool ? pool.filter((m) => (!stateF || m.validation_state === stateF) && (!typeF || m.type === typeF)) : null;
 
     const why = sourceShort(src);
-    const confCounts = shown ? countBy(shown, (m) => m.confidence) : null;
     const filtered = !!(stateF || typeF || statusF);
+    const split = (rows, pred) => (rows ? originCounts(rows, pred) : null);
+    const contested = (m) => m.evidence.some((e) => e.stance === "CONTRADICTS");
 
     let body;
     if (!pool) {
@@ -92,7 +98,7 @@ export default {
     } else if (!pool.length) {
       body = emptyState({
         title: `0 ${K.noun} recorded`,
-        reason: `memory.json is connected and holds ${fmtCount(mems.length)} memor${mems.length === 1 ? "y" : "ies"}, none of ${kind === "lessons" ? "type LESSON" : "a finding type"}.`,
+        reason: `memory.json is connected and holds ${splitText(originCounts(mems), mems.length === 1 ? "memory" : "memories")}, none of ${kind === "lessons" ? "type LESSON" : "a finding type"}.`,
         hint: "Recorded memories appear here as structured evidence cards.",
         code: `memory-${kind}-none`,
       });
@@ -108,14 +114,14 @@ export default {
       <div class="mem-filterbar">
         ${tabs(
           [
-            { key: "ALL", label: `All ${K.noun}`, href: qhref(K.path, q, { state: null }), count: forTabs ? forTabs.length : null },
-            ...VALIDATION_STATES.map((s) => ({ key: s, label: humanize(s), href: qhref(K.path, q, { state: s }), count: tally(stateCounts, s) })),
+            { key: "ALL", label: `All ${K.noun}`, href: qhref(K.path, q, { state: null }), count: facetCount(forTabs) },
+            ...VALIDATION_STATES.map((s) => ({ key: s, label: humanize(s), href: qhref(K.path, q, { state: s }), count: facetCount(forTabs, (m) => m.validation_state === s) })),
           ],
           stateF ?? "ALL",
         )}
         <div class="mem-filterbar__chips">
-          ${kind === "findings" ? filterChips("Type", "type", FINDING_TYPES, typeCounts, ctx, K.path) : ""}
-          ${filterChips("Status", "status", STATUSES, statusCounts, ctx, K.path)}
+          ${kind === "findings" ? filterChips("Type", "type", FINDING_TYPES, forType, "type", ctx, K.path) : ""}
+          ${filterChips("Status", "status", STATUSES, forStatus, "status", ctx, K.path)}
         </div>
       </div>
 
@@ -124,9 +130,16 @@ export default {
           span: 9,
           code: `${K.code}01`,
           title: K.title,
-          sub: shown ? `${fmtCount(shown.length)} of ${fmtCount(pool.length)} shown${filtered ? " · filtered" : ""} · newest first` : sourceReason(src),
+          sub: shown
+            ? !pool.length
+              ? "None recorded"
+              : filtered
+              ? `Showing ${splitText(split(shown))} of ${splitText(split(pool))} · filtered · newest first`
+              : `${splitText(split(pool))} · all shown · newest first`
+            : sourceReason(src),
           body,
-          cls: "xl-span-12",
+          // Never stretched to the side column: a short list ends with its last card, not in blank panel.
+          cls: "xl-span-12 mem-list-panel",
         })}
         <div class="span-3 xl-span-12 stack mem-side">
           ${panel({
@@ -136,12 +149,12 @@ export default {
             body: html`
               ${statRow(
                 [
-                  stat({ label: "Shown", value: shown ? fmtCount(shown.length) : null, hint: filtered ? "Filtered" : "All", emptyLabel: why, size: "sm" }),
-                  stat({ label: "Contested", value: shown ? fmtCount(shown.filter((m) => m.evidence.some((e) => e.stance === "CONTRADICTS")).length) : null, hint: "≥1 contradicting item", emptyLabel: why, size: "sm" }),
+                  stat({ label: "Shown", value: splitVal(split(shown), { cls: "mem-split--sm" }), hint: filtered ? "Filtered · per origin" : "All · per origin", emptyLabel: why, size: "sm" }),
+                  stat({ label: "Contested", value: splitVal(split(shown, contested), { cls: "mem-split--sm" }), hint: "≥1 contradicting item", emptyLabel: why, size: "sm" }),
                 ],
                 { min: 110 },
               )}
-              <div class="mem-gap">${sectionLabel("Declared confidence")}${bars(CONFIDENCE.map((c) => ({ key: c, n: tally(confCounts, c) })))}</div>`,
+              <div class="mem-gap">${sectionLabel("Declared confidence")}${bars(CONFIDENCE.map((c) => ({ key: c, split: split(shown, (m) => m.confidence === c) })))}</div>`,
           })}
           ${panel({ code: `${K.code}03`, title: "Card fields", sub: "From the contract", body: html`${anatomy({ compact: true })}<div class="mem-side-note">${icon("info")}<span>Confidence and validation are declared by the producer. The Command Centre never rates a memory.</span></div>` })}
         </div>

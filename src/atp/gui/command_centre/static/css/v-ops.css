@@ -257,8 +257,16 @@
   letter-spacing: 0;
 }
 
+/* Six book tiles: one row of six, or two rows of three — never 5 + 1 with an orphan tile. */
 .ops-book__stats .stat-row {
   height: 100%;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1440px) {
+  .ops-book__stats .stat-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .ops-book__stats .stat {
@@ -266,6 +274,12 @@
 }
 
 @media (max-width: 1100px) {
+  .ops-book {
+    grid-template-columns: minmax(176px, 200px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
   .ops-book {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -561,9 +575,44 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+/* Five slots: one row of five, or 3 + 2 with the second row spanning (never 3 + 2 beside a void). */
 @media (max-width: 1500px) {
   .ops-slots {
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .ops-slots > .ops-slot {
+    grid-column: span 2;
+  }
+  .ops-slots > .ops-slot:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 760px) {
+  .ops-slots > .ops-slot,
+  .ops-slots > .ops-slot:nth-child(n + 4) {
+    grid-column: span 6;
+  }
+}
+
+/* Table values (numbers with units) stay on one line; a timestamp may break only between date and time. */
+.ops-view .table td > .v {
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .ops-view .table td > .v.mono {
+    white-space: normal;
+    min-width: 11ch;
+    word-break: keep-all;
+  }
+}
+
+/* The per-agent execution note yields first when the table is tight. */
+@media (max-width: 1440px) {
+  .ops-why {
+    white-space: normal;
+    min-width: 96px;
   }
 }
 
@@ -735,6 +784,28 @@
   display: grid;
   gap: 12px 18px;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* Fixed doctrine sizes divide evenly: 4 items as 4 or 2 + 2, 3 items as one row (no orphan item). */
+.ops-doctrine--n4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ops-doctrine--n3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 1440px) {
+  .ops-doctrine--n4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .ops-doctrine--n4,
+  .ops-doctrine--n3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .ops-doctrine__item {
@@ -1156,14 +1227,67 @@
   white-space: nowrap;
 }
 
-.ops-path-scope .v {
+.ops-path-scope__n {
   margin-left: 4px;
-  color: var(--text);
+}
+
+.ops-path-scope .v {
   letter-spacing: 0;
 }
 
-.ops-path-scope .v.is-empty {
+.ops-path-scope .v:not(.is-empty) {
+  color: var(--text);
+}
+
+/* A count kept per origin: "2 ORIGINAL · 1 RECON" (never one merged figure). */
+.ops-osplit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.ops-osplit__n {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ops-osplit__n + .ops-osplit__n::before {
+  content: "·";
+  margin-right: 4px;
   color: var(--faint);
+}
+
+.ops-osplit__tag {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--tone, var(--muted));
+}
+
+.ops-path .step__count .ops-osplit__tag {
+  font-size: 9px;
+}
+
+/* Withdrawn strategies stay listed on the path matrix but are not counted. */
+.ops-withdrawn {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.ops-lock__aside {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-2xs);
+  color: var(--muted);
 }
 
 .ops-path-note {

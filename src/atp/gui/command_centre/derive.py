@@ -287,10 +287,19 @@ def derive_pipeline(research: ResearchState | None, strategies: StrategiesState 
     stages = []
     for stage in PIPELINE_STAGES:
         idx = STAGE_INDEX[stage]
-        if not available:
+        # Who can put items at this stage: research stages are reached by hypotheses (and by
+        # strategies); governance/deployment stages only by strategies. A stage is countable only
+        # when its primary source is connected; a missing secondary source makes it partial.
+        research_side = idx <= STAGE_INDEX[Stage.VALIDATION]
+        stage_available = (research is not None) if research_side else (strategies is not None)
+        partial = ["strategies"] if research_side and stage_available and strategies is None else []
+        if not stage_available:
             stages.append(
                 {
                     "stage": stage.value,
+                    "available": False,
+                    "unavailable_source": "research" if research_side else "strategies",
+                    "partial": [],
                     "reached": None,
                     "active": None,
                     "terminals": None,
@@ -311,9 +320,16 @@ def derive_pipeline(research: ResearchState | None, strategies: StrategiesState 
         stages.append(
             {
                 "stage": stage.value,
+                "available": True,
+                "unavailable_source": None,
+                "partial": partial,
                 "reached": len(reached_items),
                 "active": sum(1 for it in here if not it["terminal"]),
-                "terminals": {t.value: terminals.get(t.value, 0) for t in Terminal},
+                # RETIRED can only come from strategies: unknown (None) when they are not connected.
+                "terminals": {
+                    t.value: (None if t is Terminal.RETIRED and strategies is None else terminals.get(t.value, 0))
+                    for t in Terminal
+                },
                 # Origins are never merged silently: the totals above are disclosed per origin here.
                 "reached_by_origin": dict(Counter(it["origin"] for it in reached_items)),
                 "active_by_origin": dict(Counter(it["origin"] for it in here if not it["terminal"])),
@@ -387,7 +403,9 @@ def _assignments_for(strategy: Strategy, agents: AgentsState | None) -> list[Age
     return [a for a in agents.agents if a.assignment and a.assignment.strategy_id == strategy.strategy_id]
 
 
-def derive_handoff(strategy: Strategy, agents: AgentsState | None) -> dict[str, Any]:
+def derive_handoff(
+    strategy: Strategy, agents: AgentsState | None, agents_phrase: str = "Agent runtime not connected"
+) -> dict[str, Any]:
     """Where a strategy's *current version* is in the deployment handoff, from declared facts only.
 
     Prerequisites are cumulative: a step is COMPLETE only when its own condition holds AND every
@@ -473,10 +491,11 @@ def derive_handoff(strategy: Strategy, agents: AgentsState | None) -> dict[str, 
         if withdrawn:
             record("AGENT_ASSIGNMENT", "WITHDRAWN", f"Strategy {status.value} — not eligible")
         elif gap:
-            record("AGENT_ASSIGNMENT", "NOT_REACHED", "Agent runtime not connected")
+            record("AGENT_ASSIGNMENT", "NOT_REACHED", agents_phrase)
         else:
             listed = f"Registry lists Agent {strategy.assigned_agent:02d}; " if strategy.assigned_agent else ""
-            record("AGENT_ASSIGNMENT", "UNKNOWN", f"{listed}agent runtime not connected — assignment cannot be verified")
+            phrase = agents_phrase[:1].lower() + agents_phrase[1:]
+            record("AGENT_ASSIGNMENT", "UNKNOWN", f"{listed}{phrase} — assignment cannot be verified")
     else:
         gated(
             "AGENT_ASSIGNMENT",
@@ -613,7 +632,7 @@ def derive_agent_slots(
                 reason = f"{file} {src_status.lower()}: {agents_src.error if agents_src else ''}".rstrip(": ")
             elif src_status == "MISSING":
                 status = AgentStatus.SLEEPING.value
-                reason = "No agent runtime connected: agents.json not produced"
+                reason = "agents.json not produced — no agent runtime is reporting"
             else:
                 status = AgentStatus.SLEEPING.value
                 reason = "No agent runtime connected"
@@ -978,6 +997,9 @@ def derive_system(sources: dict[str, SourceResult], events: EventsResult | None)
             display = "REPORTING"
         elif broken:
             display = "SOURCE_ERROR"
+        elif any(v == "MISSING" for v in states.values()):
+            # A state directory is configured but this subsystem's documents were never produced.
+            display = "NOT_PRODUCED"
         else:
             display = "NOT_CONNECTED"
         out.append(
@@ -1878,7 +1900,12 @@ def derive_all(
     agents: AgentsState | None = _data(sources.get("agents"))
     memory: MemoryState | None = _data(sources.get("memory"))
     unavailable = {"available": False, "error": "derivation failed"}
-    handoffs = safe("handoffs", lambda: [derive_handoff(s, agents) for s in strategies.strategies] if strategies else [], [])
+    agents_phrase = source_phrase(sources.get("agents"), "Agent runtime")
+    handoffs = safe(
+        "handoffs",
+        lambda: [derive_handoff(s, agents, agents_phrase) for s in strategies.strategies] if strategies else [],
+        [],
+    )
     freshness = safe("freshness", lambda: derive_freshness(sources, now), {})
     consistency = safe("consistency", lambda: derive_consistency(sources, events, freshness), [])
     origins = {k: s.meta.origin.value for k, s in sources.items() if s.meta is not None}

@@ -81,6 +81,11 @@ export function offBadge(src) {
   return badge(offState(src), { label: sourceShort(src) });
 }
 
+/** "<file> <status>" for a sub-line, e.g. "strategies.json contract error" / "research.json not produced". */
+export function srcPhrase(src) {
+  return `${src?.file ?? "source"} ${sourceShort(src).toLowerCase()}`;
+}
+
 /** sourceEmpty() titled from the source status ("<what> rejected by the contract"…); broken sources take the bad tone. */
 export function srcEmpty(src, what, opts = {}) {
   const e = sourceEmpty(src, { ...opts, title: sourceTitle(src, what) });
@@ -143,18 +148,35 @@ export function originColumns(rows) {
 }
 
 /**
+ * Distinct non-empty keys per record origin, e.g. the families declared on original
+ * records and, separately, on reconstructed records. The per-origin sets may overlap,
+ * so the numbers are never added together. null rows (source unavailable) => null.
+ */
+export function distinctByOrigin(rows, keyFn) {
+  if (!rows) return null;
+  const sets = { ORIGINAL: new Set(), RECONSTRUCTED: new Set(), SYNTHETIC_FIXTURE: new Set() };
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (!isNil(k) && k !== "") (sets[r.origin] ??= new Set()).add(k);
+  }
+  return Object.fromEntries(Object.entries(sets).map(([o, set]) => [o, set.size]));
+}
+
+/**
  * Per-origin count, each origin's number shown separately (never summed).
  * ORIGINAL is untagged; other origins carry a tag. A connected source with
- * no rows shows a factual 0.
+ * no rows shows a factual 0. `what` names the counted thing in the tooltip.
  */
-export function splitVal(split) {
+export function splitVal(split, { what = "record(s)" } = {}) {
   if (!split) return null;
   const parts = [];
   const others = ["RECONSTRUCTED", "SYNTHETIC_FIXTURE"].filter((o) => split[o] > 0);
-  if (split.ORIGINAL > 0 || others.length === 0) parts.push(html`<span class="rsa-split__n">${val(fmtCount(split.ORIGINAL))}</span>`);
+  if (split.ORIGINAL > 0 || others.length === 0) {
+    parts.push(html`<span class="rsa-split__n" data-origin="ORIGINAL">${val(fmtCount(split.ORIGINAL ?? 0))}</span>`);
+  }
   for (const o of others) {
     parts.push(
-      html`<span class="rsa-split__n" title="${split[o]} ${humanize(o)} record(s), counted separately">${val(fmtCount(split[o]))}<span class="rsa-split__tag ${toneClass(o)}">${ORIGIN_SHORT[o]}</span></span>`,
+      html`<span class="rsa-split__n" data-origin="${o}" title="${split[o]} ${what} on ${humanize(o).toLowerCase()} records, counted separately">${val(fmtCount(split[o]))}<span class="rsa-split__tag ${toneClass(o)}">${ORIGIN_SHORT[o]}</span></span>`,
     );
   }
   return html`<span class="rsa-split">${parts}</span>`;
@@ -293,7 +315,7 @@ export function pageRows(rows, requested, step = PAGE_ROWS) {
  * "Show all" is offered only while the remainder is small enough to render without
  * freezing the page (the view re-renders on every state revision); otherwise a larger step.
  */
-export function pager(page, hrefFor, { step = PAGE_ROWS, hint } = {}) {
+export function pager(page, hrefFor, { step = PAGE_ROWS, hint, noun = "records" } = {}) {
   if (!page.hidden.length) return "";
   const shown = page.shown.length;
   const rest = page.hidden.length;
@@ -301,7 +323,7 @@ export function pager(page, hrefFor, { step = PAGE_ROWS, hint } = {}) {
   const more = (n) => html`<a class="btn" href="${hrefFor(String(shown + n))}" data-pager="more-${String(n)}">Show ${fmtCount(Math.min(n, rest))} more</a>`;
   return html`<div class="rsa-pager" data-rows-shown="${String(shown)}" data-rows-hidden="${String(rest)}">
     <span class="rsa-pager__k">ROWS 1–${fmtCount(shown)} SHOWN</span>
-    <span class="rsa-pager__rest">not shown: ${splitText(page.hidden, "records")}${hint ? html` · ${hint}` : ""}</span>
+    <span class="rsa-pager__rest">not shown: ${splitText(page.hidden, noun)}${hint ? html` · ${hint}` : ""}</span>
     <span class="rsa-pager__go">
       ${more(step)}
       ${rest <= big - step ? html`<a class="btn" href="${hrefFor("all")}" data-pager="all">Show all</a>` : more(big)}

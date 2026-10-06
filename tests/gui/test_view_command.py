@@ -233,8 +233,11 @@ def test_home_fixture_renders_declared_records(browser, fixture_url):
 
     # system loop fully connected with real counts; record nodes show ORIGINAL only, all origins listed beside
     assert set(_attr_all(page, ".cc-ring [data-cycle-node]", "data-connected")) == {"1"}
+    # the 15 fixture events are SYNTHETIC_FIXTURE: the ring shows 0 ORIGINAL, the legend the synthetic 15
     obs = page.locator('.cc-ring [data-cycle-node="OBSERVATIONS"] [data-v]').text_content().strip()
-    assert obs == "15"
+    assert obs == "0"
+    assert _split(page, '[data-loop-node="OBSERVATIONS"]') == {"SYNTHETIC_FIXTURE": "15"}
+    assert "15 synthetic fixture event" in _text(page, "[data-event-origins]").lower()
     assert page.locator('.cc-ring [data-cycle-node="RESEARCH"] [data-v]').text_content().strip() == "7"
     assert _split(page, '[data-loop-node="RESEARCH"]') == {"ORIGINAL": "7", "RECONSTRUCTED": "1"}
 
@@ -312,10 +315,11 @@ def test_home_undeclared_trial_accounting_is_not_a_zero(browser, state_factory):
         server.should_exit = True
 
 
+@pytest.mark.parametrize("mode", ["empty_url", "fixture_url"])
 @pytest.mark.parametrize("route", list(ROUTES))
-def test_empty_values_render_faint(browser, empty_url, route):
-    """An empty value (—) is never painted in the bright value colour by a view rule."""
-    page = new_page(browser, empty_url)
+def test_empty_values_render_faint(browser, request, mode, route):
+    """An empty value (—) is never painted in the bright value colour by a view rule (any state)."""
+    page = new_page(browser, request.getfixturevalue(mode))
     v = visit(page, route)
     assert v.clean, v.describe()
     colours = page.evaluate(
@@ -331,7 +335,8 @@ def test_empty_values_render_faint(browser, empty_url, route):
             return { faint, bad, n: document.querySelectorAll('.view .v.is-empty').length };
         }"""
     )
-    assert colours["n"] > 0
+    if mode == "empty_url":
+        assert colours["n"] > 0
     assert colours["bad"] == [], colours
     page.close()
 
@@ -365,7 +370,7 @@ def test_home_connected_registry_with_no_validated_shows_real_zero(browser, stat
         assert page.locator(".cc-ring [data-cycle-node=\"RESEARCH\"]").get_attribute("data-connected") == "0"
         # pipeline still available from the (empty) registry
         assert page.get_attribute("[data-pipeline-available]", "data-pipeline-available") == "1"
-        assert "No strategy is validated, approved and packaged" in view_text(page)
+        assert "No strategy in strategies.json is validated, approved and packaged" in view_text(page)
         page.close()
     finally:
         server.should_exit = True
@@ -441,12 +446,14 @@ def test_system_fixture_renders_declared_counts(browser, fixture_url):
     assert v.clean, v.describe()
 
     def count(step):
-        return page.locator(f'.cc-handoff .step[data-step="{step}"] .step__count').text_content().strip()
+        """Per-origin split of a handoff step's count (all fixture strategies are SYNTHETIC_FIXTURE)."""
+        return _split(page, f'.cc-handoff .step[data-step="{step}"] .step__count')
 
-    assert count("RESEARCH_STRATEGY") == "5"
-    assert count("VALIDATION") == "2"
-    assert count("AGENT_ASSIGNMENT") == "1"
-    assert count("LIVE") == "0"
+    assert count("RESEARCH_STRATEGY") == {"SYNTHETIC_FIXTURE": "5"}
+    assert count("VALIDATION") == {"SYNTHETIC_FIXTURE": "2"}
+    assert count("AGENT_ASSIGNMENT") == {"SYNTHETIC_FIXTURE": "1"}
+    assert count("LIVE") == {"ORIGINAL": "0"}  # a real zero from a connected registry
+    assert _split(page, '[data-fact="eligible"]') == {"SYNTHETIC_FIXTURE": "1"}
 
     eligible = _text(page, '[data-fact="eligible"]')
     assert "FX-S003" in eligible and "FX-S004" not in eligible  # retired strategies are never eligible
@@ -514,6 +521,312 @@ def test_system_payload_text_is_escaped(browser, state_factory):
             assert page.evaluate("window.__pwned === undefined")
         assert "<img src=x" in view_text(page) or "<script>" in view_text(page)
         page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- source-status wording (both routes)
+
+ALL_SOURCES = (
+    "system", "research", "strategies", "agents", "memory", "governance", "datasets",
+    "portfolio", "risk", "execution", "live", "insights", "agent_events.jsonl",
+)
+
+
+def _corrupt(d):
+    d["data"]["unexpected_field"] = True
+
+
+def test_missing_sources_say_not_produced_never_not_connected(browser, state_factory):
+    """A configured state dir whose files are absent is NOT PRODUCED — not NOT CONNECTED — on / and /system."""
+    url, server = start_server(state_factory(drop=("system", "research", "memory", "risk", "agent_events.jsonl")))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/", settle_ms=500)
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "NOT CONNECTED" not in text
+        # subsystem whose only document is missing: relabelled from derive's NOT_CONNECTED
+        research = page.locator('.cc-sys[data-subsystem="research_engine"]')
+        assert research.get_attribute("data-state") == "NOT_PRODUCED"
+        assert "research.json not produced" in research.inner_text()
+        assert page.get_attribute("[data-trial-accounting]", "data-trial-accounting") == "NOT_PRODUCED"
+        focus = _text(page, ".cc-focus").upper()
+        assert "RESEARCH FOCUS NOT PRODUCED" in focus
+        assert "PROGRAMMES NOT PRODUCED" in text and "HYPOTHESES NOT PRODUCED" in text
+        assert "INTEGRITY NOTICES NOT PRODUCED" in text
+        assert "risk.json not produced" in _text(page, "[data-kill-switch]")
+        assert "EVENT STREAM NOT PRODUCED" in text
+
+        v = visit(page, "/system")
+        assert v.clean, v.describe()
+        assert "NOT CONNECTED" not in view_text(page).upper()
+        assert page.get_attribute('[data-arch-node="research_engine"]', "data-state") == "NOT_PRODUCED"
+        assert set(_attr_all(page, "[data-role]", "data-state")) == {"NOT_PRODUCED"}
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_nothing_produced_is_not_no_findings(browser, state_factory):
+    """Every file absent: no cross-check ran, so severities stay empty and nothing says 'No findings' or 'consistent'."""
+    url, server = start_server(state_factory(drop=ALL_SOURCES))
+    try:
+        page = new_page(browser, url)
+        for route in ROUTES:
+            v = visit(page, route)
+            assert v.clean, v.describe()
+            assert present_values(page) == [], route
+            text = view_text(page)
+            assert "NOT CONNECTED" not in text.upper(), route
+            assert "consistent" not in text.lower(), route
+        visit(page, "/")
+        alerts = _text(page, ".cc-panel-alerts")
+        assert "NO CROSS-CHECKS RAN" in alerts.upper() and "NO FINDINGS" not in alerts.upper()
+        assert all("is-empty" in (c or "") for c in _attr_all(page, "[data-severity] [data-v]", "class"))
+        assert set(_attr_all(page, ".cc-sys[data-state]", "data-state")) == {"NOT_PRODUCED"}
+        visit(page, "/system")
+        assert page.get_attribute('[data-arch-node="state"]', "data-state") == "NOT_PRODUCED"
+        assert "none ran" in _text(page, '[data-arch-node="command_centre"]')
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_invalid_sources_say_contract_error_never_not_connected(browser, state_factory):
+    """A present but contract-INVALID document is a contract error, and a healthy declaration over it is contradicted."""
+    url, server = start_server(state_factory({"research": _corrupt, "strategies": _corrupt}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/", settle_ms=500)
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "NOT CONNECTED" not in text
+        assert "RESEARCH FOCUS REJECTED BY THE CONTRACT" in text
+        assert "HYPOTHESES REJECTED BY THE CONTRACT" in text
+        assert "STRATEGY REGISTRY REJECTED BY THE CONTRACT" in text
+        assert "CONTRACT ERROR" in _text(page, '[data-kpi="validated"]').upper()
+        assert page.get_attribute("[data-trial-accounting]", "data-trial-accounting") == "INVALID"
+        # system.json declares the research engine ONLINE; its document is INVALID -> the contradiction is shown
+        cell = page.locator('.cc-sys[data-subsystem="research_engine"]')
+        assert cell.get_attribute("data-state") == "SOURCE_ERROR"
+        assert "INVALID" in cell.locator("[data-source-problem]").inner_text()
+        assert "tone-bad" in (cell.locator("[data-source-problem]").get_attribute("class") or "")
+
+        v = visit(page, "/system")
+        assert v.clean, v.describe()
+        assert "NOT CONNECTED" not in view_text(page).upper()
+        node = page.locator('[data-arch-node="research_engine"]')
+        assert node.get_attribute("data-state") == "SOURCE_ERROR"
+        assert "research.json is INVALID" in node.locator(".cc-node__meta").inner_text()
+        assert "STRATEGY REGISTRY REJECTED BY THE CONTRACT" in _text(page, ".cc-panel-handoff").upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- research focus family
+
+
+def test_focus_family_is_shown_never_chosen(browser, fixture_url, state_factory):
+    """Fixture focus declares no family: NOT DECLARED, with the programme / hypothesis families labelled beside it."""
+    page = new_page(browser, fixture_url)
+    v = visit(page, "/")
+    assert v.clean, v.describe()
+    fam = page.locator("[data-focus-family]")
+    assert fam.get_attribute("data-focus-family") == "NOT_DECLARED"
+    assert "NOT DECLARED" in fam.inner_text().upper()
+    assert "FIXTURE-trend" in fam.locator('[data-family-of="PROGRAMME"]').inner_text()
+    assert "FIXTURE-carry" in fam.locator('[data-family-of="HYPOTHESIS"]').inner_text()
+    page.close()
+
+    def declare(d):
+        d["data"]["focus"]["family"] = "FIXTURE-trend"
+
+    url, server = start_server(state_factory({"research": declare}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/")
+        assert v.clean, v.describe()
+        fam = page.locator("[data-focus-family]")
+        assert fam.get_attribute("data-focus-family") == "DECLARED"
+        assert fam.locator(".cc-fam__v").inner_text() == "FIXTURE-trend"
+        # same as the programme's family -> not repeated; the hypothesis's differs -> listed, labelled
+        assert fam.locator('[data-family-of="PROGRAMME"]').count() == 0
+        assert "FIXTURE-carry" in fam.locator('[data-family-of="HYPOTHESIS"]').inner_text()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_focus_family_empty_when_research_not_connected(browser, empty_url):
+    page = new_page(browser, empty_url)
+    visit(page, "/")
+    fam = page.locator("[data-focus-family]")
+    assert fam.get_attribute("data-focus-family") == "NOT_CONNECTED"
+    assert "is-empty" in (fam.locator("[data-v]").get_attribute("class") or "")
+    page.close()
+
+
+# ---------------------------------------------------------------- per-origin counts (events, memory growth, registry)
+
+
+def _mixed_events(state):
+    """Rewrite the fixture stream: first five events ORIGINAL, the other ten RECONSTRUCTED."""
+    path = state / "agent_events.jsonl"
+    lines = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    for i, e in enumerate(lines):
+        e["origin"] = "ORIGINAL" if i < 5 else "RECONSTRUCTED"
+    path.write_text("\n".join(json.dumps(e) for e in lines) + "\n")
+    return state
+
+
+def test_event_counts_are_split_by_origin(browser, state_factory):
+    url, server = start_server(_mixed_events(state_factory()))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/", settle_ms=500)
+        assert v.clean, v.describe()
+        assert _split(page, '[data-loop-node="OBSERVATIONS"]') == {"ORIGINAL": "5", "RECONSTRUCTED": "10"}
+        assert page.locator('.cc-ring [data-cycle-node="OBSERVATIONS"] [data-v]').text_content().strip() == "5"
+        feed_head = _text(page, "[data-event-origins]").lower()
+        assert "5 original" in feed_head and "10 reconstructed" in feed_head and "15" not in feed_head
+        v = visit(page, "/system", settle_ms=500)
+        assert v.clean, v.describe()
+        learn = _text(page, "[data-learn-origins]").lower()
+        assert "5 original" in learn and "10 reconstructed" in learn
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_memory_growth_and_registry_status_split_by_origin(browser, state_factory):
+    url, server = start_server(_mixed_origins(state_factory))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/")
+        assert v.clean, v.describe()
+        # one cumulative series per origin, never one merged line
+        assert _attr_all(page, "[data-growth-origin]", "data-growth-origin") == ["ORIGINAL", "RECONSTRUCTED"]
+        assert _text(page, '[data-growth-origin="ORIGINAL"] .cc-growth__n') == "4"
+        assert _text(page, '[data-growth-origin="RECONSTRUCTED"] .cc-growth__n') == "2"
+        assert "all origins" not in _text(page, ".cc-growth").lower()
+
+        v = visit(page, "/system")
+        assert v.clean, v.describe()
+        assert _split(page, '.cc-handoff .step[data-step="RESEARCH_STRATEGY"] .step__count') == {"ORIGINAL": "3", "RECONSTRUCTED": "2"}
+        assert _split(page, '[data-status-count="CANDIDATE"]') == {"RECONSTRUCTED": "1"}
+        assert _split(page, '[data-status-count="DEPLOYED_SIM"]') == {"ORIGINAL": "1"}
+        assert "3 original · 2 reconstructed" in _text(page, ".cc-panel-handoff").lower()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# ---------------------------------------------------------------- policy wording / SYS-03 counting basis
+
+
+def test_doctrine_is_policy_not_a_claim_of_current_state(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/system")
+    head = _text(page, ".page-head").lower()
+    assert "only ever receive" not in head and "may only receive" in head
+    text = view_text(page)
+    assert "agents never silently modify" not in text.lower()
+    assert "No unbounded loop runs" not in text
+    visit(page, "/")
+    doctrine = _text(page, ".cc-doctrine").lower()
+    assert "may reach an agent" in doctrine and "must never silently modify" in doctrine
+    assert "only validated, approved and packaged strategies reach an agent" not in doctrine
+    page.close()
+
+
+def test_learning_flow_states_cumulative_gate_counts(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/system")
+    assert page.get_attribute(".cc-learn", "data-gated-counts") == "cumulative"
+    sub = page.locator(".cc-panel-learn .panel__sub").inner_text().lower()
+    assert "cumulatively" in sub and "by state" not in sub
+    assert "proposals by current state" in _text(page, ".cc-proposals").lower()
+    page.close()
+
+
+# ---------------------------------------------------------------- layout regressions
+
+
+@pytest.mark.parametrize("width", [1024, 1280, 1920])
+def test_learning_flow_never_scrolls_and_reads_as_two_lanes(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, "/system")
+    m = page.evaluate(
+        """() => { const l = document.querySelector('.cc-learn');
+            const a = l.querySelector('.cc-learn__lane--agent').getBoundingClientRect();
+            const g = l.querySelector('.cc-learn__lane--gov').getBoundingClientRect();
+            return { over: l.scrollWidth - l.clientWidth, sameRow: Math.abs(a.top - g.top) < 2, stacked: g.top >= a.bottom - 1 } }"""
+    )
+    assert m["over"] <= 1, m
+    # one row of twelve when it fits; otherwise the gated lane sits under the agent lane
+    assert m["sameRow"] or m["stacked"], m
+    if width == 1920:
+        assert m["sameRow"], m
+    if width == 1024:
+        assert m["stacked"], m
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1024, 1280, 1920])
+def test_trading_floor_has_no_orphan_cell(browser, fixture_url, width):
+    """Five slots fill their grid: five across, or three over two with the pair spanning the full width."""
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, "/")
+    m = page.evaluate(
+        """() => { const g = document.querySelector('.cc-floor').getBoundingClientRect();
+            const cards = [...document.querySelectorAll('.cc-floor > *')].map(c => c.getBoundingClientRect());
+            const rows = {}; cards.forEach(c => { const k = Math.round(c.top); (rows[k] = rows[k] || []).push(c); });
+            return { n: cards.length, rows: Object.values(rows).map(r => ({ count: r.length,
+                gapRight: Math.round(g.right - Math.max(...r.map(c => c.right))) })) } }"""
+    )
+    assert m["n"] == 5
+    for row in m["rows"]:
+        assert row["gapRight"] <= 1, m  # every row reaches the right edge: no empty trailing cell
+    assert [r["count"] for r in m["rows"]] in ([5], [3, 2], [2, 2, 1]), m
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1024, 1440, 1920])
+def test_hypothesis_outcome_chips_are_never_clipped_or_stretched(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, "/")
+    chips = page.eval_on_selector_all(
+        ".cc-hypstat__item",
+        """els => els.map(e => { const r = document.createRange(); r.selectNodeContents(e);
+            return { clip: e.scrollWidth - e.clientWidth, width: e.getBoundingClientRect().width,
+                     content: r.getBoundingClientRect().width, min: parseFloat(getComputedStyle(e).minWidth),
+                     text: e.innerText } })""",
+    )
+    assert chips
+    for c in chips:
+        assert c["clip"] <= 1, c
+        # content-sized (content + padding + border, or the small min-width) — never stretched across a row
+        assert c["width"] <= max(c["min"], c["content"] + 24) + 1, c
+    page.close()
+
+
+def test_architecture_meta_and_values_are_not_cut_off(browser, state_factory):
+    url, server = start_server(state_factory({"research": _corrupt, "strategies": _corrupt}))
+    try:
+        for width in (1440, 1920):
+            page = new_page(browser, url, width=width)
+            visit(page, "/system")
+            cut = page.evaluate(
+                """() => [...document.querySelectorAll('.cc-node__meta, .cc-node__kv:not(.cc-node__kv--path) b')]
+                    .filter(e => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1)
+                    .map(e => e.textContent.trim())"""
+            )
+            assert cut == [], (width, cut)
+            # the full declaration is also in the title
+            assert "research.json is INVALID" in page.get_attribute('[data-arch-node="research_engine"] .cc-node__meta', "title")
+            page.close()
     finally:
         server.should_exit = True
 

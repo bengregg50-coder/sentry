@@ -3,7 +3,7 @@
 // hash; reconstruction, integrity notes and gaps are shown exactly as declared.
 // Cross-references (which trials cite a dataset) are row lookups, never inferred.
 
-import { html, raw } from "../core/html.js";
+import { html, raw, cx } from "../core/html.js";
 import { fmtCount, fmtDateTime, isNil, shortHash, humanize } from "../core/format.js";
 import { doc, source, derived, sourceReason, sourceShort } from "../core/state.js";
 import { toneOf } from "../core/tones.js";
@@ -12,8 +12,6 @@ import {
   panel,
   badge,
   chip,
-  stat,
-  statRow,
   sourceTag,
   sourceEmpty,
   emptyState,
@@ -24,12 +22,25 @@ import {
   legend,
 } from "../components/ui.js";
 import { coverageTimeline } from "./_data-timeline.js";
-import { ORIGINS, ORIGIN_LABEL, countBy, countWhere, dayText, parseDay, refResolver, refChips, k, none, offTitle } from "./_data-common.js";
+import {
+  ORIGINS,
+  ORIGIN_LABEL,
+  ORIGIN_ABBR,
+  originCounts,
+  originText,
+  countWhere,
+  dayText,
+  parseDay,
+  refResolver,
+  refChips,
+  k,
+  none,
+  offTitle,
+  noFindings,
+} from "./_data-common.js";
+import { stateOfStatus } from "./_command-common.js";
 
 const INTEGRITY = ["PASS", "WARN", "FAIL", "UNKNOWN"];
-
-const ORIGIN_SHORT = { ORIGINAL: "Original", RECONSTRUCTED: "Reconstructed", SYNTHETIC_FIXTURE: "Synthetic" };
-const ORIGIN_HINT = { ORIGINAL: "records", RECONSTRUCTED: "records", SYNTHETIC_FIXTURE: "not SENTRY state" };
 
 const COMPOSITION = [
   ["Venue", "venue"],
@@ -39,10 +50,11 @@ const COMPOSITION = [
   ["Timezone", "timezone"],
 ];
 
+// Descriptions say what each governance check examines — never what it found.
 const DATA_CHECKS = [
-  ["data_integrity", "Data integrity", "Datasets verified against manifests"],
-  ["dataset_identity", "Dataset identity", "Content hashes bound to every result"],
-  ["reconstruction_status", "Reconstruction status", "Reconstructed material kept apart from sealed evidence"],
+  ["data_integrity", "Data integrity", "Checks datasets against their manifests"],
+  ["dataset_identity", "Dataset identity", "Checks each result is bound to a dataset content hash"],
+  ["reconstruction_status", "Reconstruction status", "Checks reconstructed material is kept apart from sealed evidence"],
 ];
 
 const RECORD_FIELDS = [
@@ -55,64 +67,85 @@ const pct = (n) => raw(Number(n).toFixed(2));
 
 /* ------------------------------------------------------------------ summary */
 
+const latestOf = (xs) => (xs.length ? xs.reduce((a, b) => (a > b ? a : b)) : null);
+
+/** Coverage span of one origin's records, from declared dates only. */
+function coverageCell(rows) {
+  const starts = rows.filter((d) => parseDay(d.coverage_start) !== null);
+  const ends = rows.filter((d) => parseDay(d.coverage_end) !== null);
+  if (!starts.length && !ends.length) return val(null);
+  const first = starts.length ? starts.reduce((a, b) => (parseDay(a.coverage_start) <= parseDay(b.coverage_start) ? a : b)).coverage_start : null;
+  const last = ends.length ? ends.reduce((a, b) => (parseDay(a.coverage_end) >= parseDay(b.coverage_end) ? a : b)).coverage_end : null;
+  return html`<span class="dat-om__span">${val(dayText(first))}<i>→</i>${val(dayText(last))}</span>`;
+}
+
+/**
+ * One row per record origin — counts of different origins are never summed.
+ * A connected catalogue with no record of an origin shows real zeros (muted);
+ * an unavailable source shows empty cells, never 0.
+ */
+function originMatrix(rows, has, off) {
+  const cell = (n, tone) =>
+    isNil(n) ? val(null) : html`<span class="${cx("v", n > 0 && tone && `tone-${tone}`)}" data-v>${fmtCount(n)}</span>`;
+  return html`<div class="table-wrap"><table class="table table--dense dat-om" data-origin-matrix>
+    <thead><tr>
+      <th>Record origin</th><th class="num">Records</th>
+      ${INTEGRITY.map((st) => html`<th class="num" title="Declared integrity ${st}">${st}</th>`)}
+      <th class="num" title="Datasets declaring reconstructed = true">Recon. flag</th>
+      <th class="num" title="Declared gaps, all datasets of this origin">Gaps</th>
+      <th class="dat-om__wrap" title="Earliest declared start → latest declared end">Declared coverage</th>
+      <th class="dat-om__wrap">Last verified</th>
+    </tr></thead>
+    <tbody>${ORIGINS.map((o) => {
+      const rs = has ? rows.filter((d) => d.origin === o) : null;
+      const count = (pred) => (rs ? countWhere(rs, pred) : null);
+      const verified = rs ? latestOf(rs.map((d) => d.last_verified_at).filter((x) => !isNil(x))) : null;
+      return html`<tr class="${cx(rs && !rs.length && "is-none")}" data-origin-row="${o}">
+        <td class="strong">${ORIGIN_LABEL[o]}</td>
+        <td class="num dat-om__n">${cell(rs ? rs.length : null)}</td>
+        ${INTEGRITY.map((st) => html`<td class="num">${cell(count((d) => d.integrity === st), toneOf(st))}</td>`)}
+        <td class="num">${cell(count((d) => d.reconstructed === true), toneOf("RECONSTRUCTED"))}</td>
+        <td class="num">${cell(rs ? rs.reduce((n, d) => n + (d.gaps ?? []).length, 0) : null)}</td>
+        <td class="dat-om__wrap">${rs ? coverageCell(rs) : val(null)}</td>
+        <td class="dat-om__wrap">${val(verified ? fmtDateTime(verified) : null)}</td>
+      </tr>`;
+    })}</tbody>
+  </table></div>
+  ${has ? "" : html`<div class="dat-om__off"><span class="dat-none">datasets.json · ${off}</span></div>`}`;
+}
+
+/** Distinct declared values, each with its record count split by origin. */
+function originTally(rs) {
+  return html`${originCounts(rs).map(([o, n]) => html`<b>${fmtCount(n)}</b><i>${ORIGIN_ABBR[o]}</i>`)}`;
+}
+
 function summary(ds, src) {
   const off = sourceShort(src);
   const has = Array.isArray(ds);
   const rows = ds ?? [];
-  const starts = rows.map((d) => parseDay(d.coverage_start)).filter((t) => t !== null);
-  const ends = rows.map((d) => parseDay(d.coverage_end)).filter((t) => t !== null);
-  const verified = rows.map((d) => d.last_verified_at).filter((x) => !isNil(x)).sort();
-  const minStart = starts.length ? rows.find((d) => parseDay(d.coverage_start) === Math.min(...starts)).coverage_start : null;
-  const maxEnd = ends.length ? rows.find((d) => parseDay(d.coverage_end) === Math.max(...ends)).coverage_end : null;
-  const noneLabel = has && !rows.length ? "NONE DECLARED" : "NOT DECLARED";
-  const count = (pred) => (has ? fmtCount(countWhere(rows, pred)) : null);
-  const gaps = has ? rows.reduce((n, d) => n + (d.gaps ?? []).length, 0) : null;
 
   return html`
-    <div class="dat-sumgrid">
-      <div>
-        <div class="dat-sec">${k("Catalogue records by origin")}<span class="dat-sec__note">never merged</span></div>
-        ${statRow(
-          ORIGINS.map((o) => stat({ label: ORIGIN_SHORT[o], value: count((d) => d.origin === o), hint: ORIGIN_HINT[o], emptyLabel: off, size: "sm" })),
-          { min: 120 },
-        )}
-      </div>
-      <div>
-        <div class="dat-sec">${k("Declared coverage")}<span class="dat-sec__note">min / max of declared dates</span></div>
-        ${statRow(
-          [
-            stat({ label: "Earliest start", value: has ? dayText(minStart) : null, emptyLabel: has ? noneLabel : off, size: "sm" }),
-            stat({ label: "Latest end", value: has ? dayText(maxEnd) : null, emptyLabel: has ? noneLabel : off, size: "sm" }),
-            stat({ label: "Declared gaps", value: isNil(gaps) ? null : fmtCount(gaps), hint: "all datasets", emptyLabel: off, size: "sm" }),
-          ],
-          { min: 120 },
-        )}
-      </div>
+    <div class="dat-sum" data-summary="${has ? "connected" : "unavailable"}">
+      <div class="dat-sec">${k("Declared state by record origin")}<span class="dat-sec__note">one row per origin · never merged · not recomputed</span></div>
+      ${originMatrix(rows, has, off)}
     </div>
-    <div class="dat-sec dat-sec--gap">${k("Integrity as declared")}<span class="dat-sec__note">per dataset · not recomputed</span></div>
-    ${statRow(
-      [
-        ...INTEGRITY.map((s) => {
-          const n = has ? countWhere(rows, (d) => d.integrity === s) : null;
-          return stat({ label: s, value: isNil(n) ? null : fmtCount(n), tone: n ? toneOf(s) : undefined, hint: "datasets", emptyLabel: off, size: "sm" });
-        }),
-        stat({ label: "Reconstructed", value: count((d) => d.reconstructed === true), tone: has && countWhere(rows, (d) => d.reconstructed === true) ? toneOf("RECONSTRUCTED") : undefined, hint: "flag = true", emptyLabel: off, size: "sm" }),
-        stat({ label: "Last verified", value: verified.length ? fmtDateTime(verified[verified.length - 1]) : null, hint: "most recent", emptyLabel: has ? noneLabel : off, size: "sm" }),
-      ],
-      { min: 110 },
-    )}
-    <div class="dat-sec dat-sec--gap">${k("Catalogue composition")}<span class="dat-sec__note">distinct declared values · record count</span></div>
-    <div class="dat-comp">
+    <div class="dat-sec dat-sec--gap">${k("Catalogue composition")}<span class="dat-sec__note">distinct declared values · record count by origin</span></div>
+    <div class="${cx("dat-comp", has && rows.length && "dat-comp--list")}">
       ${COMPOSITION.map(([lbl, field]) => {
-        const groups = has ? countBy(rows.filter((d) => !isNil(d[field]) && d[field] !== ""), (d) => d[field]) : null;
-        const missing = has ? countWhere(rows, (d) => isNil(d[field]) || d[field] === "") : 0;
+        const declared = rows.filter((d) => !isNil(d[field]) && d[field] !== "");
+        const groups = new Map();
+        for (const d of declared) {
+          if (!groups.has(d[field])) groups.set(d[field], []);
+          groups.get(d[field]).push(d);
+        }
+        const missing = rows.filter((d) => isNil(d[field]) || d[field] === "");
         return html`<div class="dat-comp__cell" data-comp="${field}">
           <span class="dat-comp__k">${lbl}</span>
           <span class="dat-comp__v">${
             !has
               ? html`${val(null)}<span class="dat-none">${off}</span>`
               : groups.size
-                ? html`${[...groups.entries()].map(([v, n]) => html`<span class="dat-file" title="${v}">${field === "kind" ? humanize(v) : v} <b>×${fmtCount(n)}</b></span>`)}${missing ? html`<span class="dat-file dat-file--none">NOT DECLARED <b>×${fmtCount(missing)}</b></span>` : ""}`
+                ? html`${[...groups.entries()].map(([v, rs]) => html`<span class="dat-file dat-tally" title="${v}">${field === "kind" ? humanize(v) : v} ${originTally(rs)}</span>`)}${missing.length ? html`<span class="dat-file dat-file--none dat-tally">NOT DECLARED ${originTally(missing)}</span>` : ""}`
                 : none(rows.length ? "Not declared" : "None declared")
           }</span>
         </div>`;
@@ -127,7 +160,6 @@ function dataGovernance(ctx) {
   const govSrc = source(ctx, "governance");
   const sys = (derived(ctx, "system") ?? []).find((s) => s.key === "data");
   const findings = (derived(ctx, "consistency") ?? []).filter((f) => f.section === "data");
-  const anyOk = Object.values(ctx.snap?.sources ?? {}).some((s) => s.status === "OK");
   const byKey = new Map((gov?.checks ?? []).map((c) => [c.key, c]));
   return html`
     <div class="dat-gov">
@@ -139,17 +171,20 @@ function dataGovernance(ctx) {
               ? "Not declared by system.json — derived from datasets.json source status"
               : `${offTitle(source(ctx, "system"), "system.json")} — derived from datasets.json source status`
         }</span></div>
-        <div class="dat-gov__state">${badge(sys?.state ?? "NOT_CONNECTED")}<span class="dat-gov__meta">${
+        <div class="dat-gov__state">${sys ? badge(sys.state) : badge("NO_SNAPSHOT", { label: "NO SNAPSHOT" })}<span class="dat-gov__meta">${
           sys?.declared?.heartbeat_at ? html`HB ${fmtDateTime(sys.declared.heartbeat_at)}` : sys?.declared ? "NO HEARTBEAT" : "SYSTEM.JSON"
         }</span></div>
       </div>
       ${DATA_CHECKS.map(([key, lbl, desc]) => {
         const c = byKey.get(key);
-        const state = c?.state ?? (gov ? "NOT_REPORTED" : "NOT_CONNECTED");
+        // An unreported check says why: not reported by a connected governance.json, or the
+        // governance source's real status (not connected / not produced / contract error / unreadable).
+        const state = c?.state ?? (gov ? "NOT_REPORTED" : govSrc ? stateOfStatus(govSrc.status) : "NO_SNAPSHOT");
+        const label = c ? undefined : gov ? "NOT REPORTED" : sourceShort(govSrc);
         return html`<div class="dat-gov__row" data-gov-row="${key}" data-state="${state}">
           <div class="dat-gov__main"><span class="dat-gov__label">${lbl}</span><span class="dat-gov__desc">${c?.detail ?? desc}</span></div>
-          <div class="dat-gov__state">${badge(state)}<span class="dat-gov__meta">${
-            c?.checked_at ? html`CHECKED ${fmtDateTime(c.checked_at)}` : c ? "NO TIMESTAMP" : gov ? "NOT REPORTED" : sourceShort(govSrc)
+          <div class="dat-gov__state">${badge(state, { label })}<span class="dat-gov__meta">${
+            c?.checked_at ? html`CHECKED ${fmtDateTime(c.checked_at)}` : c ? "NO TIMESTAMP" : "GOVERNANCE.JSON"
           }</span></div>
         </div>`;
       })}
@@ -157,7 +192,7 @@ function dataGovernance(ctx) {
     <div class="dat-sec dat-sec--gap">${k("Data-source findings")}<span class="dat-sec__note">Command Centre cross-checks</span></div>
     ${findingsList(findings, {
       limit: 3,
-      empty: html`<div class="dat-none-line">${none(anyOk ? "No data-source findings — connected documents conform" : "Nothing connected — nothing to cross-check")}</div>`,
+      empty: noFindings(ctx, { keys: ["provenance", "data_citations", "freshness"], what: "data-source findings" }),
     })}`;
 }
 
@@ -288,7 +323,7 @@ function citations(ctx, ds, dsSrc, resolve) {
   return html`<div class="table-wrap"><table class="table table--dense dat-cite">
     <thead><tr><th>Dataset ref</th><th>Catalogue</th>${ORIGINS.map((o) => html`<th class="num">${ORIGIN_LABEL[o]}</th>`)}<th>Trials</th></tr></thead>
     <tbody>${[...refs.entries()].map(([ref, trials]) => {
-      const cat = ds ? (ids.has(ref) ? badge("CATALOGUED", { label: "IN CATALOGUE" }) : badge("UNRESOLVED", { label: "NOT IN CATALOGUE" })) : badge(dsSrc?.status ?? "NOT_CONFIGURED", { label: "CATALOGUE " + sourceShort(dsSrc) });
+      const cat = ds ? (ids.has(ref) ? badge("CATALOGUED", { label: "IN CATALOGUE" }) : badge("UNRESOLVED", { label: "NOT IN CATALOGUE" })) : badge(stateOfStatus(dsSrc?.status ?? "NOT_CONFIGURED"), { label: "CATALOGUE " + sourceShort(dsSrc) });
       return html`<tr data-cite="${ref}">
         <td><span class="ref ref--plain">${ref}</span></td>
         <td>${cat}</td>
@@ -335,7 +370,7 @@ export default {
           cls: "lg-span-12",
           code: "DAT-01",
           title: "Catalogue summary",
-          sub: has ? `${ds.length} dataset record${ds.length === 1 ? "" : "s"} declared` : sourceReason(src),
+          sub: has ? (ds.length ? `Declared records: ${originText(ds)}` : "Connected — no dataset records declared") : sourceReason(src),
           body: summary(ds, src),
         })}
         ${panel({

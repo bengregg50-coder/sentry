@@ -492,6 +492,7 @@
 /* ---------- overview: fleet status ---------- */
 
 .ag-fleet-wrap {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--gap);
@@ -515,6 +516,17 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
+}
+
+/* 9 statuses on 5 columns below ~1000px: the last status spans the 10th cell,
+   so no empty gap-coloured filler tile reads as a missing status. */
+@container (max-width: 1000px) {
+  .ag-board {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .ag-board__col:last-child {
+    grid-column: span 2;
+  }
 }
 
 .ag-board__col {
@@ -647,10 +659,38 @@
 
 /* ---------- overview: slot cards ---------- */
 
+.ag-floor-host {
+  container-type: inline-size;
+}
+
 .ag-floor {
   display: grid;
   gap: var(--gap);
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* Below ~1100px of floor, five cards are too narrow for their status badges:
+   3 + 2 on a 6-column grid, the last two cards wider, so no empty sixth cell. */
+@container (max-width: 1100px) {
+  .ag-floor {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .ag-floor > .ag-card {
+    grid-column: span 2;
+  }
+  .ag-floor > .ag-card:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+}
+
+@container (max-width: 640px) {
+  .ag-floor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ag-floor > .ag-card,
+  .ag-floor > .ag-card:nth-child(n + 4) {
+    grid-column: auto;
+  }
 }
 
 .ag-card {
@@ -840,7 +880,7 @@
   color: var(--faint);
 }
 
-.ag-card__screen-head .v {
+.ag-card__screen-head .v:not(.is-empty) {
   color: var(--text-2);
 }
 
@@ -905,6 +945,16 @@
   min-height: 18px;
 }
 
+/* market / position names are identifying text: two lines, never an ellipsis mid-name */
+.ag-card__kv--wrap dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
 .ag-card__kv dd .chip {
   height: 16px;
   font-size: 8.5px;
@@ -921,13 +971,15 @@
 }
 
 .ag-card__reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
   color: var(--text-2);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   min-height: 14px;
 }
 
@@ -993,7 +1045,7 @@
 
 .ag-rule__steps {
   margin-top: 8px;
-  grid-auto-columns: minmax(96px, 1fr);
+  grid-auto-columns: minmax(0, 1fr);
 }
 
 .ag-controls {
@@ -1354,11 +1406,23 @@
 }
 
 .ag-steps--compact {
-  grid-auto-columns: minmax(84px, 1fr);
+  grid-auto-columns: minmax(0, 1fr);
 }
 
 .ag-steps--compact .step {
   padding: 8px 8px 6px 4px;
+}
+
+/* six handoff steps fit a half-width panel at 1280px without a scrollbar */
+.ag-steps--compact .step__label,
+.ag-rule__steps .step__label {
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+}
+
+.ag-steps--compact .step__detail,
+.ag-rule__steps .step__detail {
+  overflow-wrap: anywhere;
 }
 
 .ag-strat__id {
@@ -1536,8 +1600,11 @@
 }
 
 .ag-limit__nums .v {
-  color: var(--text);
   font-size: var(--fs-xs);
+}
+
+.ag-limit__nums .v:not(.is-empty) {
+  color: var(--text);
 }
 
 .ag-exec {
@@ -1740,26 +1807,83 @@
 
 /* ---------- activity: learning loop ---------- */
 
+.ag-loop-host {
+  container-type: inline-size;
+}
+
 .ag-loop {
-  overflow-x: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 9fr) minmax(0, 3fr);
+}
+
+.ag-loop__group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .ag-loop__steps {
+  flex: 1;
   overflow: visible;
-  grid-template-columns: repeat(12, minmax(92px, 1fr));
   grid-auto-flow: row;
-  min-width: 1104px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+}
+
+.ag-loop__group--gated .ag-loop__steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* side by side, the agent group's last step connects to the first gated stage */
+.ag-loop__group--agent .step:last-child::after {
+  display: block;
 }
 
 .ag-loop__steps .step__owner {
   letter-spacing: 0.1em;
+  overflow-wrap: anywhere;
 }
 
-.ag-loop__zones {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(92px, 1fr));
-  min-width: 1104px;
+.ag-loop__steps .step__label {
+  overflow-wrap: anywhere;
+}
+
+.ag-loop__zone {
   margin-top: 4px;
+}
+
+@container (max-width: 1080px) {
+  .ag-loop {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+  }
+  .ag-loop__group--agent .step:last-child::after {
+    display: none;
+  }
+  .ag-loop__steps .step {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .ag-loop__steps .step::after {
+    left: 26px;
+  }
+  .ag-loop__steps .step__owner {
+    letter-spacing: 0.06em;
+  }
+  /* the gated stages keep the agent stages' column width, left-aligned under them */
+  .ag-loop__group--gated {
+    width: calc(100% / 3);
+    min-width: 300px;
+  }
+}
+
+@container (max-width: 700px) {
+  .ag-loop__group--agent .ag-loop__steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .ag-loop__group--gated {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .ag-loop__zone {
@@ -1922,9 +2046,7 @@
   margin-top: 2px;
   font-size: var(--fs-md);
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .ag-modes {
@@ -1952,6 +2074,10 @@
 
 .ag-modes__cell .v {
   font-size: var(--fs-md);
+}
+
+/* a value colour never overrides the faint empty dash (.v.is-empty) */
+.ag-modes__cell .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -1994,7 +2120,7 @@
   color: var(--text-2);
 }
 
-.ag-kinds__row .v {
+.ag-kinds__row .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -2047,6 +2173,9 @@
 
 .ag-traffic__head .v {
   font-size: var(--fs-md);
+}
+
+.ag-traffic__head .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -2122,12 +2251,6 @@
 }
 
 @media (max-width: 1240px) {
-  .ag-floor {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .ag-board {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
   .ag-unknown__slots {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2159,7 +2282,6 @@
 }
 
 @media (max-width: 760px) {
-  .ag-floor,
   .ag-unknown__slots,
   .ag-traffic {
     grid-template-columns: minmax(0, 1fr);
@@ -2169,4 +2291,92 @@
   .ag-exec {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* ---------- per-origin counts (never merged) ---------- */
+
+.ag-split {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1px 6px;
+  min-width: 0;
+}
+
+.ag-split__n {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ag-split__n + .ag-split__n {
+  padding-left: 6px;
+  border-left: 1px solid var(--line-2);
+}
+
+.ag-split__tag {
+  align-self: center;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, var(--tone, var(--muted)) 40%, transparent);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--tone, var(--muted)) 82%, white);
+}
+
+.ag-fleet__unit,
+.ag-sum__unit {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.ag-net__origin.tone-warn,
+.ag-net__origin.tone-bad {
+  fill: var(--tone);
+}
+
+/* ---------- agent cross-check coverage ---------- */
+
+.ag-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-2);
+}
+
+.ag-checks__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.ag-checks__v {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.ag-traffic__window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 8px;
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
 }

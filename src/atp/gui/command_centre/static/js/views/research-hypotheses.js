@@ -5,7 +5,7 @@
 
 import { html } from "../core/html.js";
 import { fmtCount, fmtDate, fmtDateTime, humanize, isNil } from "../core/format.js";
-import { derived, sourceReason } from "../core/state.js";
+import { derived, source, sourceReason } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
 import { pageHeader, panel, badge, chip, sourceTag, emptyState, tabs, kv, val } from "../components/ui.js";
 import { pipelineTracks } from "../components/pipeline.js";
@@ -99,6 +99,15 @@ function detailTrials(rs, h) {
     : ""}`;
 }
 
+/** Why a declared strategy has no track here — phrased from the strategy registry's source status. */
+function strategyGap(ctx, id) {
+  const src = source(ctx, "strategies");
+  const ok = src?.status === "OK";
+  return html`<div class="rsa-foot-note ${ok ? "" : toneClass(R.srcBroken(src) ? src.status : null)}" data-strategy-gap="${ok ? "NOT_IN_REGISTRY" : src?.status ?? "NO_SNAPSHOT"}">Declared as strategy <span class="ref">${id}</span>; ${
+    ok ? "strategies.json lists no strategy with this id, so it has no track here." : html`its track cannot be shown — ${R.srcPhrase(src)}.`
+  }</div>`;
+}
+
 function detailBody(ctx, rs, h) {
   const strategyItem = h.strategy_id ? (derived(ctx, "pipeline")?.items ?? []).find((it) => it.kind === "STRATEGY" && it.id === h.strategy_id) : null;
   const ownTrack = {
@@ -124,7 +133,7 @@ function detailBody(ctx, rs, h) {
         <div class="rsa-block rsa-block--decision ${toneClass(h.decided_at || h.decision_reason ? h.terminal ?? h.status : null)}">
           <div class="rsa-block__k">Decision</div>
           <div class="rsa-block__v">${h.decision_reason ?? html`<span class="rsa-none">${h.terminal ? "No decision reason declared" : "No decision recorded — hypothesis is open"}</span>`}</div>
-          <div class="rsa-block__meta">${h.decided_at ? html`DECIDED ${fmtDateTime(h.decided_at)}` : "NO DECISION DATE"}</div>
+          <div class="rsa-block__meta">${h.decided_at ? html`DECIDED ${fmtDateTime(h.decided_at)}` : "DECISION DATE NOT DECLARED"}</div>
         </div>
       </div>
       <div class="rsa-detail__facts">
@@ -147,7 +156,7 @@ function detailBody(ctx, rs, h) {
     </div>
     <div class="rsa-label rsa-label--gap">Pipeline track</div>
     <div class="rsa-tracks">${pipelineTracks(strategyItem ? [ownTrack, strategyItem] : [ownTrack], { hrefFor: R.itemHref })}</div>
-    ${h.strategy_id && !strategyItem ? html`<div class="rsa-foot-note">Became strategy <span class="ref">${h.strategy_id}</span>; it is not present in the strategy registry snapshot.</div>` : ""}
+    ${h.strategy_id && !strategyItem ? strategyGap(ctx, h.strategy_id) : ""}
     <div class="rsa-label rsa-label--gap">Trials <span class="muted">· open in research history</span></div>
     ${detailTrials(rs, h)}
   </div>`;
@@ -187,9 +196,12 @@ function detailPanel(ctx, rs, src, id, statusFilter) {
 
 /* ---------------------------------------------------------------- register */
 
-function registerBody(rs, src, statusFilter, focusId) {
+function registerBody(rs, src, statusFilter, focusId, rowsQ) {
   const all = rs ? [...rs.hypotheses].sort(R.byId("hypothesis_id")) : null;
   const rows = all ? (statusFilter === "ALL" ? all : all.filter((h) => h.status === statusFilter)) : null;
+  // Only a page of rows is materialised; every count on this page comes from the full register.
+  const page = R.pageRows(rows, rowsQ);
+  const statusQ = statusFilter === "ALL" ? null : statusFilter;
   const trialsByNumber = new Map((rs?.trials ?? []).filter((t) => !isNil(t.trial_number)).map((t) => [t.trial_number, t]));
   const focusQ = focusId ?? null;
   const tabItems = [
@@ -211,12 +223,17 @@ function registerBody(rs, src, statusFilter, focusId) {
       label: "Family · programme",
       render: (h) =>
         h.family || h.programme_id
-          ? html`<div class="rsa-stack-cell"><span class="mono">${h.family ?? "—"}</span>${h.programme_id ? R.ref(h.programme_id, R.programmeHref(h.programme_id)) : html`<span class="rsa-sub">no programme</span>`}</div>`
+          ? html`<div class="rsa-stack-cell">${h.family ? html`<span class="mono">${h.family}</span>` : html`<span class="rsa-sub">family not declared</span>`}${
+              h.programme_id ? R.ref(h.programme_id, R.programmeHref(h.programme_id)) : html`<span class="rsa-sub">programme not declared</span>`
+            }</div>`
           : null,
     },
-    { key: "status", label: "Status", render: (h) => badge(h.status) },
-    { key: "stage_reached", label: "Stage reached", render: (h) => R.stageCell(h.stage_reached, h.terminal) },
-    { key: "terminal", label: "Terminal", render: (h) => R.terminalCell(h.terminal) },
+    {
+      key: "status",
+      label: "Status · terminal",
+      render: (h) => html`<div class="rsa-stack-cell rsa-status-term">${badge(h.status)}<span class="rsa-status-term__t"><span class="rsa-dated__k">TERMINAL</span>${R.terminalCell(h.terminal)}</span></div>`,
+    },
+    { key: "stage_reached", label: "Stage reached", cls: "rsa-col-stage", render: (h) => R.stageCell(h.stage_reached, h.terminal) },
     { key: "prereg", label: "Preregistered", render: (h) => R.preregCell(h) },
     {
       key: "decision",
@@ -224,7 +241,7 @@ function registerBody(rs, src, statusFilter, focusId) {
       cls: "wrap",
       render: (h) =>
         h.decided_at || h.decision_reason
-          ? html`<div class="rsa-stack-cell"><span class="mono rsa-sub">${h.decided_at ? fmtDate(h.decided_at) : "no decision date"}</span><span>${h.decision_reason ?? ""}</span></div>`
+          ? html`<div class="rsa-stack-cell"><span class="mono rsa-sub">${h.decided_at ? fmtDate(h.decided_at) : "decision date not declared"}</span><span>${h.decision_reason ?? html`<span class="rsa-sub">reason not declared</span>`}</span></div>`
           : null,
     },
     { key: "trials", label: "Trials", render: (h) => trialRefs(h, trialsByNumber) },
@@ -232,8 +249,8 @@ function registerBody(rs, src, statusFilter, focusId) {
   return html`<div class="rsa-tabs">${tabs(tabItems, statusFilter)}</div>
     ${R.frameTable({
       columns,
-      rows,
-      rowHref: (h) => R.qhref(PATH, { status: statusFilter === "ALL" ? null : statusFilter, focus: h.hypothesis_id }),
+      rows: page.shown,
+      rowHref: (h) => R.qhref(PATH, { status: statusQ, focus: h.hypothesis_id, rows: rowsQ }),
       rowCls: (h) => (h.hypothesis_id === focusId ? "rsa-row--focus" : ""),
       empty: rs
         ? emptyState({
@@ -245,7 +262,8 @@ function registerBody(rs, src, statusFilter, focusId) {
             compact: true,
             hint: "Every hypothesis appears here — validated, pending, rejected, blocked or abandoned — with its preregistration, decision and trials.",
           }),
-    })}`;
+    })}
+    ${R.pager(page, (n) => R.qhref(PATH, { status: statusQ, focus: focusQ, rows: n }), { noun: "hypotheses", hint: statusQ ? "" : "select a status above to narrow the register" })}`;
 }
 
 /* ---------------------------------------------------------------- view */
@@ -256,12 +274,14 @@ export default {
     const { rs, src } = R.research(ctx);
     const focusId = ctx.query.focus || null;
     const statusFilter = ctx.query.status || "ALL";
+    const regRows = rs ? rs.hypotheses.filter((h) => statusFilter === "ALL" || h.status === statusFilter) : null;
+    const paged = R.pageRows(regRows, ctx.query.rows);
     return html`
       ${pageHeader({
         kicker: "RESEARCH ENGINE",
         code: "HYP",
         title: "Hypotheses",
-        sub: "Every hypothesis SENTRY has registered. Rejected, blocked and abandoned ideas are retained as evidence — never deleted, never quietly re-tested.",
+        sub: "Every hypothesis in the research register, validated or not. Rejected, blocked and abandoned ideas are part of the evidence and stay listed here.",
         right: sourceTag(src, { now: ctx.now }),
       })}
 
@@ -282,8 +302,10 @@ export default {
           span: 12,
           code: "HYP-02",
           title: "Hypothesis register",
-          sub: rs ? `${R.splitText(rs.hypotheses, "registered")} · select a row for detail` : sourceReason(src),
-          body: registerBody(rs, src, statusFilter, focusId),
+          sub: rs
+            ? `${R.splitText(rs.hypotheses, "registered")}${paged.hidden.length ? ` · rows 1–${fmtCount(paged.shown.length)} shown` : ""} · select a row for detail`
+            : sourceReason(src),
+          body: registerBody(rs, src, statusFilter, focusId, ctx.query.rows),
           cls: "rsa-register",
         })}
       </div>

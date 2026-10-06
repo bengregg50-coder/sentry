@@ -7,13 +7,14 @@
 // deployment-package identities, research lineage, improvement proposals,
 // related memories and consistency findings.
 //
-// When the registry is not connected the full structure renders with every
+// When the registry is unavailable (not connected, not produced, rejected by the
+// contract or unreadable — each worded as such) the full structure renders with every
 // field empty; an unknown id renders a not-found state. Nothing is computed
 // here beyond selecting, filtering and counting declared records.
 
 import { html } from "../core/html.js";
 import { humanize, fmtCount, fmtDate, fmtDateTime, shortHash, isNil, pad2 } from "../core/format.js";
-import { doc, source, derived, sourceReason, currentVersion, handoffFor } from "../core/state.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle, currentVersion, handoffFor } from "../core/state.js";
 import {
   pageHeader,
   panel,
@@ -28,7 +29,6 @@ import {
   kv,
   val,
   notice,
-  controlButton,
 } from "../components/ui.js";
 import { steps } from "../components/flow.js";
 import { agentMini } from "../components/agent.js";
@@ -71,12 +71,12 @@ const hash = (h) => (h ? html`<span class="mono small" title="${h}">${shortHash(
 
 /* ================================================================ header + identity */
 
-function hero(ctx, s, v, h, conn) {
+function hero(ctx, s, v, h, ssrc) {
   const cur = s ? currentVersion(s) : null;
   const isCur = s && v && v.version === s.current_version;
   const cell = (k, body, attrs) => html`<div class="st-hero__cell" ${attrs ?? ""}><div class="st-hero__k">${k}</div><div class="st-hero__v">${body}</div></div>`;
   return html`<div class="st-hero" data-hero>
-    ${cell("STATUS", s ? badge(s.status, { size: "lg" }) : badge(conn ? "NOT_REPORTED" : "NOT_CONNECTED", { size: "lg" }), html`data-hero-status="${s?.status ?? ""}"`)}
+    ${cell("STATUS", s ? badge(s.status, { size: "lg" }) : S.offBadge(ssrc, { size: "lg" }), html`data-hero-status="${s?.status ?? ""}"`)}
     ${cell(html`VALIDATION${v ? html` · v${v.version}` : ""}`, v ? badge(v.validation_status) : val(null))}
     ${cell("CURRENT VERSION", cur ? val(`v${cur.version}`) : val(null))}
     ${cell(
@@ -96,7 +96,7 @@ function hero(ctx, s, v, h, conn) {
 }
 
 /** Identity only — status, current version, agent, last update and origin live in the header strip above. */
-function identity(s, conn, ssrc) {
+function identity(s, ssrc) {
   return html`<div class="st-kvwide st-kvwide--4" data-identity>${kv(
     [
       ["Strategy ID", s ? html`<span class="mono strong">${s.strategy_id}</span>` : null],
@@ -113,15 +113,17 @@ function identity(s, conn, ssrc) {
   <div class="st-rationale ${s?.economic_rationale ? "" : "is-empty"}" data-rationale>${
     s?.economic_rationale
       ? s.economic_rationale
-      : html`<span class="st-nodata">${s ? "NOT STATED BY THE RESEARCH ENGINE" : conn ? "NOT REPORTED" : "SOURCE NOT CONNECTED"}</span>`
+      : s
+        ? html`<span class="st-nodata">NOT STATED BY THE RESEARCH ENGINE</span>`
+        : S.offLabel(ssrc, "REGISTRY")
   }</div>`;
 }
 
 /* ================================================================ performance */
 
-function performance(v, conn) {
+function performance(v, ssrc) {
   const m = v?.metrics ?? null;
-  const emptyHint = v ? "NOT REPORTED" : conn ? "NOT REPORTED" : "NOT CONNECTED";
+  const emptyHint = v ? "NOT REPORTED" : sourceShort(ssrc);
   const additional = m?.additional ?? [];
   return html`<div class="st-perf">
       <div class="st-gcn" data-gcn>
@@ -147,7 +149,7 @@ function performance(v, conn) {
             </div>`,
           )}</div>`
         : emptyState({
-            title: v ? `No additional metrics reported for v${v.version}` : conn ? "Not reported" : "Not connected",
+            title: v ? `No additional metrics reported for v${v.version}` : sourceTitle(ssrc, "Additional metrics"),
             reason: "Cost-stress variants and other named figures appear here when the research engine reports them.",
             compact: true,
             inline: true,
@@ -162,7 +164,7 @@ function performance(v, conn) {
 
 /* ================================================================ validation checks */
 
-function checkRow(n, def, chk, fallback) {
+function checkRow(n, def, chk, fallback, fallbackLabel) {
   const [key, label, desc] = def;
   const state = chk?.state ?? fallback;
   return html`<div class="st-chk" data-check="${key}" data-state="${state}">
@@ -177,7 +179,7 @@ function checkRow(n, def, chk, fallback) {
           : ""
       }
     </div>
-    <span class="st-chk__state">${badge(state)}</span>
+    <span class="st-chk__state">${badge(state, { label: chk?.state ? undefined : fallbackLabel })}</span>
   </div>`;
 }
 
@@ -186,8 +188,9 @@ function checkNo(key) {
   return S.CHECK_KEYS.indexOf(key) + 1;
 }
 
-function checkFallback(v, conn) {
-  return v ? "NOT_REPORTED" : conn ? "NOT_REPORTED" : "NOT_CONNECTED";
+/** State shown for a check with no record: NOT_REPORTED for a resolved version, else the registry's status. */
+function checkFallback(v, ssrc) {
+  return v ? ["NOT_REPORTED", undefined] : [S.offState(ssrc), sourceShort(ssrc)];
 }
 
 function checksSummary(v) {
@@ -203,15 +206,15 @@ function checksSummary(v) {
     .map((st) => badge(st, { label: `${counts.get(st)} ${humanize(st)}`, ghost: true }))}<span class="st-faint">OF ${S.CHECK_KEYS.length} CONTRACT CHECKS · v${v.version}</span></div>`;
 }
 
-function checks(v, conn) {
-  const fb = checkFallback(v, conn);
+function checks(v, ssrc) {
+  const fb = checkFallback(v, ssrc);
   let n = 0;
   return html`${checksSummary(v)}
     <div class="st-chkgroups">
       ${S.CHECK_GROUPS.map(
         (g) => html`<div class="st-chkgroup" data-check-group="${g.key}">
           <div class="st-chkgroup__h">${g.label}</div>
-          ${g.checks.map((c) => checkRow(++n, c, v?.validation?.[c[0]], fb))}
+          ${g.checks.map((c) => checkRow(++n, c, v?.validation?.[c[0]], ...fb))}
         </div>`,
       )}
     </div>`;
@@ -219,7 +222,7 @@ function checks(v, conn) {
 
 /* ================================================================ multiple testing + regimes */
 
-function multipleTesting(v, conn) {
+function multipleTesting(v, ssrc) {
   const mt = v?.multiple_testing ?? null;
   return html`${
     v && !mt
@@ -238,14 +241,14 @@ function multipleTesting(v, conn) {
     { cols: 2 },
   )}</div>
   ${mt?.detail ? html`<p class="prose st-pad-t">${mt.detail}</p>` : ""}
-  <div class="st-chk-solo">${checkRow(checkNo("multiple_testing"), ["multiple_testing", "Multiple-testing check", "The validation check as reported for this version"], v?.validation?.multiple_testing, checkFallback(v, conn))}</div>`;
+  <div class="st-chk-solo">${checkRow(checkNo("multiple_testing"), ["multiple_testing", "Multiple-testing check", "The validation check as reported for this version"], v?.validation?.multiple_testing, ...checkFallback(v, ssrc))}</div>`;
 }
 
-function regimes(v, conn, ssrc) {
+function regimes(v, ssrc) {
   const list = v?.regimes ?? null;
-  const solo = html`<div class="st-chk-solo">${checkRow(checkNo("regime_analysis"), ["regime_analysis", "Regime analysis check", "Behaviour across market regimes is understood"], v?.validation?.regime_analysis, checkFallback(v, conn))}</div>`;
+  const solo = html`<div class="st-chk-solo">${checkRow(checkNo("regime_analysis"), ["regime_analysis", "Regime analysis check", "Behaviour across market regimes is understood"], v?.validation?.regime_analysis, ...checkFallback(v, ssrc))}</div>`;
   let body;
-  if (!v) body = sourceEmpty(ssrc, { compact: true, title: "Regime results not connected", hint: "Each regime with its window, state and metrics." });
+  if (!v) body = S.offEmpty(ssrc, sourceTitle(ssrc, "Regime results"), "Each regime will show its window, state and metrics.");
   else if (!list.length)
     body = emptyState({ title: `No per-regime results reported for v${v.version}`, reason: "Each regime's window, state and metrics appear here when the research engine reports them.", compact: true });
   else
@@ -265,11 +268,11 @@ function regimes(v, conn, ssrc) {
 
 /* ================================================================ versions */
 
-function versionTimeline(s, v, st, ssrc, conn) {
+function versionTimeline(s, v, st, ssrc) {
   if (!s) {
     return sourceEmpty(ssrc, {
       compact: true,
-      title: conn ? "Version history not reported" : "Version history not connected",
+      title: sourceTitle(ssrc, "Version history"),
       hint: "Every version — v1, v2, … — with its parent, status, validation status, change summary and rationale, proposer, proposal and specification hash.",
     });
   }
@@ -330,33 +333,30 @@ function nextVersion(s, st) {
 
 /* ================================================================ handoff, approval, package */
 
-function handoff(ctx, s, v, h, conn) {
+function handoff(ctx, s, v, h, ssrc) {
   const controls = derived(ctx, "controls");
   const list = HANDOFF.map((k) => {
     const st = h?.steps?.find((x) => x.step === k);
-    return { key: k, label: humanize(k), state: st?.state, detail: st ? st.detail : conn ? "Not reported" : "Not connected" };
+    return { key: k, label: humanize(k), state: st?.state, detail: st ? st.detail : s ? "Not derived" : S.offWord(ssrc) };
   });
   const viewingOther = s && v && h && v.version !== h.version;
   const actions = controls?.actions?.filter((a) => DEPLOY_ACTIONS.includes(a.key)) ?? [];
   return html`${steps(list, { cls: "st-handoff" })}
     ${viewingOther ? html`<div class="st-inline-note">${icon("info")}<span>The hand-off is derived for the current version v${h.version}. You are viewing v${v.version}, shown for its record only.</span></div>` : ""}
     ${S.label("AGENTS REPORTING THIS STRATEGY", "as declared by the agent runtime")}
-    ${assignedAgents(ctx, s)}
-    <div class="st-ctlrow">
-      ${actions.map((a) => controlButton(a))}
-      <span class="st-ctlrow__why">${actions.length ? html`LOCKED · ${actions[0].blockers.slice(1).join(" · ") || actions[0].blockers[0]}` : html`<span class="st-nodata">NO SNAPSHOT</span>`}</span>
-    </div>`;
+    ${assignedAgents(ctx, s, ssrc)}
+    <div class="st-ctlrow">${S.label("DEPLOYMENT CONTROLS", "locked — blockers computed from declared state")}${controls ? S.lockedControls(actions) : html`<span class="st-nodata">NO SNAPSHOT</span>`}</div>`;
 }
 
-function assignedAgents(ctx, s) {
+function assignedAgents(ctx, s, ssrc) {
   const asrc = source(ctx, "agents");
   if (asrc?.status !== "OK") {
-    return html`<div class="st-inline-note">${icon("info")}<span>${sourceReason(asrc) ?? "Agent runtime not connected."} Agents running this strategy will appear here with their status, mode and package.</span></div>`;
+    return html`<div class="st-inline-note ${S.offTone(asrc)}" data-agents-source="${asrc?.status ?? ""}">${icon("info")}<span>${sourceReason(asrc)} Agents assigned this strategy will appear here with their status, mode and package.</span></div>`;
   }
-  if (!s) return html`<div class="st-inline-note">${icon("info")}<span>Strategy not resolved.</span></div>`;
+  if (!s) return html`<div class="st-inline-note ${S.offTone(ssrc)}">${icon("info")}<span>${sourceReason(ssrc) ?? "Strategy not resolved."} No agent assignment can be matched to this strategy without it.</span></div>`;
   const slots = (derived(ctx, "agent_slots") ?? []).filter((x) => x.strategy?.strategy_id === s.strategy_id);
   if (!slots.length) {
-    return emptyState({ title: `No agent reports running ${s.strategy_id}`, reason: "None of the five agent slots declares an assignment to this strategy.", compact: true, inline: true });
+    return emptyState({ title: `No agent declares ${s.strategy_id}`, reason: "None of the agent slots in agents.json declares an assignment to this strategy.", compact: true, inline: true });
   }
   return html`<div class="st-agents">${slots.map((slot) => {
     const asg = slot.agent?.assignment;
@@ -376,10 +376,10 @@ function assignedAgents(ctx, s) {
   })}</div>`;
 }
 
-function approvalPackage(v, conn) {
+function approvalPackage(v, ssrc) {
   const a = v?.approval ?? null;
   const p = v?.deployment_package ?? null;
-  const missing = (what) => html`<div class="st-inline-note">${icon("info")}<span>${v ? `No ${what} recorded for v${v.version}.` : conn ? "Not reported." : "Source not connected."}</span></div>`;
+  const missing = (what) => html`<div class="st-inline-note ${v ? "" : S.offTone(ssrc)}">${icon("info")}<span>${v ? `No ${what} recorded for v${v.version}.` : sourceReason(ssrc)}</span></div>`;
   return html`${S.label("GOVERNANCE APPROVAL", v ? `v${v.version}` : null)}
     ${a ? "" : missing("governance approval")}
     <div class="st-kvwide">${kv(
@@ -414,7 +414,7 @@ function approvalPackage(v, conn) {
 /* ================================================================ lineage, proposals, memories, findings */
 
 function lineage(ctx, s, v, st, ssrc) {
-  if (!v) return sourceEmpty(ssrc, { compact: true, title: "Lineage not connected", hint: "Hypotheses, trials, memories, proposals and earlier versions this version derives from." });
+  if (!v) return S.offEmpty(ssrc, sourceTitle(ssrc, "Lineage"), "Will list the hypotheses, trials, memories, proposals and earlier versions this version derives from.");
   const research = doc(ctx, "research");
   const fromHyps = research ? research.hypotheses.filter((h) => h.strategy_id === s.strategy_id) : [];
   const declared = v.lineage ?? [];
@@ -435,7 +435,7 @@ function lineage(ctx, s, v, st, ssrc) {
         ? fromHyps.length
           ? html`<ul class="st-lins">${fromHyps.map((h) => row("HYPOTHESIS", h.hypothesis_id, S.hypHref(h.hypothesis_id), h.title, null))}</ul>`
           : emptyState({ title: "No hypothesis names this strategy", compact: true, inline: true })
-        : html`<div class="st-inline-note">${icon("info")}<span>${sourceReason(source(ctx, "research"))}</span></div>`
+        : html`<div class="st-inline-note ${S.offTone(source(ctx, "research"))}">${icon("info")}<span>${sourceReason(source(ctx, "research"))}</span></div>`
     }`;
 }
 
@@ -472,7 +472,7 @@ function proposals(ctx, s, st, ssrc, memIds) {
     rowAttrs: (p) => html`data-proposal="${p.proposal_id}" data-proposal-focus="${p.proposal_id === focus ? "1" : "0"}"`,
     empty: s
       ? emptyState({ title: `No proposals recorded for ${s.strategy_id}`, reason: "Agents and researchers may propose improvements; under SENTRY policy each may only become a new version after research validation and governance approval.", compact: true })
-      : sourceEmpty(ssrc, { compact: true, title: "Proposals not connected" }),
+      : sourceEmpty(ssrc, { compact: true, title: sourceTitle(ssrc, "Proposals") }),
   });
 }
 
@@ -499,58 +499,56 @@ function memories(ctx, id) {
     rowAttrs: (m) => html`data-memory="${m.memory_id}"`,
     empty: mem
       ? emptyState({ title: `No memory references ${id}`, reason: "Lessons and observations that cite this strategy will appear here with their confidence and validation state.", compact: true })
-      : sourceEmpty(msrc, { compact: true, title: "Memory store not connected", hint: "Evidence-backed memories that cite this strategy will appear here." }),
+      : sourceEmpty(msrc, { compact: true, title: sourceTitle(msrc, "Memory store"), hint: "Evidence-backed memories that cite this strategy will appear here." }),
   });
 }
 
-function findings(ctx, s, st) {
-  const all = derived(ctx, "consistency") ?? [];
-  const ids = new Set(s ? [s.strategy_id, ...st.proposals.filter((p) => p.strategy_id === s.strategy_id).map((p) => p.proposal_id)] : []);
-  const mine = s ? all.filter((f) => (f.refs ?? []).some((r) => ids.has(r))) : [];
-  return findingsList(mine, {
-    empty: emptyState({
-      title: s ? `No findings reference ${s.strategy_id}` : "No findings",
-      reason: s ? "Declared state for this strategy and its proposals passes the Command Centre's cross-checks." : "The strategy registry is not connected, so there is nothing to cross-check.",
-      compact: true,
-      iconName: "shield",
-    }),
-  });
+function findings(ctx, s, st, ssrc) {
+  const ids = s ? [s.strategy_id, ...st.proposals.filter((p) => p.strategy_id === s.strategy_id).map((p) => p.proposal_id)] : [];
+  const mine = s ? S.strategyFindings(ctx, ids, { section: false }) : [];
+  return findingsList(mine, { empty: S.noFindingsState(ctx, s ? st : null, ssrc, { subject: s ? `${s.strategy_id} or its proposals` : undefined }) });
 }
 
 /* ================================================================ page states */
 
-function body(ctx, { s, v, st, ssrc, conn, h, id }) {
+/**
+ * Layout: one column seam for the whole page. Above and below the full-width version history, a
+ * narrow fact rail (4/12) sits beside the main evidence column (8/12); each column stacks its own
+ * panels, so no panel is stretched to match an unrelated neighbour. The rail and main contents are
+ * paired so the columns end close together; the last panel of each column takes up the remainder.
+ * Below 1440px both columns dissolve into the grid and panels follow the reading order (st-o*).
+ */
+function body(ctx, { s, v, st, ssrc, h, id }) {
   const vtag = v ? `v${v.version}` : "";
   const memDoc = doc(ctx, "memory");
   const memIds = new Set(memDoc ? memDoc.memories.map((m) => m.memory_id) : []);
+  const off = S.offWord(ssrc);
   return html`
-    ${hero(ctx, s, v, h, conn)}
+    ${hero(ctx, s, v, h, ssrc)}
 
-    <div class="grid">
-      ${panel({ span: 4, cls: "lg-span-12", code: "STR-D01", title: "Identity & rationale", sub: s ? s.strategy_id : "Registry not connected", body: identity(s, conn, ssrc) })}
-      ${panel({
-        span: 8,
-        cls: "lg-span-12",
-        code: "STR-D02",
-        title: `Performance${vtag ? " · " + vtag : ""}`,
-        sub: v ? "As reported for this version — every figure carries its basis" : sourceReason(ssrc),
-        body: performance(v, conn),
-      })}
-    </div>
-
-    <div class="grid">
-      ${panel({
-        span: 8,
-        cls: "lg-span-12",
-        code: "STR-D03",
-        title: `Validation checks${vtag ? " · " + vtag : ""}`,
-        sub: v ? "States exactly as reported; a missing check shows NOT REPORTED" : sourceReason(ssrc),
-        actions: v ? html`<span class="st-faint">VALIDATION</span>${badge(v.validation_status)}` : "",
-        body: checks(v, conn),
-      })}
-      <div class="span-4 lg-span-12 stack st-pair">
-        ${panel({ code: "STR-D04", title: "Multiple testing", sub: v ? `Treatment for ${vtag}` : "Not connected", body: multipleTesting(v, conn) })}
-        ${panel({ code: "STR-D05", title: "Regime analysis", sub: v ? `Per-regime results for ${vtag}` : "Not connected", body: regimes(v, conn, ssrc) })}
+    <div class="grid st-cols" data-cols="evidence">
+      <div class="st-col st-col--rail span-4">
+        ${panel({ cls: "st-o1", code: "STR-D01", title: "Identity & rationale", sub: s ? s.strategy_id : sourceTitle(ssrc, "Registry"), body: identity(s, ssrc) })}
+        ${panel({ cls: "st-o4", code: "STR-D04", title: "Multiple testing", sub: v ? `Treatment for ${vtag}` : off, body: multipleTesting(v, ssrc) })}
+        ${panel({ cls: "st-o5", code: "STR-D05", title: "Regime analysis", sub: v ? `Per-regime results for ${vtag}` : off, body: regimes(v, ssrc) })}
+        ${panel({ cls: "st-o6", code: "STR-D09", title: "Research lineage", sub: v ? `Where ${vtag} comes from` : sourceTitle(ssrc, "Registry"), body: lineage(ctx, s, v, st, ssrc) })}
+      </div>
+      <div class="st-col st-col--main span-8">
+        ${panel({
+          cls: "st-o2",
+          code: "STR-D02",
+          title: `Performance${vtag ? " · " + vtag : ""}`,
+          sub: v ? "As reported for this version — every figure carries its basis" : sourceReason(ssrc),
+          body: performance(v, ssrc),
+        })}
+        ${panel({
+          cls: "st-o3",
+          code: "STR-D03",
+          title: `Validation checks${vtag ? " · " + vtag : ""}`,
+          sub: v ? "States exactly as reported; a missing check shows NOT REPORTED" : sourceReason(ssrc),
+          actions: v ? html`<span class="st-faint">VALIDATION</span>${badge(v.validation_status)}` : "",
+          body: checks(v, ssrc),
+        })}
       </div>
     </div>
 
@@ -560,39 +558,28 @@ function body(ctx, { s, v, st, ssrc, conn, h, id }) {
         code: "STR-D06",
         title: "Version history",
         sub: s ? `${fmtCount(s.versions.length)} ${S.plural(s.versions.length, "version", "versions")} on record · select a version to display its metrics and checks` : sourceReason(ssrc),
-        body: versionTimeline(s, v, st, ssrc, conn),
-        foot: html`<span class="st-immutable">${icon("lock")}<b>Versions are immutable</b> — an improvement creates a new version; nothing is modified in place.</span>`,
+        body: versionTimeline(s, v, st, ssrc),
+        foot: html`<span class="st-immutable">${icon("lock")}<b>Versions are immutable</b> — by contract an improvement creates a new version; a recorded version may never be modified in place.</span>`,
       })}
     </div>
 
-    <div class="grid">
-      ${panel({
-        span: 7,
-        cls: "lg-span-12",
-        code: "STR-D07",
-        title: "Deployment hand-off",
-        sub: h ? `Current version v${h.version} · derived from declared facts` : s ? "No hand-off derived" : sourceReason(ssrc),
-        actions: h ? (h.deployment_eligible ? badge("PASS", { label: "DEPLOYMENT ELIGIBLE" }) : badge("NOT_ELIGIBLE", { label: "NOT ELIGIBLE" })) : "",
-        body: handoff(ctx, s, v, h, conn),
-      })}
-      ${panel({ span: 5, cls: "lg-span-12", code: "STR-D08", title: `Approval & package${vtag ? " · " + vtag : ""}`, sub: "Governance decision and deployment identities", body: approvalPackage(v, conn) })}
-    </div>
-
-    <div class="grid">
-      ${panel({ span: 5, cls: "lg-span-12", code: "STR-D09", title: "Research lineage", sub: v ? `Where ${vtag} comes from` : "Registry not connected", body: lineage(ctx, s, v, st, ssrc) })}
-      ${panel({
-        span: 7,
-        cls: "lg-span-12",
-        code: "STR-D10",
-        title: "Improvement proposals",
-        sub: "Proposals may only become new versions",
-        body: proposals(ctx, s, st, ssrc, memIds),
-      })}
-    </div>
-
-    <div class="grid">
-      ${panel({ span: 7, cls: "lg-span-12", code: "STR-D11", title: "Related memories", sub: "Memories that cite this strategy", body: memories(ctx, s?.strategy_id ?? id) })}
-      ${panel({ span: 5, cls: "lg-span-12", code: "STR-D12", title: "Consistency findings", sub: "Cross-checks whose references include this strategy", body: findings(ctx, s, st) })}
+    <div class="grid st-cols" data-cols="deployment">
+      <div class="st-col st-col--rail span-4">
+        ${panel({ cls: "st-o2", code: "STR-D08", title: `Approval & package${vtag ? " · " + vtag : ""}`, sub: "Governance decision and deployment identities", body: approvalPackage(v, ssrc) })}
+        ${panel({ cls: "st-o5", code: "STR-D12", title: "Consistency findings", sub: "Cross-checks whose references include this strategy", body: findings(ctx, s, st, ssrc) })}
+      </div>
+      <div class="st-col st-col--main span-8">
+        ${panel({
+          cls: "st-o1",
+          code: "STR-D07",
+          title: "Deployment hand-off",
+          sub: h ? `Current version v${h.version} · derived from declared facts` : s ? "No hand-off derived" : sourceReason(ssrc),
+          actions: h ? (h.deployment_eligible ? badge("PASS", { label: "DEPLOYMENT ELIGIBLE" }) : badge("NOT_ELIGIBLE", { label: "NOT ELIGIBLE" })) : "",
+          body: handoff(ctx, s, v, h, ssrc),
+        })}
+        ${panel({ cls: "st-o3", code: "STR-D10", title: "Improvement proposals", sub: "Proposals may only become new versions", body: proposals(ctx, s, st, ssrc, memIds) })}
+        ${panel({ cls: "st-o4", code: "STR-D11", title: "Related memories", sub: "Memories that cite this strategy", body: memories(ctx, s?.strategy_id ?? id) })}
+      </div>
     </div>
   `;
 }
@@ -613,7 +600,7 @@ function notFound(ctx, id, st, ssrc) {
         title: "Unknown strategy",
         body: html`<div class="st-notfound">${emptyState({
           title: `${id} is not in the registry`,
-          reason: `strategies.json is connected and lists ${fmtCount(st.strategies.length)} ${S.plural(st.strategies.length, "strategy", "strategies")}; none has this id. Nothing is shown in its place.`,
+          reason: html`strategies.json is connected and lists ${S.splitInline(S.originSplit(st.strategies))} ${S.plural(st.strategies.length, "strategy", "strategies")}; none has this id. Nothing is shown in its place.`,
           hint: "Strategy ids are assigned by the research engine when a strategy is registered. Check the id, or pick one from the registry.",
           iconName: "strategies",
           code: "strategy-not-found",
@@ -624,7 +611,7 @@ function notFound(ctx, id, st, ssrc) {
         cls: "lg-span-12",
         code: "STR-REG",
         title: "Registered strategies",
-        sub: `${fmtCount(known.length)} on record`,
+        sub: html`${S.splitInline(S.originSplit(known))} on record`,
         body: known.length
           ? html`<ul class="st-known">${known.map(
               (s) => html`<li><a class="ref" href="${S.strategyHref(s.strategy_id)}">${s.strategy_id}</a><span class="st-known__name">${s.name}</span>${badge(s.status)}</li>`,
@@ -642,23 +629,23 @@ export default {
     const id = ctx.params.id;
     const st = doc(ctx, "strategies");
     const ssrc = source(ctx, "strategies");
-    const conn = !!st;
 
     if (!st) {
+      // The registry is unavailable: say exactly why (not connected ≠ not produced ≠ contract error ≠ unreadable).
       return html`
         ${pageHeader({
           kicker: "STRATEGY LIBRARY",
           code: "STR",
-          title: html`<span class="st-title-id">${id}</span> <span class="st-title-name st-title-name--nc">Registry not connected</span>`,
-          sub: "The full strategy record renders below with every field empty until the strategy registry is connected.",
+          title: html`<span class="st-title-id">${id}</span> <span class="st-title-name st-title-name--nc ${S.offTone(ssrc)}" data-source-status="${ssrc?.status ?? ""}">${sourceTitle(ssrc, "Registry")}</span>`,
+          sub: "The full strategy record renders below with every field empty until a valid strategy registry (strategies.json) is available.",
           right: html`${backLink()}${sourceTag(ssrc, { now: ctx.now })}`,
         })}
         <div class="st-ncbar">${sourceEmpty(ssrc, {
           compact: true,
-          title: `Cannot resolve ${id} — strategy registry ${ssrc?.status === "INVALID" || ssrc?.status === "UNREADABLE" ? "unreadable" : "not connected"}`,
-          hint: "Nothing below is inferred. Each panel shows exactly which field will appear once strategies.json is produced.",
+          title: `Cannot resolve ${id} — ${sourceTitle(ssrc, "strategy registry")}`,
+          hint: "Nothing below is inferred. Each panel shows exactly which field will appear once the registry is available and valid.",
         })}</div>
-        ${body(ctx, { s: null, v: null, st: null, ssrc, conn, h: null, id })}`;
+        ${body(ctx, { s: null, v: null, st: null, ssrc, h: null, id })}`;
     }
 
     const s = st.strategies.find((x) => x.strategy_id === id);
@@ -704,7 +691,7 @@ export default {
             })}</div>`
           : ""
       }
-      ${body(ctx, { s, v, st, ssrc, conn, h, id })}`;
+      ${body(ctx, { s, v, st, ssrc, h, id })}`;
   },
   mount(root) {
     const el = root.querySelector('[data-proposal-focus="1"]');

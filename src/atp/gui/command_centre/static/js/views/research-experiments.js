@@ -5,7 +5,7 @@
 // Counts are per record origin and never merged.
 
 import { html } from "../core/html.js";
-import { fmtCount, fmtDate, fmtDateTime, humanize } from "../core/format.js";
+import { fmtAge, fmtCount, fmtDateTime, humanize } from "../core/format.js";
 import { derived, sourceReason } from "../core/state.js";
 import { pageHeader, panel, badge, dot, chip, stat, statRow, sourceTag, emptyState, tabs } from "../components/ui.js";
 import { toneClass } from "../core/tones.js";
@@ -51,7 +51,17 @@ function outcomeCell(t) {
   return html`<div class="rsa-stack-cell">
     <span class="cluster">${running ? dot(t.outcome, { pulse: true }) : ""}${badge(t.outcome)}</span>
     ${t.rejection_reason ? html`<span class="rsa-sub">${t.rejection_reason}</span>` : ""}
+    <span class="rsa-dated rsa-dated--rec"><span class="rsa-dated__k">RECORDED</span>${R.dateTimeVal(t.recorded_at)}</span>
+    ${t.started_at ? html`<span class="rsa-dated rsa-dated--rec"><span class="rsa-dated__k">STARTED</span><span class="v" data-v>${fmtDateTime(t.started_at)}</span></span>` : ""}
   </div>`;
+}
+
+/** Hypothesis and programme the trial declares; a null reference is "not declared", never "none". */
+function linksLine(t) {
+  return html`<span class="rsa-links">
+    <span class="rsa-links__k">HYP</span>${t.hypothesis_id ? R.ref(t.hypothesis_id, R.hypHref(t.hypothesis_id)) : html`<span class="rsa-sub">not declared</span>`}
+    <span class="rsa-links__k">PROG</span>${t.programme_id ? R.ref(t.programme_id, R.programmeHref(t.programme_id)) : html`<span class="rsa-sub">not declared</span>`}
+  </span>`;
 }
 
 function evidenceCell(t) {
@@ -67,7 +77,7 @@ function evidenceCell(t) {
   </div>`;
 }
 
-function registerBody(rs, src, kindFilter, rowsQ) {
+function registerBody(rs, src, kindFilter, rowsQ, now) {
   const all = rs ? [...rs.trials].sort(R.byTrialNumber) : null;
   const byKind = all ? R.groupBy(all, (t) => t.kind) : null;
   const rows = all ? (kindFilter === "ALL" ? all : all.filter((t) => t.kind === kindFilter)) : null;
@@ -87,45 +97,33 @@ function registerBody(rs, src, kindFilter, rowsQ) {
     { key: "trial_number", label: "#", num: true, render: (t) => R.trialNumber(t.trial_number) },
     {
       key: "trial_id",
-      label: "Trial · experiment",
+      label: "Trial · experiment · hypothesis",
       cls: "wrap",
       render: (t) => html`<div class="rsa-stack-cell">
         ${R.ref(t.trial_id, R.trialHref(t.trial_id), html`data-trial="${t.trial_id}"`)}
-        <span class="rsa-title">${t.experiment ?? html`<span class="rsa-none">No experiment label</span>`}</span>
+        <span class="rsa-title">${t.experiment ?? html`<span class="rsa-none">Experiment not declared</span>`}</span>
         <span class="rsa-kind">${chip(humanize(t.kind))}<span class="rsa-sub">STAGE ${humanize(t.stage)}</span></span>
+        ${linksLine(t)}
       </div>`,
     },
-    { key: "outcome", label: "Outcome", cls: "rsa-col-outcome", render: outcomeCell },
-    {
-      key: "hypothesis_id",
-      label: "Hypothesis · programme",
-      render: (t) =>
-        t.hypothesis_id || t.programme_id
-          ? html`<div class="rsa-stack-cell">${t.hypothesis_id ? R.ref(t.hypothesis_id, R.hypHref(t.hypothesis_id)) : html`<span class="rsa-sub">no hypothesis</span>`}${
-              t.programme_id ? R.ref(t.programme_id, R.programmeHref(t.programme_id)) : html`<span class="rsa-sub">no programme</span>`
-            }</div>`
-          : null,
-    },
+    { key: "outcome", label: "Outcome · recorded", cls: "rsa-col-outcome", render: outcomeCell },
     {
       key: "data",
       label: "Data · window",
       render: (t) =>
         t.data_used?.length || t.window_start || t.window_end
-          ? html`<div class="rsa-stack-cell">${t.data_used?.length ? html`<span class="rsa-chips">${t.data_used.map((d) => chip(d))}</span>` : html`<span class="rsa-sub">no data declared</span>`}${R.windowVal(t.window_start, t.window_end)}</div>`
+          ? html`<div class="rsa-stack-cell">${t.data_used?.length ? html`<span class="rsa-chips">${t.data_used.map((d) => chip(d))}</span>` : html`<span class="rsa-sub">data not declared</span>`}${R.windowVal(t.window_start, t.window_end)}</div>`
           : null,
     },
     { key: "evidence_state", label: "Evidence · origin", render: evidenceCell },
-    {
-      key: "recorded_at",
-      label: "Recorded",
-      render: (t) => html`<div class="rsa-stack-cell rsa-nowrap">${R.dateTimeVal(t.recorded_at)}${t.started_at ? html`<span class="rsa-sub mono">STARTED ${fmtDate(t.started_at)}</span>` : ""}</div>`,
-    },
     { key: "metrics", label: "Gross · cost · net", render: (t) => R.metricsCell(t.metrics) },
   ];
   return html`<div class="rsa-tabs">${tabs(tabItems, kindFilter)}</div>
     ${running.length
       ? html`<div class="rsa-running" data-running="${String(running.length)}">
-          <span class="rsa-running__k">${dot("RUNNING", { pulse: true })}RUNNING NOW</span>
+          <span class="rsa-running__k" title="Outcome RUNNING as declared in research.json${src?.meta?.generated_at ? ", generated " + fmtDateTime(src.meta.generated_at) : ""}">${dot("RUNNING", { pulse: true })}DECLARED RUNNING${
+            src?.meta?.generated_at ? html`<span class="rsa-running__asof">· research.json generated ${fmtAge(src.meta.generated_at, now)}</span>` : ""
+          }</span>
           ${running.map(
             (t) => html`<span class="rsa-running__item">${R.ref(t.trial_id, R.trialHref(t.trial_id))}<span>${t.experiment ?? ""}</span>${
               t.hypothesis_id ? html`<span class="muted">·</span>${R.ref(t.hypothesis_id, R.hypHref(t.hypothesis_id))}` : ""
@@ -216,7 +214,7 @@ export default {
                 paged.hidden.length ? ` · rows 1–${fmtCount(paged.shown.length)} shown` : ""
               } · select a row for its history`
             : sourceReason(src),
-          body: registerBody(rs, src, kindFilter, ctx.query.rows),
+          body: registerBody(rs, src, kindFilter, ctx.query.rows, ctx.now),
           cls: "rsa-register",
         })}
       </div>

@@ -4,11 +4,11 @@
 // vocabulary (slot numbers, event kinds, learning-loop stages) is constant.
 
 import { html, raw, cx } from "../core/html.js";
-import { pad2, humanize, fmtTime, fmtDate, fmtDateTime, fmtAge, isNil } from "../core/format.js";
+import { pad2, humanize, fmtTime, fmtDate, fmtDateTime, fmtAge, fmtCount, isNil } from "../core/format.js";
 import { toneOf, toneClass } from "../core/tones.js";
-import { doc, source, derived, sourceReason, sourceShort, findMemory } from "../core/state.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle, findMemory } from "../core/state.js";
 import { fetchEvents } from "../core/api.js";
-import { badge, dot, chip, originBadge, controlButton, refLink } from "../components/ui.js";
+import { badge, dot, chip, val, originBadge, controlButton, refLink } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 import { mountCharts } from "../components/chart.js";
 
@@ -58,6 +58,9 @@ export const GATED_STAGES = [
 ];
 
 const ACTIVE = new Set(["SIMULATING", "PAPER", "LIVE"]);
+
+/** Statuses in which a slot runs a strategy (derive.ACTIVE_AGENT_STATUSES). */
+export const ACTIVE_STATUSES = [...ACTIVE];
 
 /* ------------------------------------------------------------------ slots */
 
@@ -118,16 +121,45 @@ export function absenceShort(sv) {
 export function headline(sv) {
   const parts = [agentLabel(sv.n), humanize(sv.status)];
   if (sv.strategy) parts.push(`${sv.strategy.strategy_id} v${sv.strategy.version}`);
-  else if (sv.status === "NOT_REPORTED") parts.push("NO STRATEGY REPORTED");
-  else parts.push("NO ACTIVE STRATEGY");
+  else parts.push(noStrategyLabel(sv));
   return parts.join(" · ");
+}
+
+/**
+ * True when agents.json exists but cannot be read (INVALID / UNREADABLE): the
+ * slot's state is unknown, so nothing — not even "no strategy" — is asserted.
+ */
+export function sourceBroken(src) {
+  return src?.status === "INVALID" || src?.status === "UNREADABLE";
+}
+
+/** What a slot without an assignment shows: NO STRATEGY REPORTED / STRATEGY UNKNOWN / NO ACTIVE STRATEGY. */
+export function noStrategyLabel(sv) {
+  if (sv.status === "NOT_REPORTED") return "NO STRATEGY REPORTED";
+  if (!sv.connected && sourceBroken(sv.src)) return "STRATEGY UNKNOWN";
+  return "NO ACTIVE STRATEGY";
+}
+
+/** One-line reason under noStrategyLabel(). */
+export function noStrategyHint(sv) {
+  if (sv.status === "NOT_REPORTED") return "The runtime reported no state for this slot";
+  if (!sv.connected && sourceBroken(sv.src)) return `Assignment unreadable: ${sourceTitle(sv.src, "agents.json")}`;
+  return "Awaiting a validated, approved and packaged strategy";
+}
+
+/** "memory.json not produced — title unavailable": why a referenced memory has no title. */
+export function memoryAbsent(ctx) {
+  const src = source(ctx, "memory");
+  return src?.status === "OK" ? "Not found in memory store" : `${sourceTitle(src, "memory.json")} — title unavailable`;
 }
 
 /** Strategy status as the registry declares it; never inferred from the agent. */
 export function registryBadge(ctx, s) {
   if (s?.status) return badge(s.status);
-  if (source(ctx, "strategies")?.status === "OK") return badge(null, { label: "NOT IN REGISTRY" });
-  return badge(null, { label: "REGISTRY NOT CONNECTED" });
+  const src = source(ctx, "strategies");
+  if (src?.status === "OK") return badge(null, { label: "NOT IN REGISTRY" });
+  // A rejected / unreadable registry is a source error (red), never a calm absence.
+  return badge(sourceBroken(src) ? src.status : null, { label: `REGISTRY ${sourceShort(src)}`, title: sourceReason(src) ?? "" });
 }
 
 /** Slot switcher: five links with status dots taken from derived.agent_slots. */
@@ -197,7 +229,126 @@ export function eventsAbsence(ctx, res, { slot, kind } = {}) {
   if (!eventsAvailable(ctx, res)) return sourceReason(src) ?? "The agent event stream is not connected.";
   const who = slot ? agentLabel(slot) : "No agent";
   const what = kind ? `${humanize(kind)} events` : "events";
+  if (src?.status === "INVALID") {
+    // Rejected lines cannot be attributed to a slot or kind, so this is never "none recorded".
+    const bad = `${fmtCount(src.invalid_lines ?? 0)} line(s) of agent_events.jsonl were rejected by the contract and cannot be attributed`;
+    return slot ? `No valid line records ${what} for ${who}; ${bad}.` : `No valid line records ${what}; ${bad}.`;
+  }
   return slot ? `agent_events.jsonl is connected; ${who} has recorded no ${what}.` : `agent_events.jsonl is connected; no ${what} have been recorded.`;
+}
+
+/** Title of an empty event log: the stream's state, never "no activity" unless the stream says so. */
+export function eventsEmptyTitle(ctx, res, none = "NO ACTIVE AGENT ACTIVITY", invalid = "NO VALID EVENT LINE") {
+  if (res && !res.ok) return "EVENT REQUEST FAILED";
+  const src = res?.source ?? source(ctx, "agent_events");
+  if (!eventsAvailable(ctx, res)) return sourceTitle(src, "Agent event stream").toUpperCase();
+  if (src?.status === "INVALID") return invalid;
+  return none;
+}
+
+/* ------------------------------------------------------------------ exact per-slot counts */
+
+/**
+ * Exact per-slot event counts over the whole stream, from derived.agent_slots[i].events
+ * (by_kind / by_mode), never from a fetched window. When the stream is INVALID the
+ * counts cover valid lines only: rejected lines cannot be attributed to a slot, so a
+ * count is a lower bound ("≥n") and a zero is unknown, never a recorded 0.
+ */
+export function slotCounts(ctx, sv) {
+  const ev = sv.slot?.events ?? null;
+  const src = source(ctx, "agent_events");
+  const avail = !!ev?.available && !isNil(ev.count);
+  const invalid = avail && src?.status === "INVALID";
+  return {
+    avail,
+    exact: avail && !invalid,
+    invalid,
+    invalidLines: src?.invalid_lines ?? 0,
+    total: avail ? ev.count : null,
+    byKind: avail ? ev.by_kind ?? null : null,
+    byMode: avail ? ev.by_mode ?? null : null,
+  };
+}
+
+/** A count from slotCounts(): exact text, a lower bound when the stream is INVALID, or null. */
+export function countText(c, n) {
+  if (!c.avail || isNil(n)) return null;
+  if (c.exact) return fmtCount(n);
+  return n > 0 ? `≥${fmtCount(n)}` : null;
+}
+
+/** countText() as a marked value; an INVALID-stream zero is empty with the reason in its title. */
+export function countVal(c, n) {
+  const t = countText(c, n);
+  if (!isNil(t)) return html`<span class="v" data-v ${c.invalid ? html`title="Valid lines only; ${fmtCount(c.invalidLines)} rejected line(s) are not counted"` : ""}>${t}</span>`;
+  if (c.invalid) return html`<span class="v is-empty" data-v data-empty="1" title="None among valid lines; ${fmtCount(c.invalidLines)} line(s) rejected by the contract cannot be attributed">—</span>`;
+  return val(null);
+}
+
+/** Sum of by_kind over a list of kinds (0 when none). */
+export function kindsTotal(byKind, kinds) {
+  if (!byKind) return null;
+  return kinds.reduce((t, k) => t + (byKind[k] ?? 0), 0);
+}
+
+/* ------------------------------------------------------------------ record origins (never merged) */
+
+const ORIGIN_ORDER = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
+const ORIGIN_TAG = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
+
+/** Count records per origin. null when the list itself is absent. */
+export function countOrigins(rows) {
+  if (!Array.isArray(rows)) return null;
+  const out = {};
+  for (const r of rows) {
+    const o = r?.origin ?? "UNDECLARED";
+    out[o] = (out[o] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** [origin, n] pairs with n > 0, in display order. */
+export function originParts(split) {
+  const rank = (o) => (ORIGIN_ORDER.includes(o) ? ORIGIN_ORDER.indexOf(o) : ORIGIN_ORDER.length);
+  return Object.entries(split ?? {})
+    .filter(([, n]) => n > 0)
+    .sort(([a], [b]) => rank(a) - rank(b));
+}
+
+function originTone(o) {
+  return toneClass(o === "SYNTHETIC_FIXTURE" ? "INVALID" : o);
+}
+
+/**
+ * A per-origin count: one number per origin, ORIGINAL untagged, every other
+ * origin tagged (RECON amber, SYNTH red). Origins are never summed. An empty
+ * split is a real 0; null stays empty.
+ */
+export function originCount(split) {
+  if (!split) return val(null);
+  const parts = originParts(split);
+  if (!parts.length) return html`<span class="ag-split" data-origin-split>${val(fmtCount(0))}</span>`;
+  return html`<span class="ag-split" data-origin-split>${parts.map(
+    ([o, n]) => html`<span class="ag-split__n" data-origin="${o}" title="${fmtCount(n)} ${humanize(o).toLowerCase()} record(s), counted separately">${val(fmtCount(n))}${
+      o === "ORIGINAL" ? "" : html`<span class="${cx("ag-split__tag", originTone(o))}">${ORIGIN_TAG[o] ?? o}</span>`
+    }</span>`,
+  )}</span>`;
+}
+
+/** "7 original · 1 reconstructed" (never one merged total). */
+export function originText(split) {
+  const parts = originParts(split);
+  return parts.length ? parts.map(([o, n]) => `${fmtCount(n)} ${humanize(o).toLowerCase()}`).join(" · ") : "0";
+}
+
+/**
+ * Per-origin split of a slot's (or the whole stream's) events, counted from a
+ * fetched window — only when the window holds every one of them (total known and
+ * loaded ≥ total). Otherwise null: a split of a partial window is not the whole.
+ */
+export function windowOrigins(events, total) {
+  if (!Array.isArray(events) || isNil(total) || events.length < total) return null;
+  return countOrigins(events);
 }
 
 export function memoryHref(id) {
@@ -273,7 +424,7 @@ export function eventLog(ctx, events, { showSlot = false, compact = false, empty
   </div>`;
 }
 
-/** Empty body for a log frame: headline, reason, blinking cursor. */
+/** Empty body for a log frame: headline, reason, blinking cursor. Pass eventsEmptyTitle() as title. */
 export function logEmpty({ title = "NO ACTIVE AGENT ACTIVITY", reason, hint }) {
   return html`<div class="ag-log__empty" data-empty-state="no-agent-activity">
     <div class="ag-log__empty-title">${icon("agent", "icon")}<span>${title}</span><span class="log__cursor"></span></div>

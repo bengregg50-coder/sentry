@@ -9,10 +9,13 @@
 import { html } from "../core/html.js";
 import { humanize, fmtCount, fmtDateTime, shortHash } from "../core/format.js";
 import { derived, findingsFor, sourceReason } from "../core/state.js";
-import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, findingsList, originBadge, val } from "../components/ui.js";
+import { pageHeader, panel, badge, stat, statRow, sourceTag, emptyState, findingsList, originBadge, val } from "../components/ui.js";
+import { toneClass } from "../core/tones.js";
 import * as B from "./_research-b-common.js";
 
 const PATH = "/research/validation";
+/** Strategy statuses that end a strategy: a VALIDATED current version under them is not counted as validated. */
+const ENDED = ["RETIRED", "REJECTED"];
 
 /** What a strategy must demonstrate, mapped to the contract checks that report it. Doctrine. */
 const GATE = [
@@ -31,55 +34,71 @@ const GATE = [
 
 /* ---------------------------------------------------------------- gate status */
 
+/** Names the strategies the validated count excludes, so "none validated" is never read as "no version ever passed". */
+function excludedNote(former) {
+  if (!former.length) return "";
+  return html`<div class="rsb-gate__former" data-excluded-validated="${former.map(({ s }) => s.strategy_id).join(",")}">Excluded although their current version is VALIDATED: ${former.map(
+    ({ s, v }, i) => html`${i ? ", " : ""}${B.refLink(s.strategy_id, B.strategyHref(s.strategy_id))} <span class="mono small">v${v.version}</span> <span class="muted">(${humanize(s.status)})</span>`,
+  )} — not counted.</div>`;
+}
+
 function gateStatus(ctx, st, ssrc, cv) {
-  const rsum = derived(ctx, "research_summary");
-  const eligible = derived(ctx, "controls")?.deployment_eligible ?? [];
+  const controls = derived(ctx, "controls");
+  const eligible = controls?.deployment_eligible ?? null;
   if (!st) {
-    return html`<div class="rsb-gate" data-gate="unknown">
+    return html`<div class="rsb-gate ${B.srcBroken(ssrc) ? "is-bad " + toneClass(ssrc.status) : ""}" data-gate="unknown" data-source-off="${ssrc?.status ?? ""}">
       <div class="rsb-gate__k">VALIDATED STRATEGIES</div>
-      <div class="rsb-gate__v is-empty">${val(null)}<span class="rsb-gate__word">UNKNOWN</span></div>
-      <div class="rsb-gate__why">${sourceReason(ssrc)} Nothing can be shown as validated until the strategy registry reports it.</div>
+      <div class="rsb-gate__v is-empty">${val(null)}<span class="rsb-gate__word">${B.offLabel(ssrc)}</span></div>
+      <div class="rsb-gate__why">${sourceReason(ssrc)} Nothing can be shown as validated until the strategy registry reports it — none is assumed.</div>
     </div>
-    ${validationCounts(null)}`;
+    ${validationCounts(null, ssrc)}`;
   }
-  const validated = rsum?.validated ?? null;
-  const live = cv.filter(({ s, v }) => v.validation_status === "VALIDATED" && !["RETIRED", "REJECTED"].includes(s.status));
-  const former = cv.filter(({ s, v }) => v.validation_status === "VALIDATED" && ["RETIRED", "REJECTED"].includes(s.status));
-  const none = validated === 0;
-  return html`<div class="rsb-gate ${none ? "is-none" : ""}" data-gate="${none ? "none" : "some"}" data-validated="${validated ?? ""}">
-      <div class="rsb-gate__k">VALIDATED STRATEGIES · CURRENT VERSIONS</div>
+  // Active strategies only: a VALIDATED current version under a RETIRED or REJECTED strategy is
+  // named separately (the same filter derive.research_summary.validated applies).
+  const live = cv.filter(({ s, v }) => v.validation_status === "VALIDATED" && !ENDED.includes(s.status));
+  const former = cv.filter(({ s, v }) => v.validation_status === "VALIDATED" && ENDED.includes(s.status));
+  const active = cv.filter(({ s }) => !ENDED.includes(s.status));
+  const none = live.length === 0;
+  const strategiesText = (rows) => B.splitText(B.originSplit(rows.map(({ s }) => s)), rows.length === 1 && rows[0].s.origin === "ORIGINAL" ? "strategy" : "strategies");
+  const noEligible = eligible && eligible.length === 0;
+  return html`<div class="rsb-gate ${none ? "is-none" : ""}" data-gate="${none ? "none" : "some"}" data-validated="${String(live.length)}">
+      <div class="rsb-gate__k">VALIDATED STRATEGIES · CURRENT VERSIONS · ACTIVE ONLY</div>
       ${
         none
           ? html`<div class="rsb-gate__none">NO VALIDATED STRATEGY</div>
-              <div class="rsb-gate__why">${
+              <div class="rsb-gate__why" data-gate-why>${
                 cv.length
-                  ? `None of the ${fmtCount(cv.length)} registered strategies has a current version declared VALIDATED by the research engine. Nothing is eligible for deployment.`
-                  : "The strategy registry is connected and lists no strategies. Nothing is eligible for deployment."
-              } No-trade is a valid outcome.</div>`
-          : html`<div class="rsb-gate__v">${val(fmtCount(validated))}<span class="rsb-gate__word">DECLARED VALIDATED</span></div>
+                  ? `The registry lists ${strategiesText(cv)}${
+                      cv.length === active.length ? "" : ` (${strategiesText(active)} active)`
+                    }; none is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).`
+                  : "The strategy registry is connected and lists no strategies."
+              }${noEligible ? " Nothing is deployment-eligible." : ""} No-trade is a valid outcome.</div>`
+          : html`<div class="rsb-gate__v">${B.splitVal(B.originSplit(live.map(({ s }) => s)))}<span class="rsb-gate__word">DECLARED VALIDATED</span></div>
               <div class="rsb-gate__ids">${live.map(({ s, v }) => html`<span class="rsb-gate__id">${B.refLink(s.strategy_id, B.strategyHref(s.strategy_id))}<span class="mono small muted">v${v.version}</span>${badge(s.status)}${originBadge(s.origin)}</span>`)}</div>`
       }
-      ${former.length ? html`<div class="rsb-gate__former">Validated, then ${former.map(({ s }, i) => html`${i ? ", " : ""}${B.refLink(s.strategy_id, B.strategyHref(s.strategy_id))} <span class="muted">(${humanize(s.status)})</span>`)} — not counted.</div>` : ""}
+      ${excludedNote(former)}
       <div class="rsb-gate__elig">DEPLOYMENT-ELIGIBLE <span class="rsb-faint">VALIDATED · APPROVED · PACKAGED</span> ${
-        eligible.length
-          ? html`${eligible.map((id) => {
-              const s = st.strategies.find((x) => x.strategy_id === id);
-              return html`<span class="rsb-gate__id">${B.refLink(id, B.strategyHref(id))}${s ? badge(s.status) : ""}</span>`;
-            })}`
-          : html`<span class="v" data-v>NONE</span>`
+        !eligible
+          ? val(null)
+          : eligible.length
+            ? html`${eligible.map((id) => {
+                const s = st.strategies.find((x) => x.strategy_id === id);
+                return html`<span class="rsb-gate__id">${B.refLink(id, B.strategyHref(id))}${s ? badge(s.status) : ""}${s ? originBadge(s.origin) : ""}</span>`;
+              })}`
+            : html`<span class="v" data-v>NONE</span>`
       }</div>
     </div>
-    ${validationCounts(cv)}`;
+    ${validationCounts(cv, ssrc)}`;
 }
 
-function validationCounts(cv) {
+function validationCounts(cv, ssrc) {
   return html`<div class="rsb-label rsb-gap">Current versions by validation status <span class="rsb-label__extra">per record origin</span></div>
     <div class="rsb-stats4">${statRow(
       B.VALIDATION_STATUSES.map((vs) =>
         stat({
           label: humanize(vs),
           value: cv ? B.splitVal(B.originSplit(cv.filter(({ v }) => v.validation_status === vs).map(({ s }) => s))) : null,
-          emptyLabel: "NOT CONNECTED",
+          emptyLabel: B.offLabel(ssrc),
           hint: { NOT_STARTED: "No checks begun", IN_PROGRESS: "Checks under way", VALIDATED: "Declared by research", FAILED: "Failed validation" }[vs],
         }),
       ),
@@ -129,7 +148,7 @@ function matrix(st, ssrc, cv, selected) {
     })),
   ];
   const empty = !st
-    ? sourceEmpty(ssrc, { title: "Validation matrix not connected", hint: "Every strategy's current version will appear as a row against the thirteen checks above, each showing the state the research engine reported — or NOT REPORTED." })
+    ? B.srcEmpty(ssrc, { hint: "Every strategy's current version will appear as a row against the thirteen checks above, each showing the state the research engine reported — or NOT REPORTED." })
     : emptyState({ title: "No strategies registered", reason: "strategies.json is connected and lists no strategies. There is nothing to validate.", compact: true });
   return html`${B.regTable({
     columns,
@@ -149,7 +168,7 @@ function matrix(st, ssrc, cv, selected) {
 
 /* ---------------------------------------------------------------- multiple testing */
 
-function multipleTesting(ctx, st, ssrc, cv) {
+function multipleTesting(ctx, st, ssrc, rsrc, cv) {
   const ta = derived(ctx, "trial_accounting");
   const declared = ta?.available ? ta.declared : null;
   const columns = [
@@ -165,13 +184,15 @@ function multipleTesting(ctx, st, ssrc, cv) {
     { label: "Check", title: "The multiple_testing validation check reported for this version", render: ({ v }) => B.checkCell(v.validation.multiple_testing, "multiple_testing"), cls: "rsb-mx__cell" },
   ];
   const empty = !st
-    ? sourceEmpty(ssrc, { title: "Multiple-testing treatment not connected", compact: true, hint: "Per strategy: the correction method, trials in its family, global trials counted at the decision, the adjusted threshold and the deflated Sharpe ratio, as reported." })
+    ? B.srcEmpty(ssrc, { compact: true, hint: "Per strategy: the correction method, trials in its family, global trials counted at the decision, the adjusted threshold and the deflated Sharpe ratio, as reported." })
     : emptyState({ title: "No strategies registered", reason: "No strategy, so no multiple-testing treatment to show.", compact: true });
   const foot = declared
     ? html`For reference, the research ledger now declares <b class="mono">${val(B.count(declared.global_count))}</b> global trials${
         declared.as_of ? html` (as of ${fmtDateTime(declared.as_of)})` : ""
       } — counts are shown side by side, never recomputed or adjusted here.`
-    : html`The ledger's global trial count appears here for reference once research.json declares trial_accounting.`;
+    : ta?.available
+      ? html`research.json declares no trial_accounting, so the ledger's global trial count is not shown for reference.`
+      : html`The ledger's global trial count is not shown for reference: ${B.srcPhrase(rsrc)}.`;
   return html`${B.regTable({ columns, rows: cv, empty, cls: "rsb-mt", rowAttrs: ({ s }) => html`data-strategy="${s.strategy_id}"` })}<p class="rsb-note">${foot}</p>`;
 }
 
@@ -190,7 +211,7 @@ function checkDetail(st, ssrc, cv, selectedId) {
       : "";
   if (connected && !cv.length) return emptyState({ title: "No strategies registered", reason: "There is no strategy whose checks could be listed.", compact: true });
   return html`${head}
-    ${!connected ? html`<div class="rsb-autoh">${sourceEmpty(ssrc, { compact: true, title: "Check detail not connected", hint: "The thirteen checks below will show their reported state, detail, timestamp and evidence references." })}</div>` : ""}
+    ${!connected ? html`<div class="rsb-autoh">${B.srcEmpty(ssrc, { compact: true, hint: "The thirteen checks below will show their reported state, detail, timestamp and evidence references." })}</div>` : ""}
     <div class="rsb-checks" data-strategy="${sel?.s.strategy_id ?? ""}">
       ${B.CHECKS.map((c, i) => {
         const chk = sel ? sel.v.validation[c.key] : null;
@@ -200,10 +221,41 @@ function checkDetail(st, ssrc, cv, selectedId) {
             chk?.evidence_refs?.length ? html`<span class="rsb-checks__refs">${chk.evidence_refs.map((r) => html`<span class="ref">${r}</span>`)}</span>` : ""
           }</div>
           <span class="rsb-checks__at">${chk?.checked_at ? fmtDateTime(chk.checked_at) : ""}</span>
-          ${B.checkCell(chk, c.key, { connected: connected && !!sel })}
+          ${connected && !sel
+            ? html`<span class="rsb-cell rsb-cell--nr" data-check="${c.key}" data-state="NO_STRATEGY" title="No strategy selected from the registry">NO STRATEGY</span>`
+            : B.checkCell(chk, c.key, { connected, src: ssrc })}
         </div>`;
       })}
     </div>`;
+}
+
+/* ---------------------------------------------------------------- findings */
+
+/**
+ * An empty findings list means only "none from the checks that ran": it is
+ * phrased from derived.check_coverage, never as a statement that the declared
+ * state is sound.
+ */
+function findingsEmpty(ctx, st, ssrc) {
+  if (!st) {
+    return B.srcEmpty(ssrc, { compact: true, hint: "Findings such as a strategy declared VALIDATED while a required check is not PASS will appear here." });
+  }
+  const cov = (derived(ctx, "check_coverage") ?? []).find((c) => c.key === "strategy_rules") ?? null;
+  if (!cov?.ran) {
+    return emptyState({
+      title: "Strategy cross-checks did not run",
+      reason: cov ? cov.note ?? `Missing: ${cov.missing.join(", ") || "unknown"}.` : "The snapshot reports no coverage for the strategy cross-checks, so an empty list asserts nothing.",
+      compact: true,
+      code: "strategy-checks-not-run",
+    });
+  }
+  return emptyState({
+    title: "No findings from the strategy cross-checks that ran",
+    reason: "They look for a version declared VALIDATED while a required check is not PASS, a deployment without validation, approval or package, and an in-sample headline figure on a validated version, among others. None raised a finding on the declared state.",
+    compact: true,
+    iconName: "shield",
+    code: "strategy-checks-none",
+  });
 }
 
 /* ---------------------------------------------------------------- view */
@@ -211,7 +263,7 @@ function checkDetail(st, ssrc, cv, selectedId) {
 export default {
   title: "Validation",
   render(ctx) {
-    const { st, ssrc } = B.sources(ctx);
+    const { st, ssrc, rsrc } = B.sources(ctx);
     const cv = B.currentVersions(st);
     // Default detail: the first strategy with at least one reported check (a display choice only).
     const firstReported = cv?.find(({ v }) => B.CHECKS.some((c) => v.validation[c.key])) ?? cv?.[0];
@@ -223,21 +275,17 @@ export default {
         code: "VAL",
         title: "Validation",
         sub: "The gate between research and deployment. Every check is shown exactly as the research engine reported it; a check that was never reported is shown as NOT REPORTED, never as passed.",
-        right: html`${sourceTag(ssrc, { now: ctx.now })}`,
+        right: html`${sourceTag(ssrc, { now: ctx.now })}${sourceTag(rsrc, { now: ctx.now })}`,
       })}
 
       <div class="grid">
         <div class="span-5 lg-span-12 stack">
-          ${panel({ code: "VAL-01", title: "Gate status", sub: st ? "Declared validation of current versions" : "strategies.json not connected", variant: "accent", body: gateStatus(ctx, st, ssrc, cv) })}
+          ${panel({ code: "VAL-01", title: "Gate status", sub: st ? "Declared validation of current versions" : B.srcPhrase(ssrc), variant: "accent", body: gateStatus(ctx, st, ssrc, cv) })}
           ${panel({
             code: "VAL-02",
             title: "Strategy findings",
             sub: "Cross-checks of declared strategy state — not verdicts",
-            body: findingsList(findings, {
-              empty: st
-                ? emptyState({ title: "No strategy findings", reason: "Declared strategy state passes the Command Centre's cross-checks: nothing declared VALIDATED without its required checks passing, nothing deployed without validation and approval, no in-sample headline figure on a validated version.", compact: true, iconName: "shield" })
-                : sourceEmpty(ssrc, { compact: true, title: "Nothing to cross-check", hint: "Findings such as a strategy declared VALIDATED while a required check is not PASS will appear here." }),
-            }),
+            body: findingsList(findings, { empty: findingsEmpty(ctx, st, ssrc) }),
           })}
         </div>
         ${panel({ span: 7, code: "VAL-03", title: "What a strategy must demonstrate", sub: "Eleven requirements · thirteen contract checks", variant: "hero", cls: "lg-span-12", body: gateDoctrine() })}
@@ -248,7 +296,7 @@ export default {
           span: 12,
           code: "VAL-04",
           title: "Validation matrix",
-          sub: cv ? `${fmtCount(cv.length)} strategies × ${B.CHECKS.length} checks · current versions · select a row for its check detail` : `Strategies × ${B.CHECKS.length} checks · source not connected`,
+          sub: cv ? `${B.splitText(B.originSplit(cv.map(({ s }) => s)), "strategies")} × ${B.CHECKS.length} checks · current versions · select a row for its check detail` : `Strategies × ${B.CHECKS.length} checks · ${B.srcPhrase(ssrc)}`,
           body: matrix(st, ssrc, cv, selected),
         })}
       </div>
@@ -270,7 +318,7 @@ export default {
           code: "VAL-06",
           title: "Multiple-testing treatment",
           sub: "Per strategy current version · as reported",
-          body: multipleTesting(ctx, st, ssrc, cv),
+          body: multipleTesting(ctx, st, ssrc, rsrc, cv),
         })}
       </div>
     `;

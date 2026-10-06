@@ -3,7 +3,7 @@
 // memory with no evidence attached is UNTRACEABLE and is listed as a warning.
 
 import { html } from "../core/html.js";
-import { isNil, fmtCount, fmtDateTime, humanize } from "../core/format.js";
+import { isNil, fmtDateTime, humanize } from "../core/format.js";
 import { sourceReason, sourceShort, findingsFor } from "../core/state.js";
 import { toneOf } from "../core/tones.js";
 import { pageHeader, panel, badge, stat, statRow, val, emptyState, sourceEmpty, tabs, findingsList } from "../components/ui.js";
@@ -15,8 +15,9 @@ import {
   memHref,
   trialHref,
   qhref,
-  countBy,
-  tally,
+  originCounts,
+  splitVal,
+  splitText,
   flattenEvidence,
   stanceBadge,
   untraceableBadge,
@@ -93,8 +94,8 @@ function traceability(ctx, mems, src) {
   return html`
     ${statRow(
       [
-        stat({ label: "Traceable", value: fmtCount(mems.length - untraceable.length), hint: "≥1 evidence item", size: "sm" }),
-        stat({ label: "Untraceable", value: fmtCount(untraceable.length), hint: "No evidence attached", size: "sm", tone: untraceable.length ? toneOf("WARN") : null }),
+        stat({ label: "Traceable", value: splitVal(originCounts(mems, (m) => m.evidence.length > 0), { cls: "mem-split--sm" }), hint: "≥1 evidence item", size: "sm" }),
+        stat({ label: "Untraceable", value: splitVal(originCounts(untraceable), { cls: "mem-split--sm" }), hint: "No evidence attached", size: "sm", tone: untraceable.length ? toneOf("WARN") : null }),
       ],
       { min: 110 },
     )}
@@ -124,12 +125,10 @@ export default {
     const kindF = EVIDENCE_KINDS.includes(q.kind) ? q.kind : null;
     const rows = all ? all.filter((e) => (!stanceF || e.stance === stanceF) && (!kindF || e.kind === kindF)).sort(byRecorded) : null;
     const forStance = all ? all.filter((e) => !kindF || e.kind === kindF) : null;
-    const stanceCounts = forStance ? countBy(forStance, (e) => e.stance) : null;
-    const allStance = all ? countBy(all, (e) => e.stance) : null;
-    const kindCounts = all ? countBy(all, (e) => e.kind) : null;
-    const resultCounts = all ? countBy(all, (e) => e.result ?? "NOT_REPORTED") : null;
+    // Evidence items take the origin of the memory they are attached to; every count is per origin.
+    const split = (rows, pred) => (rows ? originCounts(rows, pred, (e) => e.memory.origin) : null);
     const why = sourceShort(src);
-    const s = (n) => (all ? fmtCount(n) : null);
+    const s = (pred) => splitVal(split(all, pred));
 
     return html`
       ${pageHeader({
@@ -145,23 +144,29 @@ export default {
           span: 12,
           code: "MEM-E01",
           title: "Evidence ledger",
-          sub: rows ? `${fmtCount(rows.length)} of ${fmtCount(all.length)} items${stanceF || kindF ? " · filtered" : ""}` : sourceReason(src),
+          sub: rows
+            ? !all.length
+              ? "None recorded"
+              : stanceF || kindF
+                ? `Showing ${splitText(split(rows))} of ${splitText(split(all))} items · filtered`
+                : `${splitText(split(all))} items · all shown`
+            : sourceReason(src),
           body: html`
             ${statRow(
               [
-                stat({ label: "Evidence items", value: s(all?.length), emptyLabel: why }),
-                stat({ label: "Supporting", value: s(tally(allStance, "SUPPORTS")), emptyLabel: why }),
-                stat({ label: "Contradicting", value: s(tally(allStance, "CONTRADICTS")), emptyLabel: why }),
-                stat({ label: "Neutral", value: s(tally(allStance, "NEUTRAL")), emptyLabel: why }),
-                stat({ label: "Independent", value: s(all?.filter((e) => e.independent === true).length), hint: all ? `${fmtCount(all.filter((e) => isNil(e.independent)).length)} not reported` : null, emptyLabel: why }),
+                stat({ label: "Evidence items", value: s(null), hint: "Per origin of the memory", emptyLabel: why }),
+                stat({ label: "Supporting", value: s((e) => e.stance === "SUPPORTS"), emptyLabel: why }),
+                stat({ label: "Contradicting", value: s((e) => e.stance === "CONTRADICTS"), emptyLabel: why }),
+                stat({ label: "Neutral", value: s((e) => e.stance === "NEUTRAL"), emptyLabel: why }),
+                stat({ label: "Independent", value: s((e) => e.independent === true), hint: all ? `${splitText(split(all, (e) => isNil(e.independent)))} not reported` : null, emptyLabel: why }),
               ],
               { min: 120 },
             )}
             <div class="mem-gap">
               ${tabs(
                 [
-                  { key: "ALL", label: "All stances", href: qhref(PATH, q, { stance: null }), count: forStance ? forStance.length : null },
-                  ...STANCES.map((st) => ({ key: st, label: humanize(st), href: qhref(PATH, q, { stance: st }), count: tally(stanceCounts, st) })),
+                  { key: "ALL", label: "All stances", href: qhref(PATH, q, { stance: null }), count: splitVal(split(forStance), { cls: "mem-split--sm" }) },
+                  ...STANCES.map((st) => ({ key: st, label: humanize(st), href: qhref(PATH, q, { stance: st }), count: splitVal(split(forStance, (e) => e.stance === st), { cls: "mem-split--sm" }) })),
                 ],
                 stanceF ?? "ALL",
               )}
@@ -180,7 +185,7 @@ export default {
             title: "By kind",
             sub: all ? "Select a kind to filter the ledger" : "Evidence kinds in the contract",
             body: bars(
-              EVIDENCE_KINDS.map((k) => ({ key: k, n: tally(kindCounts, k), href: all ? qhref(PATH, q, { kind: kindF === k ? null : k }) : null, active: kindF === k })),
+              EVIDENCE_KINDS.map((k) => ({ key: k, split: split(all, (e) => e.kind === k), href: all ? qhref(PATH, q, { kind: kindF === k ? null : k }) : null, active: kindF === k })),
               { neutral: true },
             ),
           })}
@@ -190,7 +195,7 @@ export default {
             code: "MEM-E04",
             title: "By result",
             sub: "Result of the referenced test, as reported",
-            body: bars([...RESULTS, "NOT_REPORTED"].map((r) => ({ key: r, n: tally(resultCounts, r) }))),
+            body: bars([...RESULTS, "NOT_REPORTED"].map((r) => ({ key: r, split: split(all, (e) => (e.result ?? "NOT_REPORTED") === r) }))),
           })}
       </div>
     `;

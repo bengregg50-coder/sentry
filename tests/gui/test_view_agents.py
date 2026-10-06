@@ -5,6 +5,11 @@ value, every control is locked. Fixture mode: declared agent state renders
 verbatim (slot 02 runs FX-S003 in SIM with an FXA LONG position; slot 04 is on
 STANDBY; slot 05 was not reported by the runtime and is NOT REPORTED, not
 SLEEPING). Unknown slots render a proper state, never an error box.
+
+Wording follows the source status: not connected (no state dir) ≠ not produced
+(MISSING) ≠ rejected by the contract (INVALID) ≠ none recorded. Activity counts
+are exact whole-stream counts (derived.agent_slots[i].events.by_kind / by_mode),
+and record-bearing totals are split by origin, never merged.
 """
 
 from __future__ import annotations
@@ -81,8 +86,15 @@ def test_empty_overview_five_sleeping_slots_without_strategy(empty_page):
     assert {k for k, _ in controls} >= {"ASSIGN_STRATEGY", "START_SIMULATION", "ENABLE_LIVE", "HALT_AGENT", "TRIP_KILL_SWITCH"}
     assert all(enabled == "0" for _, enabled in controls), controls
     text = view_text(empty_page).upper()
-    assert "NO ACTIVE AGENT ACTIVITY" in text
+    # not connected is not "no activity": the log says the stream is not connected
+    assert "AGENT EVENT STREAM NOT CONNECTED" in text and "NO ACTIVE AGENT ACTIVITY" not in text
     assert "STRATEGY REGISTRY NOT CONNECTED" in text
+    # no cross-check ran, so the panel never claims consistency
+    assert "NO AGENT CROSS-CHECK RAN" in text and "CONSISTENT" not in text
+    assert empty_page.locator('[data-check-coverage] [data-ran="1"]').count() == 0
+    # the deployment rule is stated as policy, never as a current fact
+    assert "NOTHING ELSE REACHES THE TRADING FLOOR" not in text and "POLICY:" in text
+    assert "ASLEEP" not in text
 
 
 @pytest.mark.parametrize("slot", SLOTS)
@@ -115,7 +127,7 @@ def test_empty_activity_has_full_structure_and_cursor(empty_page):
     v = visit(empty_page, "/agents/3/activity")
     assert v.clean, v.describe()
     text = view_text(empty_page).upper()
-    assert "NO ACTIVE AGENT ACTIVITY" in text
+    assert "AGENT EVENT STREAM NOT CONNECTED" in text and "NO ACTIVE AGENT ACTIVITY" not in text
     assert empty_page.locator(".view .log__cursor").count() >= 1
     steps = empty_page.eval_on_selector_all(".ag-loop .step", "els => els.map(e => e.dataset.step)")
     assert steps == [
@@ -265,7 +277,7 @@ def test_fixture_activity_slot2_stream_loop_and_proposals(fixture_page):
     note = fixture_page.inner_text(".ag-loop__note").upper()
     assert "CUMULATIVELY" in note and "0 REJECTED" in note
     assert fixture_page.get_attribute(".ag-loop__note", "data-window") == "complete"
-    assert "ALL 15 LOADED" in note
+    assert "ALL 15 OF ITS EVENTS" in note and "LOADED" not in note
     modes = dict(fixture_page.eval_on_selector_all(".ag-modes__cell", "els => els.map(e => [e.dataset.mode, e.querySelector('.v').textContent.trim()])"))
     assert modes == {"RESEARCH": "6", "SIM": "9", "PAPER": "0", "LIVE": "0"}
     proposals = fixture_page.locator('[data-proposal]').all_inner_texts()
@@ -314,17 +326,24 @@ def test_partial_state_runtime_without_registry_or_events(browser, state_factory
         v = visit(page, "/agents/2", settle_ms=500)
         assert v.clean, v.describe()
         text = view_text(page).upper()
-        assert "REGISTRY NOT CONNECTED" in text  # strategy status is never inferred
-        assert "NO ACTIVE AGENT ACTIVITY" in text and "AGENT_EVENTS.JSONL HAS NOT BEEN PRODUCED" in text
-        assert "MEMORY.JSON NOT CONNECTED" in text
+        # MISSING documents are "not produced", never "not connected"; strategy status is never inferred
+        assert "REGISTRY NOT PRODUCED" in text
+        assert "AGENT EVENT STREAM NOT PRODUCED" in text and "AGENT_EVENTS.JSONL HAS NOT BEEN PRODUCED" in text
+        assert "NO ACTIVE AGENT ACTIVITY" not in text
+        assert "MEMORY.JSON NOT PRODUCED" in text
+        assert "NOT CONNECTED" not in text, "a MISSING source is labelled NOT CONNECTED on /agents/2"
         v = visit(page, "/agents/2/activity")
         assert v.clean, v.describe()
-        assert "PROPOSALS NOT CONNECTED" in view_text(page).upper()
+        text = view_text(page).upper()
+        assert "PROPOSALS NOT PRODUCED" in text and "NOT CONNECTED" not in text
+        assert "STRATEGIES.JSON HAS NOT BEEN PRODUCED" in page.inner_text(".ag-loop__note").upper()
         v = visit(page, "/agents")
         assert v.clean, v.describe()
         assert page.eval_on_selector_all(".ag-card", "els => els.map(e => e.dataset.agentStatus)") == [
             "SLEEPING", "SIMULATING", "SLEEPING", "STANDBY", "NOT_REPORTED",
         ]
+        text = view_text(page).upper()
+        assert "STRATEGY REGISTRY NOT PRODUCED" in text and "NOT CONNECTED" not in text
         page.close()
     finally:
         server.should_exit = True
@@ -416,8 +435,8 @@ def _windowed_state(state_factory):
     return target
 
 
-def test_activity_counts_beyond_loaded_window_are_partial_not_zero(browser, state_factory):
-    """Counts over the loaded window are never presented as the slot's recorded totals."""
+def test_activity_counts_are_exact_over_the_whole_stream(browser, state_factory):
+    """Stage, kind and mode counts come from derived by_kind / by_mode over every event, not the loaded window."""
     from .conftest import start_server
 
     url, server = start_server(_windowed_state(state_factory))
@@ -427,35 +446,40 @@ def test_activity_counts_beyond_loaded_window_are_partial_not_zero(browser, stat
         assert v.clean, v.describe()
         sum_text = page.inner_text(".ag-sum").upper()
         assert "1,200" in sum_text and "1,000" in sum_text
+        # the window holds 1,000 of 1,200 events, so the slot total is not split by origin
+        assert "ALL ORIGINS" in sum_text
         loop = dict(
             page.eval_on_selector_all(
                 ".ag-loop .step",
                 "els => els.map(e => [e.dataset.step, [e.querySelector('.step__count').textContent.trim(), e.querySelector('.step__count').hasAttribute('data-empty')]])",
             )
         )
-        # 200 hypotheses were recorded but fall outside the window: not a recorded 0
-        assert loop["HYPOTHESIZE"] == ["—", True]
-        assert loop["OBSERVE"] == ["≥1,000", False]
-        assert all(c != "0" for k, (c, _) in loop.items() if k not in ("RESEARCH_VALIDATION", "GOVERNANCE_APPROVAL", "NEW_VERSION"))
-        assert page.get_attribute(".ag-loop__note", "data-window") == "partial"
+        # 200 hypotheses were recorded outside the loaded window: counted exactly, never a false 0
+        assert loop["HYPOTHESIZE"] == ["200", False]
+        assert loop["OBSERVE"] == ["1,000", False]
+        # kinds that were never recorded are real zeros (the counts cover the whole stream)
+        assert loop["TEST"] == ["0", False]
+        assert page.get_attribute(".ag-loop__note", "data-window") == "complete"
         note = page.inner_text(".ag-loop__note").upper()
-        assert "PARTIAL" in note and "LATEST 1,000 OF 1,200" in note
-        assert "RECORDED EVENTS OF EACH KIND" not in note
-        # kind index and by-mode: no false zeros, lower bounds marked
+        assert "ALL 1,200 OF ITS EVENTS" in note and "PARTIAL" not in note
         kinds = dict(page.eval_on_selector_all("[data-kind-index]", "els => els.map(e => [e.dataset.kindIndex, e.querySelector('.v').textContent.trim()])"))
-        assert kinds["HYPOTHESIS"] == "—" and kinds["OBSERVATION"] == "≥1,000"
-        assert "0" not in kinds.values()
+        assert kinds["HYPOTHESIS"] == "200" and kinds["OBSERVATION"] == "1,000" and kinds["FILL"] == "0"
         modes = dict(page.eval_on_selector_all(".ag-modes__cell", "els => els.map(e => [e.dataset.mode, e.querySelector('.v').textContent.trim()])"))
-        assert modes == {"RESEARCH": "—", "SIM": "≥1,000", "PAPER": "—", "LIVE": "—"}
-        assert page.get_attribute(".ag-modes", "data-window") == "partial"
-        assert page.locator('.view .badge[data-state="PARTIAL"]').count() >= 3
+        assert modes == {"RESEARCH": "200", "SIM": "1,000", "PAPER": "0", "LIVE": "0"}
+        tabs = page.eval_on_selector_all(".ag-tabs .tab", "els => els.map(e => e.textContent.replace(/\\s+/g, ' ').trim().toUpperCase())")
+        assert any(t.startswith("HYPOTHESIS") and t.endswith("200") for t in tabs), tabs
+        assert any(t.startswith("ALL") and t.endswith("1,200") for t in tabs), tabs
+        # the stream list itself is the loaded window, and says so
+        assert "LATEST 1,000 OF 1,200" in page.inner_text(".ag-fillbody .panel__sub").upper()
+        # memory traffic is read from the loaded window: marked partial
+        assert page.locator('.ag-traffic__window .badge[data-state="PARTIAL"]').count() == 1
         # a kind filter is served over every recorded event, not the loaded window
         v = visit(page, "/agents/1/activity?kind=HYPOTHESIS", settle_ms=400)
         assert v.clean, v.describe()
         kinds = page.eval_on_selector_all(".ag-log__row[data-event-id]", "els => els.map(e => e.dataset.kind)")
         assert len(kinds) == 200 and set(kinds) == {"HYPOTHESIS"}
+        assert "ALL 200 RECORDED" in page.inner_text(".ag-fillbody .panel__sub").upper()
         assert "HAS RECORDED NO" not in view_text(page).upper()
-        # a slot whose events all fit in the window keeps exact counts, including real zeros
         v = visit(page, "/agents/2/activity", settle_ms=300)
         assert v.clean, v.describe()
         assert page.get_attribute(".ag-loop__note", "data-window") == "complete"
@@ -472,4 +496,263 @@ def test_no_horizontal_overflow(browser, fixture_url, empty_url, width):
             visit(page, route, settle_ms=150)
             overflow = page.evaluate("() => { const m = document.getElementById('main'); return m.scrollWidth - m.clientWidth }")
             assert overflow <= 1, f"{route} overflows by {overflow}px at {width}px ({base})"
+        page.close()
+
+
+# --------------------------------------------------------------------------- status-accurate wording
+
+
+def _extra_field(doc):
+    """A present, parseable document the contract rejects (INVALID), as a newer producer might write."""
+    doc["data"]["__unexpected__"] = True
+    return doc
+
+
+def test_invalid_agents_json_is_a_source_error_not_a_sleeping_or_disconnected_fleet(browser, state_factory):
+    from .conftest import start_server
+
+    url, server = start_server(state_factory({"agents": _extra_field}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        statuses = page.eval_on_selector_all(".ag-card", "els => els.map(e => e.dataset.agentStatus)")
+        assert set(statuses) == {"SOURCE_ERROR"}
+        text = view_text(page).upper()
+        # the assignment is unreadable, so nothing — not even "no strategy" — is asserted
+        assert "STRATEGY UNKNOWN" in text and "NO ACTIVE STRATEGY" not in text
+        assert "REJECTED BY THE CONTRACT" in text
+        assert "SLOTS DISPLAY AS SOURCE ERROR" in text and "SLEEPING BY DEFAULT" not in text
+        assert "AGENT MEMORY REFERENCES REJECTED BY THE CONTRACT" in text
+        assert "NOT CONNECTED" not in text, "an INVALID agents.json is labelled NOT CONNECTED"
+        # the deployment-eligible table does not claim what the slots are doing
+        assert "ASLEEP" not in text
+        v = visit(page, "/agents/2", settle_ms=400)
+        assert v.clean, v.describe()
+        assert page.inner_text("[data-headline]").upper() == "AGENT 02 · SOURCE ERROR · STRATEGY UNKNOWN"
+        text = view_text(page).upper()
+        assert "NO ACTIVE STRATEGY" not in text and "NOT CONNECTED" not in text
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_invalid_strategies_json_is_a_contract_error(browser, state_factory):
+    from .conftest import start_server
+
+    url, server = start_server(state_factory({"strategies": _extra_field}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "STRATEGY REGISTRY REJECTED BY THE CONTRACT" in text and "NOT CONNECTED" not in text
+        # the registry status on the card is a red source error, never a calm grey absence
+        reg = page.locator('.ag-card[data-agent-slot="2"] .ag-card__strat .badge')
+        assert reg.inner_text().strip().upper() == "REGISTRY CONTRACT ERROR"
+        assert "tone-bad" in reg.get_attribute("class")
+        v = visit(page, "/agents/2/activity", settle_ms=300)
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "PROPOSALS REJECTED BY THE CONTRACT" in text and "NOT CONNECTED" not in text
+        assert "DOES NOT CONFORM TO THE STATE CONTRACT" in page.inner_text(".ag-loop__note").upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def _invalid_events_state(state_factory):
+    """agent_events.jsonl with one line the contract rejects (the stream is INVALID, 15 valid lines remain)."""
+    target = state_factory()
+    path = target / "agent_events.jsonl"
+    path.write_text(path.read_text().rstrip("\n") + '\n{"event_id": "BROKEN"}\n')
+    return target
+
+
+def test_invalid_event_stream_counts_are_lower_bounds_never_zero(browser, state_factory):
+    """Rejected lines cannot be attributed to a slot: a count over valid lines is ≥n and a zero is unknown."""
+    from .conftest import start_server
+
+    url, server = start_server(_invalid_events_state(state_factory))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents/2/activity", settle_ms=400)
+        assert v.clean, v.describe()
+        loop = dict(page.eval_on_selector_all(".ag-loop .step", "els => els.map(e => [e.dataset.step, e.querySelector('.step__count').textContent.trim()])"))
+        assert loop["OBSERVE"] == "≥2" and loop["PROPOSE"] == "≥1"
+        assert page.get_attribute(".ag-loop__note", "data-window") == "partial"
+        assert "VALID LINES ONLY" in page.inner_text(".ag-loop__note").upper()
+        modes = dict(page.eval_on_selector_all(".ag-modes__cell", "els => els.map(e => [e.dataset.mode, [e.querySelector('.v').textContent.trim(), e.querySelector('.v').classList.contains('is-empty')]])"))
+        assert modes["SIM"] == ["≥9", False] and modes["PAPER"] == ["—", True]
+        kinds = dict(page.eval_on_selector_all("[data-kind-index]", "els => els.map(e => [e.dataset.kindIndex, e.querySelector('.v').textContent.trim()])"))
+        assert "0" not in kinds.values()
+        # a slot with no valid line: neither "has recorded no events" nor a 0
+        v = visit(page, "/agents/1/activity", settle_ms=300)
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "NO VALID EVENT LINE" in text and "HAS RECORDED NO EVENTS" not in text
+        assert "REJECTED BY THE CONTRACT" in text
+        loop = page.eval_on_selector_all(".ag-loop .step__count", "els => els.map(e => e.textContent.trim())")
+        assert "0" not in loop[:9]
+        v = visit(page, "/agents", settle_ms=300)
+        assert v.clean, v.describe()
+        card1 = page.locator('.ag-card[data-agent-slot="1"] .ag-card__grid')
+        events = card1.locator("dt", has_text="EVENTS").locator("xpath=following-sibling::dd").inner_text().strip()
+        last = card1.locator("dt", has_text="LAST EVENT").locator("xpath=following-sibling::dd").inner_text().strip().upper()
+        assert events == "—" and last != "NONE"
+        fleet = page.inner_text(".ag-fleet").upper()
+        assert "REJECTED BY THE CONTRACT" in fleet
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def _not_eligible(doc):
+    """FX-S003 v2 loses its validation: no strategy is deployment-eligible, though Agent 02 still runs it."""
+    for s in doc["data"]["strategies"]:
+        for v in s["versions"]:
+            v["validation_status"] = "IN_PROGRESS"
+    return doc
+
+
+def test_slots_note_follows_agent_state_not_the_registry_alone(browser, state_factory):
+    """'Agents remain asleep' was asserted from strategies.json alone; the note now reads agents.json."""
+    from .conftest import start_server
+
+    url, server = start_server(state_factory({"strategies": _not_eligible}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        assert page.locator('[data-empty-state="no-eligible-strategy"]').count() == 1
+        note = page.inner_text("[data-slots-note]").upper()
+        assert "AGENT 02 REPORTS SIMULATING" in note and "ASLEEP" not in note and "NO SLOT" not in note
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_slots_note_when_no_slot_is_active(browser, state_factory):
+    from .conftest import start_server
+
+    def idle(doc):
+        for a in doc["data"]["agents"]:
+            if a["status"] in ("SIMULATING", "PAPER", "LIVE"):
+                a["status"] = "STANDBY"
+        return doc
+
+    url, server = start_server(state_factory({"strategies": _not_eligible, "agents": idle}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        note = page.inner_text("[data-slots-note]").upper()
+        assert "REPORTS NO SLOT SIMULATING, PAPER OR LIVE" in note
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_slots_note_without_agent_runtime(browser, state_factory):
+    from .conftest import start_server
+
+    url, server = start_server(state_factory({"strategies": _not_eligible}, drop=("agents",)))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        note = page.inner_text("[data-slots-note]").upper()
+        assert "UNKNOWN" in note and "AGENTS.JSON NOT PRODUCED" in note and "NO SLOT" not in note
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# --------------------------------------------------------------------------- origins never merged
+
+
+def test_memory_and_event_totals_are_split_by_origin(browser, state_factory, fixture_page):
+    from .conftest import start_server
+
+    # fixture: every event is SYNTHETIC_FIXTURE, so the totals carry the SYNTH tag
+    v = visit(fixture_page, "/agents")
+    assert v.clean, v.describe()
+    fleet = fixture_page.locator(".ag-fleet [data-origin-split] [data-origin]")
+    assert fleet.evaluate_all("els => els.map(e => [e.dataset.origin, e.textContent.trim()])") == [["SYNTHETIC_FIXTURE", "15SYNTH"]]
+    card2 = fixture_page.locator('.ag-card[data-agent-slot="2"] [data-origin-split] [data-origin]')
+    assert card2.evaluate_all("els => els.map(e => e.dataset.origin)") == ["SYNTHETIC_FIXTURE"]
+    v = visit(fixture_page, "/agents/2")
+    assert v.clean, v.describe()
+    assert fixture_page.locator(".ag-head__meta [data-origin-split]").count() == 1
+
+    def mixed(doc):
+        for i, m in enumerate(doc["data"]["memories"]):
+            m["origin"] = "RECONSTRUCTED" if i >= 4 else "ORIGINAL"
+        return doc
+
+    url, server = start_server(state_factory({"memory": mixed}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents", settle_ms=400)
+        assert v.clean, v.describe()
+        mem = page.locator(".ag-net text[data-origin-split]")
+        assert mem.count() == 1
+        txt = mem.text_content().upper()
+        assert "4 ORIGINAL" in txt and "2 RECONSTRUCTED" in txt and "6" not in txt
+        assert "tone-warn" in page.locator('.ag-net tspan[data-origin="RECONSTRUCTED"]').get_attribute("class")
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+# --------------------------------------------------------------------------- cross-check coverage
+
+
+def test_cross_checks_list_which_checks_ran(fixture_page):
+    v = visit(fixture_page, "/agents")
+    assert v.clean, v.describe()
+    ran = dict(fixture_page.eval_on_selector_all("[data-check-coverage] [data-check]", "els => els.map(e => [e.dataset.check, e.dataset.ran])"))
+    assert ran == {"agent_eligibility": "1", "agent_activity": "1", "freshness": "0"}
+    assert "NO PRODUCER DECLARED" in fixture_page.inner_text('[data-check="freshness"]').upper()
+
+
+# --------------------------------------------------------------------------- styling / layout regressions
+
+
+def test_empty_dashes_are_faint_in_every_value_cell(empty_page):
+    """Value colour rules never override .is-empty (AA-03 by mode, AA-04 kinds, AA-06 traffic)."""
+    v = visit(empty_page, "/agents/3/activity")
+    assert v.clean, v.describe()
+    colors = empty_page.evaluate(
+        """() => Object.fromEntries(['.ag-sum__v .v.is-empty', '.ag-modes__cell .v.is-empty', '.ag-kinds__row .v.is-empty', '.ag-traffic__head .v.is-empty']
+            .map(sel => { const e = document.querySelector(sel); return [sel, e ? getComputedStyle(e).color : null]; }))"""
+    )
+    assert None not in colors.values(), colors
+    assert len(set(colors.values())) == 1, colors
+
+
+@pytest.mark.parametrize("width", [1024, 1280])
+def test_no_scroll_or_filler_inside_agent_panels(browser, fixture_url, empty_url, width):
+    """AA-01 loop, AGT-05 network and handoff steps fit their panels; the AGT-01 board leaves no filler cell."""
+    probe = """() => [...document.querySelectorAll('.view .ag-loop, .view .ag-loop .steps, .view .ag-net, .view .ag-steps--compact, .view .ag-rule__steps')]
+        .filter(e => e.scrollWidth > e.clientWidth + 1).map(e => [e.className, e.scrollWidth, e.clientWidth])"""
+    for base in (fixture_url, empty_url):
+        page = new_page(browser, base, width=width, height=900)
+        for route in ("/agents", "/agents/2", "/agents/2/activity"):
+            visit(page, route, settle_ms=200)
+            assert page.evaluate(probe) == [], f"{route} at {width}px ({base})"
+        visit(page, "/agents", settle_ms=200)
+        # every board row is filled: the last status ends at the board's right edge
+        edge = page.evaluate(
+            """() => { const b = document.querySelector('.ag-board').getBoundingClientRect();
+                const cols = [...document.querySelectorAll('.ag-board__col')]; const l = cols[cols.length - 1].getBoundingClientRect();
+                return [Math.round(b.right - l.right), Math.round(b.bottom - l.bottom)]; }"""
+        )
+        assert all(abs(d) <= 2 for d in edge), edge
+        # every slot card fits its status badge
+        clipped = page.evaluate(
+            """() => [...document.querySelectorAll('.ag-card')].filter(c => { const r = c.getBoundingClientRect();
+                const b = c.querySelector('.ag-status').getBoundingClientRect(); return b.right > r.right + 0.5; }).map(c => c.dataset.agentSlot)"""
+        )
+        assert clipped == [], clipped
         page.close()

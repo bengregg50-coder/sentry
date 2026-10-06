@@ -5,7 +5,8 @@
 import { html, raw, cx } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, humanize, pad2 } from "../core/format.js";
 import { toneClass } from "../core/tones.js";
-import { val, metric, emptyState, originBadge } from "../components/ui.js";
+import { sourceShort, sourceReason, sourceTitle, derived } from "../core/state.js";
+import { val, metric, emptyState, originBadge, badge, controlButton } from "../components/ui.js";
 
 /* ---------------------------------------------------------------- vocabulary (architecture labels) */
 
@@ -31,8 +32,8 @@ const DEPLOYED = ["DEPLOYED_SIM", "DEPLOYED_LIVE", "SCALED"];
 export const ENDED = ["RETIRED", "REJECTED"];
 
 /**
- * Library filters. Definitions are presentation filters over declared status;
- * they mirror derive.research_summary exactly so tab counts and rows agree.
+ * Library filters. Definitions are presentation filters over declared status; tab counts
+ * are counted per record origin from the same rows the filter lists, so they always agree.
  */
 export const FILTERS = {
   all: {
@@ -40,7 +41,6 @@ export const FILTERS = {
     path: "/strategies",
     tab: "All",
     title: "Strategy Library",
-    summaryKey: "strategies_total",
     definition: "Every registered strategy, including REJECTED and RETIRED — failures stay on the record.",
     sub: "Every strategy SENTRY has registered — candidates, validated, deployed, retired and rejected — with its current immutable version, validation status and evidence-basis headline figures.",
     test: () => true,
@@ -50,7 +50,6 @@ export const FILTERS = {
     path: "/strategies/candidates",
     tab: "Candidates",
     title: "Candidate Strategies",
-    summaryKey: "candidates",
     definition: "Status CANDIDATE or IN VALIDATION.",
     sub: "Strategies the research engine has registered but not yet validated. A candidate has earned nothing: it is a hypothesis with a specification.",
     test: (s) => s.status === "CANDIDATE" || s.status === "IN_VALIDATION",
@@ -60,7 +59,6 @@ export const FILTERS = {
     path: "/strategies/validated",
     tab: "Validated",
     title: "Validated Strategies",
-    summaryKey: "validated",
     definition: "Current version's validation status is VALIDATED, and the strategy is not RETIRED or REJECTED.",
     sub: "Strategies whose current version the research engine has declared VALIDATED. Only these can proceed to governance approval and an agent.",
     test: (s, v) => v?.validation_status === "VALIDATED" && !ENDED.includes(s.status),
@@ -70,7 +68,6 @@ export const FILTERS = {
     path: "/strategies/deployed",
     tab: "Deployed",
     title: "Deployed Strategies",
-    summaryKey: "deployed",
     definition: "Status DEPLOYED SIM, DEPLOYED LIVE or SCALED.",
     sub: "Strategies the registry declares deployed. Whether an agent is actually running one is reported by the agent runtime, not by this list. Policy: simulation first; live only with a LIVE-scope governance approval.",
     test: (s) => DEPLOYED.includes(s.status),
@@ -80,7 +77,6 @@ export const FILTERS = {
     path: "/strategies/retired",
     tab: "Retired",
     title: "Retired Strategies",
-    summaryKey: "retired",
     definition: "Status RETIRED — previously deployed, then withdrawn.",
     sub: "Strategies withdrawn from deployment. They remain on the record with every version, check and decision intact.",
     test: (s) => s.status === "RETIRED",
@@ -226,6 +222,20 @@ export function splitVal(split, { cls } = {}) {
   )}</span>`;
 }
 
+/**
+ * Compact inline origin split for tab counts, subtitles and sentences: "3 · 2 RECON".
+ * Same parts as splitVal(); the separator is drawn by CSS. null (source unavailable) renders nothing.
+ */
+export function splitInline(split, { cls } = {}) {
+  if (!split) return "";
+  return splitVal(split, { cls: cx("st-split--inline", cls) });
+}
+
+/** Sum of an origin split — only for grammar (singular/plural), never displayed as a merged count. */
+export function splitTotal(split) {
+  return split ? Object.values(split).reduce((a, b) => a + b, 0) : 0;
+}
+
 /** Tone class for an origin tag — same semantics as originBadge(): synthetic is flagged red, reconstructed amber. */
 export function originTone(o) {
   return toneClass(o === "SYNTHETIC_FIXTURE" ? "INVALID" : o);
@@ -248,6 +258,94 @@ export function originCell(origin) {
   if (isNil(origin)) return val(null);
   if (origin === "ORIGINAL") return html`<span class="st-origin-plain">ORIGINAL</span>`;
   return originBadge(origin);
+}
+
+/* ---------------------------------------------------------------- unavailable sources, worded by status */
+
+// A value missing because its source is unavailable is described by the source's actual status:
+// NOT CONNECTED (no state directory) ≠ NOT PRODUCED (file absent) ≠ CONTRACT ERROR (rejected) ≠ UNREADABLE.
+const OFF_STATE = { NOT_CONFIGURED: "NOT_CONNECTED", MISSING: "NOT_PRODUCED", INVALID: "INVALID", UNREADABLE: "UNREADABLE" };
+
+/** Badge/data-state key for an unavailable source (NOT_CONNECTED | NOT_PRODUCED | INVALID | UNREADABLE | NO_SNAPSHOT). */
+export function offState(src) {
+  if (!src) return "NO_SNAPSHOT";
+  return OFF_STATE[src.status] ?? src.status;
+}
+
+/** Sentence-case status word: "Not connected", "Not produced", "Contract error", "Unreadable". */
+export function offWord(src) {
+  const s = sourceShort(src).toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** A rejected or unreadable document is a failure (red tone); an absent one stays muted. */
+export function offTone(src) {
+  return src?.status === "INVALID" || src?.status === "UNREADABLE" ? toneClass(src.status) : "";
+}
+
+/** Badge for a field whose source is unavailable, labelled with the status (e.g. CONTRACT ERROR, red). */
+export function offBadge(src, opts = {}) {
+  return badge(offState(src), { label: sourceShort(src), title: sourceReason(src) ?? undefined, ...opts });
+}
+
+/** One-line empty state for an unavailable source (same data-empty-state code as sourceEmpty). */
+export function offEmpty(src, title, hint) {
+  return html`<div class="st-offempty">${emptyState({
+    title,
+    reason: hint ? html`${sourceReason(src)} <span class="st-faint-sans">${hint}</span>` : sourceReason(src),
+    compact: true,
+    inline: true,
+    iconName: src?.status === "INVALID" || src?.status === "UNREADABLE" ? "alert" : "empty",
+    code: `source-${src?.key ?? "unknown"}-${src?.status ?? "none"}`,
+  })}</div>`;
+}
+
+/** Inline "no data" label carrying the source status: <span class="st-nodata">NOT PRODUCED</span>. */
+export function offLabel(src, prefix = "") {
+  return html`<span class="${cx("st-nodata", offTone(src))}" data-source-status="${src?.status ?? ""}">${prefix ? `${prefix} ` : ""}${sourceShort(src)}</span>`;
+}
+
+/**
+ * Consistency findings about strategies: every finding filed under "strategies", plus any other
+ * finding (e.g. an agent-assignment check) whose references name one of `ids` (strategy or proposal ids).
+ */
+export function strategyFindings(ctx, ids, { section = true } = {}) {
+  const want = new Set(ids);
+  return (derived(ctx, "consistency") ?? []).filter((f) => (section && f.section === "strategies") || (f.refs ?? []).some((r) => want.has(r)));
+}
+
+/** "agents.json not produced" — one missing input of a cross-check, worded by its status. */
+const missingText = (m) => `${m.file} ${sourceShort({ status: m.status }).toLowerCase()}`;
+
+/**
+ * Empty wording for strategy findings. "No finding" is claimed only for the cross-checks that
+ * actually ran (derived.check_coverage); checks that could not run are named, never implied passed.
+ */
+export function noFindingsState(ctx, st, ssrc, { subject = "a registered strategy or proposal" } = {}) {
+  if (!st) {
+    return emptyState({
+      title: sourceTitle(ssrc, "Strategy registry"),
+      reason: html`${sourceReason(ssrc)} There is nothing to cross-check.`,
+      compact: true,
+      iconName: ssrc?.status === "INVALID" || ssrc?.status === "UNREADABLE" ? "alert" : "shield",
+      code: `findings-source-${ssrc?.status ?? "none"}`,
+    });
+  }
+  const cov = (derived(ctx, "check_coverage") ?? []).filter((c) => c.requires?.includes("strategies"));
+  const ran = cov.filter((c) => c.ran);
+  const notRun = cov.filter((c) => !c.ran);
+  return emptyState({
+    title: "No strategy findings",
+    reason: ran.length
+      ? `None of the ${ran.length} strategy cross-${plural(ran.length, "check", "checks")} that ran raised a finding that references ${subject}.`
+      : `No strategy cross-check ran, so nothing about ${subject} has been checked.`,
+    hint: notRun.length
+      ? `Not run: ${notRun.map((c) => c.label + (c.missing?.length ? ` (${c.missing.map(missingText).join(", ")})` : c.note ? ` (${c.note})` : "")).join(" · ")}.`
+      : null,
+    compact: true,
+    iconName: "shield",
+    code: "no-strategy-findings",
+  });
 }
 
 /* ---------------------------------------------------------------- metric rendering */
@@ -328,6 +426,26 @@ export function mountOverflowEdges(root) {
     ro?.disconnect();
     wraps.forEach((el) => el.removeEventListener("scroll", onScroll));
   };
+}
+
+/* ---------------------------------------------------------------- locked deployment controls */
+
+/**
+ * Compact deployment controls: one disabled button per action, then every blocker the server
+ * computed — reasons shared by all actions once, then each action's own reasons under its name,
+ * so no action-specific blocker (e.g. the LIVE-scope approval rule) is ever dropped.
+ */
+export function lockedControls(actions) {
+  if (!actions?.length) return emptyState({ title: "No deployment action reported", compact: true });
+  const common = (actions[0].blockers ?? []).filter((b) => actions.every((a) => (a.blockers ?? []).includes(b)));
+  const own = actions.map((a) => [a, (a.blockers ?? []).filter((b) => !common.includes(b))]).filter(([, bs]) => bs.length);
+  return html`<div class="st-ctl" data-controls>
+    <div class="st-ctl__btns">${actions.map((a) => controlButton(a))}</div>
+    <ul class="st-ctl__why">
+      ${common.map((b) => html`<li data-blocker="common">${b}</li>`)}
+      ${own.map(([a, bs]) => html`<li data-blocker="${a.key}"><span class="st-ctl__act">${a.label}</span>${bs.join(" · ")}</li>`)}
+    </ul>
+  </div>`;
 }
 
 /* ---------------------------------------------------------------- misc */

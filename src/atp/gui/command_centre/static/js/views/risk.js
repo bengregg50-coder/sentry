@@ -8,7 +8,7 @@ import { toneClass } from "../core/tones.js";
 import { doc, source, derived, sourceReason, sourceShort, findingsFor } from "../core/state.js";
 import { pageHeader, panel, badge, stat, statRow, sourceTag, table, emptyState, findingsList, control, kv } from "../components/ui.js";
 import { icon } from "../components/icons.js";
-import { SLOTS, slotName, absentState, limitRow, slotHead, slotAbsence, absent, provenance, doctrine, ghostHead, timeVal } from "./_ops-common.js";
+import { SLOTS, slotName, absentState, untilAvailable, limitRow, slotHead, slotAbsence, absent, provenance, doctrine, ghostHead, timeVal } from "./_ops-common.js";
 
 const SECTIONS = [
   ["portfolio_limits", "RSK-03", "Portfolio limits", "Book-level limits across all agents"],
@@ -28,7 +28,7 @@ function killSwitch(ctx, risk, src) {
     ? ks
       ? ks.detail
       : "risk.json is connected but declares no kill switch. Its state is not assumed."
-    : `${sourceReason(src) ?? ""} The kill-switch state appears here once the risk engine produces risk.json.`;
+    : `${sourceReason(src) ?? ""} The kill-switch state appears here ${untilAvailable(src, "the risk engine")}.`;
   const action = derived(ctx, "controls")?.actions?.find((a) => a.key === "TRIP_KILL_SWITCH");
   return html`<div class="ops-ks ${toneClass(state)}" data-kill-switch="${state}">
       <div class="ops-ks__emblem">${icon("power")}</div>
@@ -46,6 +46,12 @@ function killSwitch(ctx, risk, src) {
 }
 
 /* ---------------------------------------------------------------- RSK-02 posture */
+
+/** The server's risk cross-check family ran (needs risk.json OK). */
+function riskChecksRan(ctx, risk) {
+  const cov = derived(ctx, "check_coverage")?.find((c) => c.key === "risk");
+  return cov ? cov.ran === true : !!risk;
+}
 
 function posture(ctx, risk, src) {
   const nc = sourceShort(src);
@@ -72,13 +78,16 @@ function posture(ctx, risk, src) {
   }
   <div class="ops-strip-head"><span class="label">Cross-check findings · section risk</span><span class="small muted">Command Centre consistency checks</span></div>
   ${findingsList(findingsFor(ctx, "risk"), {
-    empty: emptyState({
-      title: "No risk findings",
-      reason: risk ? "Connected risk state raises no cross-check findings." : "risk.json is not connected, so there is nothing to cross-check.",
-      compact: true,
-      iconName: "shield",
-      code: "no-risk-findings",
-    }),
+    // "No findings" only when the risk checks actually ran (derived.check_coverage); otherwise say why not.
+    empty: riskChecksRan(ctx, risk)
+      ? emptyState({ title: "No risk findings", reason: "Connected risk state raises no cross-check findings.", compact: true, iconName: "shield", code: "no-risk-findings" })
+      : emptyState({
+          title: `Risk checks not run · ${sourceShort(src)}`,
+          reason: `${sourceReason(src) ?? "risk.json is unavailable."} Limits and the kill switch are cross-checked only against a valid risk.json.`,
+          compact: true,
+          iconName: src?.status === "INVALID" || src?.status === "UNREADABLE" ? "alert" : "empty",
+          code: "risk-checks-not-run",
+        }),
   })}`;
 }
 
@@ -86,7 +95,7 @@ function posture(ctx, risk, src) {
 
 function limitSection(ctx, risk, key, title) {
   const head = ghostHead(["Limit", "Used vs limit", "State"], { cls: "ops-ghost-head--limits" });
-  if (!risk) return html`${head}${absent(ctx, "risk", { title: `${title} not connected`, hint: "Each declared limit appears with used vs limit and its state. Limits are never assumed." })}`;
+  if (!risk) return html`${head}${absent(ctx, "risk", { what: title, hint: "Each declared limit appears with used vs limit and its state. Limits are never assumed." })}`;
   const rows = risk[key];
   if (!rows.length) return html`${head}${emptyState({ title: "None declared", reason: `risk.json declares no ${title.toLowerCase()}.`, compact: true, code: `no-${key}` })}`;
   return html`<div class="ops-limits">${rows.map((l) => limitRow(l))}</div>`;
@@ -104,7 +113,7 @@ function breaches(ctx, risk) {
     { key: "detail", label: "Detail", cls: "wrap" },
   ];
   const head = ghostHead(columns.map((c) => c.label), { cls: "ops-ghost-head--6" });
-  if (!risk) return html`${head}${absent(ctx, "risk", { title: "Breaches not connected", hint: "Every recorded breach appears with its limit, severity and agent." })}`;
+  if (!risk) return html`${head}${absent(ctx, "risk", { what: "Breaches", hint: "Every recorded breach appears with its limit, severity and agent." })}`;
   const rows = [...risk.breaches].sort((a, b) => (a.at < b.at ? 1 : -1));
   return table({
     dense: true,
@@ -124,7 +133,7 @@ function agentLimits(ctx) {
       const why = slotAbsence(ctx, s);
       const limits = s.agent?.risk_limits ?? [];
       return html`<div class="ops-slot" data-agent-limits="${s.slot}">
-        ${slotHead(s)}
+        ${slotHead(ctx, s)}
         <div class="ops-slot__body">
           ${why
             ? emptyState({ title: why.title, reason: why.reason, compact: true, code: `slot-${s.slot}-absent` })
@@ -181,7 +190,8 @@ export default {
             sub: risk ? `${fmtCount(risk[key].length)} declared` : "risk.json",
             foot: sub,
             body: limitSection(ctx, risk, key, title),
-            cls: "md-span-6",
+            // At narrow widths: two side by side, the third spanning the row (no orphan beside a void).
+            cls: key === "execution_limits" ? "" : "md-span-6",
           }),
         )}
       </div>

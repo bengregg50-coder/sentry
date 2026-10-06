@@ -63,18 +63,41 @@ function focusSlot(kind, id, record, href) {
   </div>`;
 }
 
+/**
+ * The current research family as the focus declares it (ResearchFocus.family). The focus
+ * programme's and hypothesis's own declared families are listed separately, each labelled
+ * by its record — one is never picked to stand in for the focus family.
+ */
+function focusFamily(f, prog, hyp) {
+  const recs = [];
+  if (prog?.family) recs.push(["PROGRAMME", f.programme_id, prog.family]);
+  if (hyp?.family) recs.push(["HYPOTHESIS", f.hypothesis_id, hyp.family]);
+  const same = recs.length === 2 && recs[0][2] === recs[1][2];
+  return html`<div class="rsa-focus__fam" data-focus-family="${f.family ?? ""}">
+    <div class="rsa-focus__k">CURRENT RESEARCH FAMILY</div>
+    <div class="rsa-focus__famv">${f.family
+      ? html`<span class="v rsa-focus__famname" data-v>${f.family}</span>`
+      : html`${val(null)}<span class="rsa-focus__none">Not declared in focus</span>`}</div>
+    ${recs.length
+      ? html`<div class="rsa-focus__famrecs">${(same ? [["PROGRAMME · HYPOTHESIS", `${recs[0][1]} · ${recs[1][1]}`, recs[0][2]]] : recs).map(
+          ([kind, id, fam]) => html`<span class="rsa-focus__famrec" data-family-of="${kind}"><span class="rsa-focus__famk">${kind} FAMILY</span><span class="mono">${fam}</span><span class="rsa-sub">${id}</span></span>`,
+        )}</div>`
+      : ""}
+  </div>`;
+}
+
 function focusBody(rs, src) {
   if (!rs) {
     return R.srcEmpty(src, "Research focus", {
-      hint: "The programme and hypothesis under investigation, a summary and the next action appear here once the research engine exports research.json.",
+      hint: "The programme, hypothesis and research family under investigation, a summary and the next action appear here once the research engine exports research.json.",
     });
   }
   const f = rs.focus;
-  if (!f || [f.programme_id, f.hypothesis_id, f.summary, f.next_action].every(isNil)) {
+  if (!f || [f.programme_id, f.hypothesis_id, f.family, f.summary, f.next_action].every(isNil)) {
     return emptyState({
       title: "No focus declared",
       reason: "research.json is connected but declares no current research focus.",
-      hint: "When the research engine sets a focus, the programme, hypothesis and next action appear here.",
+      hint: "When the research engine sets a focus, the programme, hypothesis, research family and next action appear here.",
       iconName: "target",
     });
   }
@@ -85,6 +108,7 @@ function focusBody(rs, src) {
       ${focusSlot("PROGRAMME", f.programme_id, prog, R.programmeHref)}
       ${focusSlot("HYPOTHESIS", f.hypothesis_id, hyp, R.hypHref)}
     </div>
+    ${focusFamily(f, prog, hyp)}
     <div class="rsa-focus__summary">${f.summary ? f.summary : html`<span class="muted">No summary declared.</span>`}</div>
     <div class="rsa-next">
       ${icon("flow")}
@@ -112,6 +136,14 @@ function summaryBody(ctx, rs, src) {
   const trials = rs?.trials ?? null;
   const running = trials ? trials.filter((t) => t.outcome === "RUNNING") : null;
   const families = sum?.research_available ? sum.families : null;
+  // Families per record origin: the per-origin sets may overlap, so they are shown side by side, never added.
+  const famSplit = R.distinctByOrigin(hyps, (h) => h.family);
+  const famOrigins = new Map();
+  for (const h of hyps ?? []) {
+    if (!h.family) continue;
+    if (!famOrigins.has(h.family)) famOrigins.set(h.family, new Set());
+    famOrigins.get(h.family).add(h.origin);
+  }
   const origins = R.originColumns(hyps);
   const byStatus = R.countMatrix(hyps, (h) => h.status);
   const reason = rs ? null : R.offLabel(src);
@@ -122,7 +154,13 @@ function summaryBody(ctx, rs, src) {
         stat({ label: "Hypotheses", value: R.splitVal(R.splitByOrigin(hyps)), hint: "Per record origin", emptyLabel: reason }),
         stat({ label: "Trial records", value: R.splitVal(R.splitByOrigin(trials)), hint: "Records present", emptyLabel: reason }),
         stat({ label: "Running trials", value: R.splitVal(R.splitByOrigin(running)), hint: "Outcome RUNNING", emptyLabel: reason }),
-        stat({ label: "Families", value: R.count(families?.length), hint: "On hypotheses", emptyLabel: reason }),
+        stat({
+          label: "Families",
+          value: R.splitVal(famSplit, { what: "distinct families" }),
+          hint: "Distinct, per origin",
+          emptyLabel: reason,
+          title: "Distinct families declared on hypotheses, counted per record origin. A family on both original and reconstructed records appears in both counts; they are never added.",
+        }),
       ],
       { min: 130 },
     )}
@@ -138,7 +176,14 @@ function summaryBody(ctx, rs, src) {
         <div class="rsa-label">Families on record</div>
         ${families
           ? families.length
-            ? html`<div class="rsa-chips">${families.map((f) => chip(f))}</div>`
+            ? html`<div class="rsa-chips">${families.map((f) => {
+                // a family declared only on non-original records carries its origin tag
+                const os = famOrigins.get(f);
+                const only = os && !os.has("ORIGINAL") ? [...os] : [];
+                return only.length
+                  ? html`<span class="chip rsa-famchip" data-family="${f}" title="Declared only on ${only.map((o) => humanize(o).toLowerCase()).join(" / ")} records">${f}${only.map((o) => html`<span class="rsa-split__tag ${toneClass(o)}">${R.ORIGIN_SHORT[o]}</span>`)}</span>`
+                  : html`<span class="chip rsa-famchip" data-family="${f}">${f}</span>`;
+              })}</div>`
             : html`<div class="rsa-none">No families declared on any hypothesis.</div>`
           : html`<div class="rsa-none">${R.offLabel(src)} — families appear as hypotheses are registered.</div>`}
         <a class="rsa-more" href="#/research/discovery">${icon("discovery")}Families explored &amp; research areas</a>
@@ -154,7 +199,7 @@ function windowsCell(ws) {
   if (!ws || ws.length === 0) return null;
   return html`<div class="rsa-windows">${ws.map(
     (w) => html`<div class="rsa-window">
-      <div class="rsa-window__top">${chip(w.role ? humanize(w.role) : "ROLE NOT SET", { cls: "rsa-window__role" })}<span class="rsa-window__label">${w.label ?? ""}</span></div>
+      <div class="rsa-window__top">${w.role ? chip(humanize(w.role), { cls: "rsa-window__role" }) : chip("ROLE NOT DECLARED", { cls: "rsa-chip-quiet" })}<span class="rsa-window__label">${w.label ?? ""}</span></div>
       ${R.windowVal(w.start, w.end)}
     </div>`,
   )}</div>`;
@@ -192,19 +237,20 @@ function programmesBody(rs, src, focusId) {
     },
     {
       key: "status",
-      label: "Status · universe",
-      render: (p) => html`<div class="rsa-stack-cell">${badge(p.status)}${p.universe_status ? badge(p.universe_status, { label: "UNIVERSE " + humanize(p.universe_status), ghost: true }) : html`<span class="rsa-sub">universe not declared</span>`}</div>`,
+      label: "Status · universe · outcome",
+      render: (p) => html`<div class="rsa-stack-cell">${badge(p.status)}${
+        p.universe_status ? badge(p.universe_status, { label: "UNIVERSE " + humanize(p.universe_status), ghost: true }) : html`<span class="rsa-sub">universe not declared</span>`
+      }<span class="rsa-dated rsa-dated--outcome" data-outcome="${p.outcome ?? ""}"><span class="rsa-dated__k">OUTCOME</span>${p.outcome ? html`<span class="rsa-outcome">${p.outcome}</span>` : val(null)}</span></div>`,
     },
     {
       key: "spec",
-      label: "Specification",
-      render: (p) =>
-        p.spec_ref || p.spec_hash
-          ? html`<div class="rsa-stack-cell">${p.spec_ref ? html`<span class="ref">${p.spec_ref}</span>` : val(null)}<span class="rsa-sub mono" title="${p.spec_hash ?? ""}">${p.spec_hash ? "#" + shortHash(p.spec_hash, 12) : "no hash"}</span></div>`
-          : null,
+      label: "Specification · frozen · sealed",
+      render: (p) => html`<div class="rsa-stack-cell">
+        ${p.spec_ref ? html`<span class="ref">${p.spec_ref}</span>` : html`<span class="rsa-sub">specification not declared</span>`}
+        ${p.spec_hash ? html`<span class="rsa-sub mono" title="${p.spec_hash}">#${shortHash(p.spec_hash, 12)}</span>` : p.spec_ref ? html`<span class="rsa-sub">hash not declared</span>` : ""}
+        ${datedLine("FROZEN", p.frozen_at)}${datedLine("SEALED", p.sealed_at)}
+      </div>`,
     },
-    { key: "dates", label: "Frozen · sealed", render: (p) => html`<div class="rsa-stack-cell">${datedLine("FROZEN", p.frozen_at)}${datedLine("SEALED", p.sealed_at)}</div>` },
-    { key: "outcome", label: "Outcome", render: (p) => (p.outcome ? html`<span class="rsa-outcome">${p.outcome}</span>` : null) },
     { key: "windows", label: "Evaluation windows", render: (p) => windowsCell(p.evaluation_windows) },
   ];
   return R.frameTable({
@@ -271,6 +317,7 @@ function accountingBody(ctx, src) {
 /** Which ledger cross-checks ran, and what they found. Nothing checked is never shown as consistent. */
 function crossChecksBody(ctx, d, findings) {
   const failed = (derived(ctx, "errors") ?? []).some((e) => e.section === "consistency");
+  const coverage = (derived(ctx, "check_coverage") ?? []).find((c) => c.key === "trial_accounting");
   const head = (note) => html`<div class="rsa-label rsa-label--gap rsa-xc__label">Ledger cross-checks${note ? html`<span class="rsa-xc__note">${note}</span>` : ""}</div>`;
   if (failed) {
     return html`${head(null)}${emptyState({
@@ -279,6 +326,14 @@ function crossChecksBody(ctx, d, findings) {
       compact: true,
       iconName: "alert",
       code: "accounting-checks-failed",
+    })}`;
+  }
+  if (coverage && !coverage.ran) {
+    return html`${head(null)}${emptyState({
+      title: "Cross-checks not run",
+      reason: coverage.note ?? `The trial-accounting checks did not run${coverage.missing?.length ? ` (missing: ${coverage.missing.join(", ")})` : ""}.`,
+      inline: true,
+      code: "accounting-checks-not-run",
     })}`;
   }
   if (!d) {
@@ -330,7 +385,7 @@ function rolesBody(rs, src) {
       <div class="rsa-role__desc">${r?.detail ?? desc}</div>
       <div class="rsa-role__meta">${r?.last_activity_at
         ? html`LAST ACTIVITY ${fmtDateTime(r.last_activity_at)}`
-        : html`<span>${r ? "NO ACTIVITY RECORDED" : rs ? "NOT REPORTED BY RESEARCH ENGINE" : `SOURCE ${sourceShort(src)}`}</span>`}</div>
+        : html`<span>${r ? "LAST ACTIVITY NOT DECLARED" : rs ? "NOT REPORTED BY RESEARCH ENGINE" : `SOURCE ${sourceShort(src)}`}</span>`}</div>
     </div>`;
   })}</div></div>${rs ? "" : html`<div class="rsa-foot-note">${sourceReason(src)}</div>`}`;
 }
@@ -339,7 +394,7 @@ function rolesBody(rs, src) {
 
 function noticesBody(rs, src) {
   if (!rs) return R.srcEmpty(src, "Integrity notices", { compact: true, hint: "Source losses, reconstructions and other integrity events declared by the research engine appear here." });
-  if (!rs.integrity_notices.length) return emptyState({ title: "No integrity notices declared", reason: "The research engine reports no integrity events.", compact: true, iconName: "shield" });
+  if (!rs.integrity_notices.length) return emptyState({ title: "No integrity notices declared", reason: "research.json lists no integrity notices.", compact: true, iconName: "shield" });
   return html`${rs.integrity_notices.map((n) =>
     notice({
       title: html`${n.title}`,
@@ -357,16 +412,54 @@ function noticesBody(rs, src) {
 
 function doctrineBody() {
   return html`<div class="doctrine rsa-doctrine">
-      <div class="doctrine__item"><b>MECHANISMS, NOT PARAMETER SEARCH</b><span>Every hypothesis starts from an economic mechanism; parameters are fixed before testing.</span></div>
-      <div class="doctrine__item"><b>NO CHERRY-PICKING</b><span>Every trial is recorded and counted toward multiple-testing, including failures.</span></div>
-      <div class="doctrine__item"><b>NO RULE CHANGES AFTER HOLDOUT</b><span>Specifications are frozen before evaluation windows are opened.</span></div>
+      <div class="doctrine__item"><b>MECHANISMS, NOT PARAMETER SEARCH</b><span>A hypothesis must start from an economic mechanism, with parameters fixed before testing.</span></div>
+      <div class="doctrine__item"><b>NO CHERRY-PICKING</b><span>Every trial must be recorded and counted toward multiple-testing, failures included.</span></div>
+      <div class="doctrine__item"><b>NO RULE CHANGES AFTER HOLDOUT</b><span>A specification must be frozen before its evaluation windows are opened.</span></div>
       <div class="doctrine__item"><b>ONE BACKTEST IS NOT PROOF</b><span>Evidence must survive costs, robustness, out-of-sample tests and referee reproduction.</span></div>
     </div>
     <a class="rsa-failed" href="#/research/history" data-link="research-history">
       <span class="rsa-failed__mark">FAILED <span>≠</span> LOST</span>
-      <span class="rsa-failed__text">Rejected, blocked and abandoned research stays on the record — it tells SENTRY where not to look again.</span>
+      <span class="rsa-failed__text">Rejected, blocked and abandoned research belongs on the record — it tells SENTRY where not to look again.</span>
       <span class="rsa-failed__go">Research history ${icon("expand")}</span>
     </a>`;
+}
+
+/* ---------------------------------------------------------------- pipeline coverage */
+
+/**
+ * The pipeline is derived when either source is connected; whatever comes from an
+ * unavailable source is absent, and that is said in the source's own status words
+ * (never shown as an empty pipeline). null when both sources are connected.
+ */
+function pipelineGap(src, stratSrc) {
+  const gaps = [];
+  if (src?.status !== "OK") gaps.push(`hypotheses not included: ${R.srcPhrase(src)}`);
+  if (stratSrc?.status !== "OK") gaps.push(`strategies not included: ${R.srcPhrase(stratSrc)}`);
+  return gaps.length ? gaps.join(" · ") : null;
+}
+
+function gapNote(src, stratSrc) {
+  const gap = pipelineGap(src, stratSrc);
+  if (!gap) return "";
+  const broken = [src, stratSrc].some((x) => R.srcBroken(x));
+  return html`<div class="rsa-gap ${toneClass(broken ? "INVALID" : null)}" data-pipeline-gap="${gap}">${icon("alert")}<span>Partial pipeline — ${gap}.</span></div>`;
+}
+
+const TRACKS_STEP = 40;
+
+function tracksBody(ctx, items, src, stratSrc) {
+  if (!items) {
+    return R.tracksFrame(
+      R.srcEmpty(src, "Pipeline tracks", {
+        compact: true,
+        hint: "Each hypothesis and strategy appears as a track from DISCOVERY to the stage it reached, ending in its terminal outcome.",
+      }),
+    );
+  }
+  // Only a page of tracks is materialised; the panel's per-origin counts come from every item.
+  const page = R.pageRows(items, ctx.query.tracks, TRACKS_STEP);
+  return html`${gapNote(src, stratSrc)}<div class="rsa-tracks">${pipelineTracks(page.shown, { hrefFor: R.itemHref, limit: Infinity })}</div>
+    ${R.pager(page, (n) => R.qhref("/research", { programme: ctx.query.programme, tracks: n }), { step: TRACKS_STEP, noun: "items" })}`;
 }
 
 /* ---------------------------------------------------------------- view */
@@ -387,7 +480,7 @@ export default {
         kicker: "RESEARCH ENGINE",
         code: "RES",
         title: "Research Overview",
-        sub: "What SENTRY is investigating, how far each idea has travelled, and where it stopped. Mechanisms are tested, not parameters searched — and every failure stays on the record.",
+        sub: "What SENTRY is investigating, how far each idea has travelled, and where it stopped. Mechanisms are to be tested, not parameters searched — and failures belong on the record.",
         right: html`${sourceTag(src, { now: ctx.now })}${sourceTag(stratSrc, { now: ctx.now })}`,
       })}
 
@@ -403,9 +496,10 @@ export default {
           title: "Research → deployment pipeline",
           sub: pipeline?.available
             ? "Items reaching each stage · terminal lanes show where they stopped"
-            : [src, stratSrc].map((x) => `${x?.file ?? "source"} ${sourceShort(x).toLowerCase()}`).join(" · "),
+            : [src, stratSrc].map((x) => R.srcPhrase(x)).join(" · "),
           actions: legend(TERMINALS.map((t) => [humanize(t), toneOf(t)])),
-          body: html`<div class="rsa-pipe">${pipelineDiagram(pipeline)}</div>`,
+          body: html`${pipeline?.available ? gapNote(src, stratSrc) : ""}<div class="rsa-pipe">${pipelineDiagram(pipeline)}</div>`,
+          cls: "rsa-subwrap",
         })}
       </div>
 
@@ -415,14 +509,8 @@ export default {
           code: "RES-04",
           title: "Pipeline tracks",
           sub: items ? `${R.splitText(items, "items")} · each hypothesis and strategy to the furthest stage it reached` : "Per-item progression",
-          body: items
-            ? html`<div class="rsa-tracks">${pipelineTracks(items, { hrefFor: R.itemHref, limit: 40 })}</div>`
-            : R.tracksFrame(
-                R.srcEmpty(src, "Pipeline tracks", {
-                  compact: true,
-                  hint: "Each hypothesis and strategy appears as a track from DISCOVERY to the stage it reached, ending in its terminal outcome.",
-                }),
-              ),
+          body: tracksBody(ctx, items, src, stratSrc),
+          cls: "rsa-subwrap",
         })}
       </div>
 

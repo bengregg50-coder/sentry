@@ -5,13 +5,36 @@
 
 import { html, raw, cx } from "../core/html.js";
 import { fmtAge, fmtTime, fmtNum, humanize, isNil, shortHash } from "../core/format.js";
-import { doc, source, derived, sourceReason, sourceShort } from "../core/state.js";
+import { doc, source, derived, sourceReason, sourceShort, sourceTitle } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
+import { fetchEvents } from "../core/api.js";
 import { pageHeader, panel, badge, dot, chip, val, originBadge, sourceTag, table, refLink } from "../components/ui.js";
 import { steps } from "../components/flow.js";
 import { icon } from "../components/icons.js";
 import { ccRing } from "./_command-ring.js";
-import { DOC_KEYS, isOk, srcState, srcBadge, srcLine, countWhere, go, subhead, emptyLine, originSplit, originalOf, splitVal } from "./_command-common.js";
+import {
+  DOC_KEYS,
+  isOk,
+  srcState,
+  srcBadge,
+  srcLine,
+  countWhere,
+  go,
+  subhead,
+  emptyLine,
+  originSplit,
+  originalOf,
+  splitFrom,
+  splitVal,
+  splitText,
+  hasOtherOrigins,
+  originTone,
+  subsystemState,
+  subsystemReason,
+  checkSummary,
+  EVENT_WINDOW,
+  eventOriginSplit,
+} from "./_command-common.js";
 
 const RESEARCH_SIDE = ["research", "strategies", "memory", "governance", "datasets", "insights"];
 const TRADING_SIDE = ["agents", "agent_events", "portfolio", "risk", "execution", "live"];
@@ -22,14 +45,29 @@ function sysEntry(ctx, key) {
   return (derived(ctx, "system") ?? []).find((s) => s.key === key) ?? null;
 }
 
-function archNode({ code, key, title, role, state, extra, lines, meta }) {
+function archNode({ code, key, title, role, state, extra, lines, meta, metaTitle }) {
   return html`<div class="${cx("cc-node", toneClass(state))}" data-arch-node="${key}" data-state="${state}">
     <div class="cc-node__head"><span class="cc-node__code">${code}</span>${extra}</div>
     <div class="cc-node__title">${title}</div>
     <div class="cc-node__role">${role}</div>
     <ul class="cc-node__lines">${lines}</ul>
-    ${meta ? html`<div class="cc-node__meta">${meta}</div>` : ""}
+    ${meta ? html`<div class="${cx("cc-node__meta", metaTitle && "cc-node__meta--clamp")}" ${metaTitle ? html`title="${metaTitle}"` : ""}>${meta}</div>` : ""}
   </div>`;
+}
+
+/** Footer of the research-engine node: its system.json declaration, or why there is none. */
+function declaredMeta(ctx, entry) {
+  const d = entry?.declared;
+  if (d) {
+    // A contradicted declaration leads with the contradiction (which names the declared state).
+    const parts = [entry.source_problem ?? `DECLARED ${humanize(d.state)}`];
+    if (d.heartbeat_at) parts.push(`HB ${fmtAge(d.heartbeat_at, ctx.now)}`);
+    if (!entry.source_problem && d.detail) parts.push(d.detail);
+    const text = parts.join(" · ");
+    return { meta: entry.source_problem ? html`<span class="${cx("cc-tonetext", toneClass(entry.state))}" data-source-problem>${text}</span>` : text, metaTitle: text };
+  }
+  const text = subsystemReason(ctx, entry);
+  return { meta: html`<span class="muted">${text}</span>`, metaTitle: text };
 }
 
 function archLink({ key, label, sub, connected, locked = false }) {
@@ -53,24 +91,27 @@ function architecture(ctx) {
   const okDocs = DOC_KEYS.filter((k) => isOk(source(ctx, k))).length;
   const badDocs = DOC_KEYS.filter((k) => ["INVALID", "UNREADABLE"].includes(source(ctx, k)?.status)).length;
   const evSrc = source(ctx, "agent_events");
-  const stateState = !snap.provider.location ? "NOT_CONNECTED" : badDocs ? "SOURCE_ERROR" : okDocs ? "CONNECTED" : "NOT_CONNECTED";
+  // Configured but nothing produced yet is NOT_PRODUCED, not "not connected".
+  const stateState = !snap.provider.location ? "NOT_CONNECTED" : badDocs ? "SOURCE_ERROR" : okDocs ? "CONNECTED" : "NOT_PRODUCED";
   const researchOn = RESEARCH_SIDE.some((k) => isOk(source(ctx, k)));
   const tradingOn = TRADING_SIDE.some((k) => isOk(source(ctx, k)));
   const anyOn = okDocs > 0 || isOk(evSrc);
   const findings = derived(ctx, "consistency") ?? [];
+  const cov = checkSummary(ctx);
   const readOnly = derived(ctx, "controls")?.read_only ?? snap.read_only;
+  const rState = subsystemState(research);
+  const anState = subsystemState(agentNet);
+  const trState = subsystemState(trading);
 
   const n1 = archNode({
     code: "ARC-01",
     key: "research_engine",
     title: "Research engine",
     role: "Discovers, preregisters, tests and validates. Writes research, strategy, memory, governance, data and insight documents.",
-    state: research?.state ?? "NOT_CONNECTED",
-    extra: badge(research?.state ?? "NOT_CONNECTED"),
+    state: rState,
+    extra: badge(rState),
     lines: RESEARCH_SIDE.map((k) => srcLine(ctx, k)),
-    meta: research?.declared
-      ? html`DECLARED ${humanize(research.declared.state)}${research.declared.heartbeat_at ? html` · HB ${fmtAge(research.declared.heartbeat_at, ctx.now)}` : ""}${research.declared.detail ? html` · ${research.declared.detail}` : ""}`
-      : html`<span class="muted">No status declared in system.json</span>`,
+    ...declaredMeta(ctx, research),
   });
 
   const n2 = archNode({
@@ -82,8 +123,8 @@ function architecture(ctx) {
     extra: badge(stateState),
     lines: html`
       <li class="cc-node__kv"><span>PROVIDER</span><b>${snap.provider.kind}</b></li>
-      <li class="cc-node__kv"><span>LOCATION</span><b title="${snap.provider.location ?? ""}">${snap.provider.location ?? "not configured"}</b></li>
-      <li class="cc-node__kv"><span>DOCUMENTS</span><b>${okDocs}/${DOC_KEYS.length} connected${badDocs ? html` · <span class="${cx("cc-tonetext", toneClass("INVALID"))}">${badDocs} invalid</span>` : ""}</b></li>
+      <li class="cc-node__kv cc-node__kv--path"><span>LOCATION</span><b title="${snap.provider.location ?? ""}">${snap.provider.location ?? "not configured"}</b></li>
+      <li class="cc-node__kv"><span>DOCUMENTS</span><b>${okDocs}/${DOC_KEYS.length} connected${badDocs ? html` · <span class="${cx("cc-tonetext", toneClass("INVALID"))}">${badDocs} with errors</span>` : ""}</b></li>
       <li class="cc-node__kv"><span>EVENT STREAM</span><b>${sourceShort(evSrc)}</b></li>
       <li class="cc-node__kv"><span>REVISION</span><b>${shortHash(snap.revision, 14)}</b></li>`,
     meta: html`${source(ctx, "system") ? html`system.json · ${sourceShort(source(ctx, "system"))}` : ""}`,
@@ -100,7 +141,9 @@ function architecture(ctx) {
       <li class="cc-node__kv"><span>APP</span><b>${snap.app_version}</b></li>
       <li class="cc-node__kv"><span>CONTRACT</span><b>v${snap.contract_version}</b></li>
       <li class="cc-node__kv"><span>SNAPSHOT</span><b>${fmtTime(snap.generated_at)}Z</b></li>
-      <li class="cc-node__kv"><span>CROSS-CHECKS</span><b>${anyOn ? `${findings.length} finding(s)` : "nothing to check"}</b></li>
+      <li class="cc-node__kv"><span>CROSS-CHECKS</span><b title="${cov.available ? `${cov.ran} of ${cov.total} check families ran` : ""}">${
+        cov.available ? (cov.anyRan ? `${findings.length} finding(s) · ${cov.ran}/${cov.total} ran` : "none ran") : anyOn ? `${findings.length} finding(s)` : "none ran"
+      }</b></li>
       <li class="cc-node__kv"><span>COMMAND CHANNEL</span><b>${readOnly ? "none (read-only)" : "declared"}</b></li>`,
     meta: html`<span class="cc-node__metaflex"><span>NO ORDER ENTRY</span>${readOnly ? badge("LOCKED", { label: "READ-ONLY" }) : ""}</span>`,
   });
@@ -109,11 +152,11 @@ function architecture(ctx) {
     code: "ARC-04",
     key: "agent_trading",
     title: "Agent / trading system",
-    role: "Five agent slots run approved, packaged strategies — SIM before PAPER before LIVE — and report observations, orders and fills.",
-    state: agentNet?.state ?? "NOT_CONNECTED",
-    extra: badge(agentNet?.state ?? "NOT_CONNECTED", { title: "Agent network" }),
+    role: "Five agent slots that may run only approved, packaged strategies — SIM before PAPER before LIVE — and report observations, orders and fills.",
+    state: anState,
+    extra: badge(anState, { title: "Agent network" }),
     lines: TRADING_SIDE.map((k) => srcLine(ctx, k)),
-    meta: html`<span class="cc-node__metaflex"><span>AGENT NETWORK</span>${badge(agentNet?.state ?? "NOT_CONNECTED")}</span><span class="cc-node__metaflex"><span>TRADING ENGINE</span>${badge(trading?.state ?? "NOT_CONNECTED")}</span>`,
+    meta: html`<span class="cc-node__metaflex"><span>AGENT NETWORK</span>${badge(anState)}</span><span class="cc-node__metaflex"><span>TRADING ENGINE</span>${badge(trState)}</span>`,
   });
 
   return panel({
@@ -166,27 +209,39 @@ function handoff(ctx) {
   const sa = isOk(sSrc);
   const strategies = doc(ctx, "strategies");
   const byId = new Map((strategies?.strategies ?? []).map((s) => [s.strategy_id, s]));
-  const hs = sa ? derived(ctx, "handoffs") ?? [] : null;
+  // A handoff row carries its strategy's record origin; every count below is split by it.
+  const hs = sa ? (derived(ctx, "handoffs") ?? []).map((h) => ({ ...h, origin: byId.get(h.strategy_id)?.origin })) : null;
   const eligible = sa ? derived(ctx, "controls")?.deployment_eligible ?? [] : null;
   const rs = derived(ctx, "research_summary") ?? {};
+  const stepCount = (pred) => splitVal(originSplit(hs, pred), { cls: "cc-split--step" });
 
   const list = HANDOFF.map(([key, label]) => {
     if (!hs) return { key, label, count: null, detail: sourceShort(sSrc) };
-    if (key === "RESEARCH_STRATEGY") return { key, label, count: hs.length, detail: "current versions in registry" };
-    const done = countWhere(hs, (h) => stepOf(h, key)?.state === "COMPLETE");
-    const viol = countWhere(hs, (h) => stepOf(h, key)?.state === "VIOLATION");
-    return viol
-      ? { key, label, count: done, state: "VIOLATION", detail: `${viol} declared out of order` }
-      : { key, label, count: done, detail: `of ${hs.length} complete` };
+    if (key === "RESEARCH_STRATEGY") return { key, label, count: stepCount(), detail: "current versions in registry" };
+    // A step that cannot be verified for some strategy (agent runtime unavailable) has no countable total.
+    const unverifiable = hs.filter((h) => ["UNKNOWN", "UNVERIFIED"].includes(stepOf(h, key)?.state));
+    if (unverifiable.length) {
+      return { key, label, count: null, state: "UNKNOWN", detail: stepOf(unverifiable[0], key)?.detail ?? "cannot be verified" };
+    }
+    const done = stepCount((h) => stepOf(h, key)?.state === "COMPLETE");
+    const viol = originSplit(hs, (h) => stepOf(h, key)?.state === "VIOLATION");
+    return Object.values(viol).some((n) => n > 0)
+      ? { key, label, count: done, state: "VIOLATION", detail: `${splitText(viol)} declared out of order` }
+      : { key, label, count: done, detail: "versions complete" };
   }).map((s) => ({ ...s, boundary: s.key === "AGENT_ASSIGNMENT" }));
 
-  const byStatus = rs.strategies_by_status ?? null;
+  // registry status counts per record origin (derive: strategies_by_status_origin)
+  const byStatusOrigin = rs.strategies_available ? rs.strategies_by_status_origin ?? null : null;
+  const statusSplit = (st) => splitFrom(Object.fromEntries(Object.entries(byStatusOrigin).map(([o, m]) => [o, m?.[st] ?? 0])));
   const statusOrder = ["CANDIDATE", "IN_VALIDATION", "VALIDATED", "APPROVED", "DEPLOYED_SIM", "DEPLOYED_LIVE", "SCALED", "RETIRED", "REJECTED"];
+  const statuses = byStatusOrigin ? [...new Set(Object.values(byStatusOrigin).flatMap((m) => Object.keys(m ?? {})))] : [];
+  statuses.sort((a, b) => (statusOrder.indexOf(a) + 1 || 99) - (statusOrder.indexOf(b) + 1 || 99));
+  const eligibleSplit = eligible ? originSplit(strategies?.strategies ?? [], (s) => eligible.includes(s.strategy_id)) : null;
 
   const matrix = !hs
-    ? emptyLine(sourceShort(sSrc), "Each strategy's current version and the handoff step it has reached are listed here.")
+    ? emptyLine(sourceTitle(sSrc, "Strategy registry"), "Each strategy's current version and the handoff step it has reached are listed here.")
     : hs.length === 0
-      ? emptyLine("No strategies in the registry", "strategies.json is connected and lists none — nothing can enter deployment.")
+      ? emptyLine("No strategies in the registry", "strategies.json is connected and lists no strategies.")
       : table({
           dense: true,
           rowHref: (h) => `#/strategy/${encodeURIComponent(h.strategy_id)}`,
@@ -219,11 +274,11 @@ function handoff(ctx) {
     span: 12,
     code: "SYS-02",
     title: "Research → agent handoff",
-    sub: "How a strategy reaches an agent — counts are current versions that have completed each step",
+    sub: "Current versions that have completed each step, per record origin",
     actions: go("STRATEGY LIBRARY", "#/strategies"),
     cls: "cc-panel-handoff",
     body: html`
-      <div class="cc-rule" data-rule="handoff">${icon("lock")}<div><b>A strategy does not become tradable because it exists.</b> Only validated, approved, packaged strategies enter deployment — and only via an agent assignment, simulation first.</div></div>
+      <div class="cc-rule" data-rule="handoff">${icon("lock")}<div><b>A strategy does not become tradable because it exists.</b> Only validated, approved, packaged strategies may enter deployment — and only via an agent assignment, simulation first. The counts below show where each strategy actually stands.</div></div>
       <div class="cc-handoff">
         ${steps(list)}
         <div class="cc-handoff__desc">${HANDOFF.map(([key, , desc]) => html`<div data-step-desc="${key}">${desc}</div>`)}</div>
@@ -231,29 +286,29 @@ function handoff(ctx) {
       <div class="cc-handoff__facts">
         <div class="cc-fact" data-fact="eligible">
           <span class="cc-fact__k">Deployment-eligible</span>
-          <span class="cc-fact__v">${val(isNil(eligible) ? null : String(eligible.length))}</span>
+          <span class="cc-fact__v">${eligibleSplit ? splitVal(eligibleSplit) : val(null)}</span>
           <span class="cc-fact__d">${
             isNil(eligible)
               ? sourceReason(sSrc)
               : eligible.length
                 ? html`<span class="cluster">${eligible.map((id) => refLink(id, `#/strategy/${encodeURIComponent(id)}`))}</span>`
-                : "No strategy is validated, approved and packaged."
+                : "No strategy in strategies.json is validated, approved and packaged."
           }</span>
         </div>
         <div class="cc-fact" data-fact="by-status">
           <span class="cc-fact__k">Registry by status</span>
           <span class="cc-fact__d">${
-            byStatus === null
+            byStatusOrigin === null
               ? sourceShort(sSrc)
-              : Object.keys(byStatus).length === 0
+              : statuses.length === 0
                 ? "No strategies recorded"
-                : html`<span class="cluster">${statusOrder
-                    .filter((s) => byStatus[s])
-                    .map((s) => html`<span class="cc-statcount">${badge(s)}<b>${byStatus[s]}</b></span>`)}</span>`
+                : html`<span class="cluster">${statuses.map(
+                    (s) => html`<span class="cc-statcount" data-status-count="${s}">${badge(s)}${splitVal(statusSplit(s), { cls: "cc-split--sm" })}</span>`,
+                  )}</span>`
           }</span>
         </div>
       </div>
-      ${subhead("Handoff matrix", hs ? `${hs.length} strateg${hs.length === 1 ? "y" : "ies"} · current version` : "")}
+      ${subhead("Handoff matrix", hs ? `${splitText(originSplit(hs))} · current version` : "")}
       ${matrix}`,
   });
 }
@@ -265,40 +320,53 @@ function learning(ctx) {
   const evSrc = source(ctx, "agent_events");
   const sSrc = source(ctx, "strategies");
   const stages = lr?.stages ?? [];
-  const list = stages.map((s) => ({
-    key: s.key,
-    label: s.label,
-    count: s.count,
-    owner: s.owner,
-    boundary: s.key === "RESEARCH_VALIDATION",
-  }));
-  const agentN = stages.filter((s) => s.owner === "AGENT").length;
-  const govN = stages.length - agentN;
+  const toStep = (s) => ({ key: s.key, label: s.label, count: s.count, owner: s.owner, boundary: s.key === "RESEARCH_VALIDATION" });
+  const agentList = stages.filter((s) => s.owner === "AGENT").map(toStep);
+  const govList = stages.filter((s) => s.owner !== "AGENT").map(toStep);
+  const agentN = agentList.length;
+  const govN = govList.length;
   const pbs = lr?.proposals_by_state ?? null;
+  const cumulative = lr?.gated_counts === "cumulative";
+  // Agent-stage counts come from the whole event stream (derive), across record origins; say which origins those are.
+  const evSplit = lr?.events_available ? eventOriginSplit(ctx.extra?.events) : null;
+  const evNote = !lr?.events_available
+    ? `agent_events.jsonl ${sourceShort(evSrc).toLowerCase()}`
+    : evSplit
+      ? hasOtherOrigins(evSplit)
+        ? html`counts include <span class="${cx("cc-tonetext", originTone(evSplit.RECONSTRUCTED ? "RECONSTRUCTED" : "SYNTHETIC_FIXTURE"))}" data-learn-origins>${splitText(evSplit)}</span> events`
+        : html`<span data-learn-origins>${splitText(evSplit)} events</span>`
+      : "agent_events.jsonl connected · counts span all origins";
 
   return panel({
     span: 12,
     code: "SYS-03",
     title: "Agent learning flow",
-    sub: "Agent stages count agent events by kind · governed stages count improvement proposals by state",
+    sub: cumulative
+      ? "Agent stages count events by kind · gated stages count proposals cumulatively"
+      : "Agent stages count events by kind · gated stages count proposals currently in each state",
     actions: go("AGENT MEMORIES", "#/memory/agents"),
     cls: "cc-panel-learn",
-    body: html`<div class="cc-learn" style="--n:${Math.max(stages.length, 1)}">
-        <div class="cc-learn__zones" style="grid-template-columns:minmax(0,${Math.max(agentN, 1)}fr) minmax(0,${Math.max(govN, 1)}fr)">
-          <div class="cc-zone cc-zone--agent"><span>${icon("agent")}AGENT · RESEARCH MODE</span><b>Autonomous within declared limits</b><em>${lr?.events_available ? "agent_events.jsonl connected" : `agent_events.jsonl ${sourceShort(evSrc).toLowerCase()}`}</em></div>
-          <div class="cc-zone cc-zone--gov"><span>${icon("governance")}RESEARCH · GOVERNANCE</span><b>Validation and approval required</b><em>${lr?.proposals_available ? "strategies.json connected" : `strategies.json ${sourceShort(sSrc).toLowerCase()}`}</em></div>
+    body: html`<div class="cc-learn" style="--n:${Math.max(stages.length, 1)};--cols:${Math.max(agentN, govN, 1)};--afr:${Math.max(agentN, 1)}fr;--gfr:${Math.max(govN, 1)}fr" data-gated-counts="${lr?.gated_counts ?? ""}">
+        <div class="cc-learn__lane cc-learn__lane--agent" style="--k:${Math.max(agentN, 1)}">
+          <div class="cc-zone cc-zone--agent"><span>${icon("agent")}AGENT · RESEARCH MODE</span><b>Autonomous within declared limits</b><em>${evNote}</em></div>
+          ${steps(agentList)}
         </div>
-        ${steps(list)}
+        <div class="cc-learn__lane cc-learn__lane--gov" style="--k:${Math.max(govN, 1)}">
+          <div class="cc-zone cc-zone--gov"><span>${icon("governance")}RESEARCH · GOVERNANCE</span><b>Validation and approval required</b><em>${
+            lr?.proposals_available ? (cumulative ? "cumulative · every proposal that reached the gate" : "proposals currently in each state") : `strategies.json ${sourceShort(sSrc).toLowerCase()}`
+          }</em></div>
+          ${steps(govList)}
+        </div>
       </div>
       <div class="cc-principles">
         <div class="cc-principle" data-principle="autonomy"><b>01 · Research learning may be autonomous</b><span>Agents may observe, interpret, recall, hypothesise, test, evaluate and write memory — in research mode, within declared limits. Every step is an event in the stream.</span></div>
-        <div class="cc-principle" data-principle="governed"><b>02 · Production changes require validation + governance</b><span>A proposal crosses the boundary into research validation and governance approval. It can only ever become a new, versioned strategy.</span></div>
-        <div class="cc-principle" data-principle="no-silent-change"><b>03 · Agents never silently modify a live strategy</b><span>Live versions are immutable. Improvement is a new version with lineage back to its proposal and evidence.</span></div>
+        <div class="cc-principle" data-principle="governed"><b>02 · Production changes require validation + governance</b><span>A proposal must cross the boundary into research validation and governance approval. It may only ever become a new, versioned strategy.</span></div>
+        <div class="cc-principle" data-principle="no-silent-change"><b>03 · Agents must never silently modify a live strategy</b><span>Live versions are to stay immutable. Improvement is a new version with lineage back to its proposal and evidence.</span></div>
       </div>
       <div class="cc-proposals">
-        <span class="cc-fact__k">Proposals by state</span>
+        <span class="cc-fact__k">Proposals by current state</span>
         ${pbs === null
-          ? html`<span class="muted small">${sourceShort(sSrc)} — proposal counts appear when strategies.json is connected.</span>`
+          ? html`<span class="muted small">${sourceTitle(sSrc, "strategies.json")} — proposal counts are read from it.</span>`
           : Object.keys(pbs).length === 0
             ? html`<span class="text-2 small">No improvement proposals recorded.</span>`
             : html`<span class="cluster">${Object.entries(pbs).map(([k, n]) => html`<span class="cc-statcount">${badge(k)}<b>${n}</b></span>`)}</span>`}
@@ -409,7 +477,7 @@ function researchCell(ctx) {
     cls: "lg-span-12 cc-panel-cell",
     body: html`<div class="cc-roles">${ROLES.map(([key, label, desc], i) => {
         const r = byRole.get(key);
-        const state = r ? r.state : research ? "NOT_REPORTED" : "NOT_CONNECTED";
+        const state = r ? r.state : research ? "NOT_REPORTED" : srcState(rSrc);
         return html`<div class="${cx("cc-role", toneClass(state))}" data-role="${key}" data-state="${state}">
           <span class="cc-role__n">${String(i + 1).padStart(2, "0")}</span>
           <div class="cc-role__main">
@@ -419,7 +487,7 @@ function researchCell(ctx) {
           <span class="cc-role__ts">${r?.last_activity_at ? fmtAge(r.last_activity_at, ctx.now) : ""}</span>
         </div>`;
       })}</div>
-      <div class="cc-rule cc-rule--quiet" data-rule="cell">${icon("shield")}<div><b>A controlled cell, not a swarm.</b> Seven declared roles with declared limits; every action is a counted trial or a recorded decision. No unbounded loop runs without a frozen specification and a referee.</div></div>`,
+      <div class="cc-rule cc-rule--quiet" data-rule="cell">${icon("shield")}<div><b>A controlled cell, not a swarm.</b> Seven roles with declared limits; every action must be a counted trial or a recorded decision, and no loop may run without a frozen specification and a referee.</div></div>`,
   });
 }
 
@@ -468,6 +536,16 @@ function contractSources(ctx) {
 
 export default {
   title: "System Map",
+  async load(ctx) {
+    // Only to say which record origins the learning-flow event counts span (SYS-03).
+    const ev = ctx.snap?.events_source;
+    if (!ev || ev.status !== "OK") return { events: null };
+    try {
+      return { events: await fetchEvents({ limit: EVENT_WINDOW }) };
+    } catch (err) {
+      return { events: null, error: String(err?.message ?? err) };
+    }
+  },
   render(ctx) {
     const snap = ctx.snap;
     const okCount = DOC_KEYS.filter((k) => isOk(source(ctx, k))).length;
@@ -476,7 +554,7 @@ export default {
         kicker: "ARCHITECTURE",
         code: "SYS",
         title: "System Map",
-        sub: "How SENTRY is wired, with the live connection state of every contract source. Research produces evidence; governance gates it; agents only ever receive validated, approved, packaged strategies.",
+        sub: "How SENTRY is wired, with the live connection state of every contract source. Research produces evidence; governance gates it; an agent slot may only receive a validated, approved, packaged strategy — the handoff below shows where each one actually stands.",
         right: html`<span class="cc-headchip">${icon("file")}CONTRACT <b>v${snap.contract_version}</b></span>
           <span class="cc-headchip">${icon("data")}PROVIDER <b>${snap.provider.kind}</b></span>
           <span class="cc-headchip">${icon("sources")}SOURCES <b>${okCount}/${DOC_KEYS.length}</b></span>

@@ -87,8 +87,11 @@
 
 .rsb-num {
   font-size: var(--fs-sm);
-  color: var(--text);
   min-width: 26px;
+}
+
+.rsb-num:not(.is-empty) {
+  color: var(--text);
 }
 
 .rsb-num.is-empty {
@@ -197,6 +200,101 @@
   color: var(--tone, var(--muted));
 }
 
+/* "reported / of" — the denominator is quieter than the count it qualifies */
+.rsb-split__of {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+/* reported check states with mixed strategy origins: one tagged line per origin */
+.rsb-cksplit-o {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rsb-cksplit-o__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- unavailable source */
+/* Not connected ≠ not produced ≠ contract error ≠ unreadable: a present but rejected or
+   unreadable document is a failure and takes the bad tone; an absent one stays quiet. */
+
+.rsb-off {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.rsb-off.tone-bad {
+  color: var(--tone);
+}
+
+.rsb-off__file {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* a status label may wrap in a narrow tile rather than be cut to "CONTRACT ER…" */
+.stat__hint:has(> .nodata > .rsb-off) {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.rsb-src-bad {
+  display: flex;
+  flex-direction: column;
+}
+
+.rsb-src-bad > .empty {
+  flex: 1;
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+  background:
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--tone) 5%, transparent) 0 6px, transparent 6px 12px),
+    rgba(7, 10, 15, 0.35);
+}
+
+.rsb-src-bad .empty__title,
+.rsb-src-bad .empty__icon {
+  color: var(--tone);
+}
+
+/* inline text in a state tone from tones.js (e.g. a programme declaring windows without a frozen spec) */
+.rsb-toned {
+  color: var(--tone);
+}
+
+/* ---------------------------------------------------------------- long registers: pager */
+
+.rsb-pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.rsb-pager__k {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.14em;
+  color: var(--text-2);
+}
+
+.rsb-pager__go {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
 /* metrics (gross / cost / net) */
 
 .rsb-metrics {
@@ -215,7 +313,7 @@
   font-size: var(--fs-sm);
 }
 
-.rsb-metrics__row .v {
+.rsb-metrics__row .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -998,6 +1096,11 @@ i.rsb-tl-role--OTHER { border-style: dashed; }
   color: var(--faint);
 }
 
+/* registry present but rejected or unreadable: a failure, not an absence */
+.rsb-gate.is-bad {
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+}
+
 .rsb-gate__word {
   font-size: var(--fs-sm);
   letter-spacing: 0.16em;
@@ -1057,6 +1160,9 @@ i.rsb-tl-role--OTHER { border-style: dashed; }
 
 .rsb-gate__elig .v {
   font-size: var(--fs-xs);
+}
+
+.rsb-gate__elig .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -1379,6 +1485,19 @@ i.rsb-tl-role--OTHER { border-style: dashed; }
   gap: 6px 12px;
 }
 
+/* The ledger frame is a size container, so a programme head stays inside the visible
+   frame (sticky at its left edge, wrapping to the frame width) while a wide ledger
+   scrolls sideways at narrow widths — its trial count is never scrolled out of view. */
+.table-wrap.rsb-ledger {
+  container-type: inline-size;
+}
+
+.rsb-ledger .rsb-gh {
+  position: sticky;
+  left: 10px;
+  max-width: calc(100cqw - 20px);
+}
+
 .rsb-gh__id {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
@@ -1403,6 +1522,10 @@ i.rsb-tl-role--OTHER { border-style: dashed; }
   align-items: baseline;
   gap: 8px;
   font-size: var(--fs-sm);
+}
+
+.rsb-gh__part {
+  letter-spacing: 0.04em;
 }
 
 .rsb-fam {

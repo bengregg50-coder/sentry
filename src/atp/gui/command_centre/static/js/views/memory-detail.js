@@ -5,7 +5,7 @@
 
 import { html } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, fmtDateTime, humanize } from "../core/format.js";
-import { doc, source, derived, sourceShort, findingsFor } from "../core/state.js";
+import { doc, source, derived, sourceTitle, findingsFor } from "../core/state.js";
 import { fetchEvents } from "../core/api.js";
 import { pageHeader, panel, badge, val, kv, originBadge, emptyState, sourceEmpty, findingsList, notice } from "../components/ui.js";
 import { icon } from "../components/icons.js";
@@ -28,6 +28,9 @@ import {
   sourceTags,
   frameTable,
   anatomy,
+  srcPhrase,
+  originCounts,
+  splitText,
 } from "./_memory-common.js";
 import { graphFor, edgesOf, egoGraph } from "./_memory-graph.js";
 
@@ -127,7 +130,7 @@ function relatedPanel(ctx, m, idx) {
   const st = doc(ctx, "strategies");
   const stSrc = source(ctx, "strategies");
   const strat = (sid) => {
-    if (!st) return html`<span class="mem-lane__ref"><span class="ref">${sid}</span><span class="mem-lane__from">strategies.json ${sourceShort(stSrc).toLowerCase()}</span></span>`;
+    if (!st) return html`<span class="mem-lane__ref"><span class="ref">${sid}</span><span class="mem-lane__from">${srcPhrase(stSrc, "strategies.json")}</span></span>`;
     const s = st.strategies.find((x) => x.strategy_id === sid);
     if (!s) return html`<span class="mem-unres" title="Not present in strategies.json">${sid}<span class="mem-unres__tag">UNRESOLVED</span></span>`;
     return html`<span class="mem-lane__ref"><a class="ref" href="${strategyHref(sid)}">${sid}</a><span class="mem-lane__from">${s.name}</span>${badge(s.status)}</span>`;
@@ -154,9 +157,15 @@ function relationsPanel(ctx, m) {
   const links = edgesOf(graph, key);
   const center = graph?.nodes.find((n) => n.key === key) ?? { key, id: m.memory_id, type: "MEMORY", state: m.validation_state };
   if (!links.length) {
+    // "No record references it" can only be said of the sources that are readable.
+    const unread = ["research", "strategies"].map((k) => source(ctx, k)).filter((x) => x?.status !== "OK");
     return emptyState({
       title: "No declared relationships",
-      reason: "This memory declares no trial ids, TRIAL evidence, related strategies or related memories, and no record references it in its lineage.",
+      reason: `This memory declares no trial ids, TRIAL evidence, related strategies or related memories${
+        unread.length
+          ? `. References to it from other records cannot be checked: ${unread.map((x) => srcPhrase(x)).join(" · ")}.`
+          : ", and no record references it in its lineage."
+      }`,
       hint: "Relationships are only drawn from explicit references — none are inferred.",
       compact: true,
       iconName: "graph",
@@ -185,7 +194,7 @@ function referencedBy(ctx, m, mems) {
   const agents = doc(ctx, "agents");
   const st = doc(ctx, "strategies");
   const ins = doc(ctx, "insights");
-  const na = (k) => html`<div class="mem-lane__none">${k}.json ${sourceShort(source(ctx, k)).toLowerCase()}</div>`;
+  const na = (k) => html`<div class="mem-lane__none" data-source-state="${source(ctx, k)?.status ?? "NO_SNAPSHOT"}">${srcPhrase(source(ctx, k), `${k}.json`)}</div>`;
   const group = (label, list, render, srcKey) => html`<div class="mem-rel-group" data-ref-group="${label}">
     ${sectionLabel(label, list && list.length ? fmtCount(list.length) : null)}
     ${list === null ? na(srcKey) : list.length ? html`<div class="mem-rel-group__items">${list.map(render)}</div>` : html`<div class="mem-lane__none">None</div>`}
@@ -218,6 +227,8 @@ function activityPanel(ctx, m) {
   const ex = ctx.extra;
   const evOk = ex && !ex.error && (ex.source?.status === "OK" || ex.source?.status === "INVALID");
   const evs = evOk ? ex.events.filter((e) => (e.refs?.memory_ids ?? []).includes(m.memory_id)) : null;
+  // The fetch is a window of the newest events; say so whenever the stream holds more.
+  const whole = evOk && !isNil(ex.source.valid_events) && ex.events.length >= ex.source.valid_events;
   return html`<div class="mem-activity">
     <div class="mem-activity__col">
       ${sectionLabel("Consistency findings", "naming this memory")}
@@ -227,21 +238,30 @@ function activityPanel(ctx, m) {
       ${sectionLabel("Agent events", "referencing this memory")}
       ${evs === null
         ? emptyState({
-            title: "Event stream unavailable",
-            reason: ex?.error ? ex.error : `agent_events.jsonl ${ex?.source ? sourceShort(ex.source).toLowerCase() : "unavailable"}.`,
+            title: ex?.error || !ex?.source ? "Event stream could not be fetched" : sourceTitle(ex.source, "Agent event stream"),
+            reason: ex?.error ? ex.error : ex?.source ? `${srcPhrase(ex.source, "agent_events.jsonl")}.` : "agent_events.jsonl unavailable.",
             compact: true,
             iconName: "agentmem",
+            code: `memory-events-${ex?.source?.status ?? "unavailable"}`,
           })
         : evs.length
           ? html`<ul class="mem-evlist">${evs.map(
               (e) => html`<li data-event-id="${e.event_id}">
                 <span class="mono muted">${fmtDateTime(e.ts)}</span>
                 <a class="ref" href="${agentHref(e.agent_slot)}">${agentLabel(e.agent_slot)}</a>
-                <span class="mem-evkind ${e.kind === "MEMORY_RECALL" ? "mem-evkind--recall" : e.kind === "MEMORY_WRITE" ? "mem-evkind--write" : ""}">${humanize(e.kind)}</span>
+                <span class="mem-evkind ${{ MEMORY_RECALL: "mem-evkind--recall", MEMORY_WRITE: "mem-evkind--write", APPLICABILITY_TEST: "mem-evkind--test" }[e.kind] ?? ""}">${humanize(e.kind)}</span>
                 <span class="mem-evlist__sum">${e.summary}</span>
               </li>`,
             )}</ul>`
-          : emptyState({ title: "None recorded", reason: "No event in the scanned stream references this memory.", compact: true, iconName: "agentmem" })}
+          : emptyState({
+              title: whole ? "None recorded" : "None in the latest events",
+              reason: whole
+                ? "No event in the agent event stream references this memory."
+                : `No event among the latest ${fmtCount(ex.events.length)} fetched references this memory; older events were not scanned.`,
+              compact: true,
+              iconName: "agentmem",
+              code: whole ? "memory-events-none" : "memory-events-none-window",
+            })}
     </div>
   </div>`;
 }
@@ -252,7 +272,7 @@ function notConnected(ctx, id, src) {
   return html`
     ${pageHeader({ kicker: "MEMORY", code: "MEM-D", title: `Memory ${id}`, sub: "Memory records are read from memory.json.", right: sourceTags(ctx, ["memory"]) })}
     <div class="grid">
-      ${panel({ span: 8, code: "MEM-D01", title: "Memory record", body: sourceEmpty(src, { title: "Memory store not connected", hint: `When memory.json is connected, ${id} is shown here with its source, hypothesis, observation, evidence for and against, checks, confidence, status and relationships.` }), cls: "lg-span-12" })}
+      ${panel({ span: 8, code: "MEM-D01", title: "Memory record", body: sourceEmpty(src, { title: sourceTitle(src, "Memory store"), hint: `When memory.json is available, ${id} is shown here with its source, hypothesis, observation, evidence for and against, checks, confidence, status and relationships.` }), cls: "lg-span-12" })}
       ${panel({ span: 4, code: "MEM-D02", title: "What a record carries", sub: "Contract fields", body: anatomy({ compact: true }), cls: "lg-span-12" })}
     </div>`;
 }
@@ -269,7 +289,7 @@ function notFound(ctx, id, mems) {
         title: "Memory record",
         body: emptyState({
           title: "No such memory",
-          reason: `No memory with id “${id}” exists in memory.json (${fmtCount(mems.length)} memor${mems.length === 1 ? "y" : "ies"} connected). Nothing is shown in its place.`,
+          reason: `No memory with id “${id}” exists in memory.json (${splitText(originCounts(mems), mems.length === 1 ? "memory" : "memories")} on record). Nothing is shown in its place.`,
           hint: html`<a class="ref" href="#/memory/findings">Browse findings</a> · <a class="ref" href="#/memory/lessons">Browse lessons</a>`,
           iconName: "memory",
           code: "memory-not-found",

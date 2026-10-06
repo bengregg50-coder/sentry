@@ -11,8 +11,8 @@
 import { html, raw, cx } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, fmtDateTime, humanize } from "../core/format.js";
 import { toneClass } from "../core/tones.js";
-import { doc, source, currentVersion } from "../core/state.js";
-import { val, badge, chip, metric, originBadge, emptyState } from "../components/ui.js";
+import { doc, source, currentVersion, sourceShort, sourceTitle } from "../core/state.js";
+import { val, badge, chip, metric, originBadge, emptyState, sourceEmpty } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 
 /* ------------------------------------------------------------ vocabulary
@@ -70,6 +70,51 @@ export function sources(ctx) {
     gov: doc(ctx, "governance"),
     gsrc: source(ctx, "governance"),
   };
+}
+
+/* ------------------------------------------------------------ unavailable source */
+// Not connected ≠ not produced ≠ rejected by the contract ≠ unreadable. Every title,
+// label and sub-line shown in place of a document's content is phrased from the
+// source status. A document that is present but INVALID or UNREADABLE is a failure
+// and takes the bad tone, never the muted styling of an absent source.
+
+/** True when the source exists but was rejected by the contract or could not be read. */
+export const srcBroken = (src) => src?.status === "INVALID" || src?.status === "UNREADABLE";
+
+const offTone = (src) => (srcBroken(src) ? toneClass(src.status) : "");
+
+/** Short label in place of a value: NOT CONNECTED / NOT PRODUCED / CONTRACT ERROR / UNREADABLE. */
+export function offLabel(src) {
+  return html`<span class="${cx("rsb-off", offTone(src))}" data-source-off="${src?.status ?? "NO_SNAPSHOT"}">${sourceShort(src)}</span>`;
+}
+
+/** "<file> <status>" for a panel sub-line, e.g. "research.json not produced" / "strategies.json contract error". */
+export function srcPhrase(src) {
+  return `${src?.file ?? "source"} ${sourceShort(src).toLowerCase()}`;
+}
+
+/** "<file> <STATUS>" for an inline caption: the file name as written, the status as offLabel(). */
+export function srcLine(src) {
+  return html`<span class="rsb-off__file">${src?.file ?? "source"}</span> ${offLabel(src)}`;
+}
+
+/** What each source document is, as the subject of an empty-state title. */
+const SRC_NOUN = { research: "Research ledger", strategies: "Strategy registry", governance: "Governance record" };
+
+/**
+ * sourceEmpty() titled from the source status, with the document as the subject
+ * ("Strategy registry rejected by the contract", "Research ledger not produced") —
+ * never a panel noun that could read as a research verdict ("hypotheses rejected").
+ * The hint says what the panel will show. Broken sources take the bad tone.
+ */
+export function srcEmpty(src, opts = {}) {
+  const e = sourceEmpty(src, { ...opts, title: sourceTitle(src, SRC_NOUN[src?.key] ?? src?.label ?? "Source") });
+  return srcBroken(src) ? html`<div class="${cx("rsb-src-bad", offTone(src))}" data-source-off="${src.status}">${e}</div>` : e;
+}
+
+/** State of a record slot (e.g. a check cell) whose source is unavailable. */
+export function offState(src) {
+  return { INVALID: "INVALID", UNREADABLE: "UNREADABLE", MISSING: "NOT_PRODUCED" }[src?.status] ?? "NOT_CONNECTED";
 }
 
 /** Strategies with their current version resolved: [{s, v}] or null when not connected. */
@@ -206,6 +251,113 @@ export function splitText(split, noun = "") {
 }
 
 export const count = (n) => (isNil(n) ? null : fmtCount(n));
+
+/** Record origins present among rows, in ORIGINS order (others after). */
+function originsPresent(rows) {
+  const seen = new Set((rows ?? []).map((r) => r.origin));
+  return [...ORIGINS.filter((o) => seen.has(o)), ...[...seen].filter((o) => !ORIGINS.includes(o))];
+}
+
+/**
+ * How many strategies' current versions report a check (in any state), per
+ * strategy origin: "3/5", or "2/3 · 1/2 RECON" when origins are mixed — never
+ * one merged figure. cv: [{s, v}] (null => source unavailable => null).
+ */
+export function reportedVal(cv, key) {
+  if (!cv) return null;
+  const origins = originsPresent(cv.map(({ s }) => s));
+  if (!origins.length) return html`<span class="rsb-split"><span class="rsb-split__n"><span class="rsb-split__frac">${val("0")}<span class="rsb-split__of">/0</span></span></span></span>`;
+  return html`<span class="rsb-split">${origins.map((o) => {
+    const rows = cv.filter(({ s }) => s.origin === o);
+    const reported = rows.filter(({ v }) => v.validation?.[key]?.state).length;
+    const tag = o === "ORIGINAL" ? "" : html`<span class="rsb-split__tag ${toneClass(o)}">${ORIGIN_SHORT[o] ?? o}</span>`;
+    return html`<span class="rsb-split__n" data-origin="${o}" title="${fmtCount(reported)} of ${fmtCount(rows.length)} ${humanize(o).toLowerCase()} strategies report this check, in any state — not a pass count"><span class="rsb-split__frac">${val(fmtCount(reported))}<span class="rsb-split__of">/${fmtCount(rows.length)}</span></span>${tag}</span>`;
+  })}</span>`;
+}
+
+/**
+ * Reported check states as badges. With strategies of one origin this is the
+ * plain split; with mixed origins each origin gets its own line, tagged.
+ */
+export function checkSplitView(cv, key, { none = "NONE REPORTED" } = {}) {
+  if (!cv) return val(null);
+  const origins = originsPresent(cv.map(({ s }) => s));
+  if (origins.length <= 1) return checkSplitBadges(checkStateSplit(cv, key), { none });
+  return html`<span class="rsb-cksplit-o">${origins.map(
+    (o) => html`<span class="rsb-cksplit-o__row" data-origin="${o}"><span class="rsb-split__tag ${toneClass(o)}">${ORIGIN_SHORT[o] ?? o}</span>${checkSplitBadges(
+      checkStateSplit(cv.filter(({ s }) => s.origin === o), key),
+      { none },
+    )}</span>`,
+  )}</span>`;
+}
+
+/* ------------------------------------------------------------ paging */
+// Long registers materialise a window of rows; ?rows=<n>|all asks for more and
+// ?from=<k> starts the window later. Paging never changes a displayed count:
+// totals and per-origin counts always come from the full arrays, and the rows
+// not shown (before and after the window) are reported per origin, never as one
+// merged total.
+
+export const PAGE_ROWS = 100;
+
+/**
+ * {shown, before, hidden, from, count} for a register.
+ *  requested: the ?rows= value ("all" => every row from `from`)
+ *  from:      the ?from= value (an explicit window start)
+ *  include:   an index that must be in the window (a focused row). With no
+ *             explicit ?rows= / ?from=, a row beyond the first page opens the
+ *             step-aligned page that holds it rather than materialising every
+ *             row before it.
+ */
+export function pageRows(rows, requested, { step = PAGE_ROWS, from: fromQ, include = -1 } = {}) {
+  const n = Number.parseInt(requested, 10);
+  const count = requested === "all" ? Infinity : Number.isFinite(n) && n > 0 ? n : step;
+  const f = Number.parseInt(fromQ, 10);
+  let from = Number.isFinite(f) && f > 0 ? f : 0;
+  if (include >= 0 && isNil(fromQ) && (include < from || include >= from + count)) from = Math.floor(include / step) * step;
+  if (!rows) return { shown: rows, before: [], hidden: [], from: 0, count };
+  from = Math.min(from, Math.max(0, rows.length - 1));
+  const end = Math.min(rows.length, from + count);
+  return { shown: rows.slice(from, end), before: rows.slice(0, from), hidden: rows.slice(end), from, count };
+}
+
+/**
+ * "ROWS 1–100 SHOWN · not shown: 1,628 original · 283 reconstructed trials later"
+ * with links. hrefFor({rows, from}) builds the link (null drops a key). "Show all"
+ * is offered only while the remainder is small enough to render without freezing
+ * the page (views re-render on every state revision); otherwise a larger step.
+ */
+export function pager(page, hrefFor, { step = PAGE_ROWS, hint, noun = "records", key = "rows" } = {}) {
+  const before = page.before?.length ?? 0;
+  const rest = page.hidden.length;
+  if (!before && !rest) return "";
+  const shown = page.shown.length;
+  const big = step * 5;
+  const from = before ? String(page.from) : null;
+  const more = (n) => html`<a class="btn" href="${hrefFor({ rows: String(shown + n), from })}" data-pager="more-${String(n)}">Show ${fmtCount(Math.min(n, rest))} more</a>`;
+  const earlier = () => {
+    const k = Math.min(step, before);
+    const nf = page.from - k;
+    return html`<a class="btn" href="${hrefFor({ rows: String(shown + k), from: nf > 0 ? String(nf) : "0" })}" data-pager="earlier-${String(k)}">Show ${fmtCount(k)} earlier</a>`;
+  };
+  const parts = [];
+  if (before) parts.push(`${splitText(originSplit(page.before), noun)} earlier`);
+  if (rest) parts.push(`${splitText(originSplit(page.hidden), noun)}${before ? " later" : ""}`);
+  return html`<div class="rsb-pager" data-pager-for="${key}" data-rows-from="${String(page.from)}" data-rows-shown="${String(shown)}" data-rows-before="${String(before)}" data-rows-hidden="${String(rest)}">
+    <span class="rsb-pager__k">ROWS ${fmtCount(page.from + 1)}–${fmtCount(page.from + shown)} SHOWN</span>
+    <span class="rsb-pager__rest">not shown: ${parts.join(" · ")}${hint ? html` · ${hint}` : ""}</span>
+    <span class="rsb-pager__go">
+      ${before ? earlier() : ""}
+      ${rest ? more(step) : ""}
+      ${rest && !before ? (rest <= big - step ? html`<a class="btn" href="${hrefFor({ rows: "all", from: null })}" data-pager="all">Show all</a>` : more(big)) : ""}
+    </span>
+  </div>`;
+}
+
+/** Current query with one key replaced (null drops it), as a route href. */
+export function withQuery(path, query, patch) {
+  return qhref(path, { ...query, ...patch });
+}
 
 /* ------------------------------------------------------------ cells */
 
@@ -352,14 +504,15 @@ export function namedMetrics(list, { grid = false } = {}) {
 /**
  * A validation check as a matrix cell. check null => NOT REPORTED (the
  * research engine has not reported it); state colours come from toneClass().
+ * With connected=false the registry itself is unavailable: the cell names the
+ * source status (NOT CONNECTED / NOT PRODUCED / CONTRACT ERROR / UNREADABLE).
  */
-export function checkCell(check, key, { connected = true } = {}) {
+export function checkCell(check, key, { connected = true, src } = {}) {
   const def = CHECK_BY_KEY[key];
-  const state = check?.state ?? (connected ? "NOT_REPORTED" : "NOT_CONNECTED");
-  const tip = `${def?.label ?? key}: ${humanize(state)}${check?.detail ? " — " + check.detail : ""}${check?.checked_at ? " · checked " + fmtDateTime(check.checked_at) : ""}`;
-  return html`<span class="${cx("rsb-cell", toneClass(check?.state), !check && "rsb-cell--nr")}" data-check="${key}" data-state="${state}" title="${tip}">${
-    humanize(state)
-  }</span>`;
+  const state = check?.state ?? (connected ? "NOT_REPORTED" : offState(src));
+  const text = check || connected ? humanize(state) : sourceShort(src);
+  const tip = `${def?.label ?? key}: ${text}${check?.detail ? " — " + check.detail : ""}${check?.checked_at ? " · checked " + fmtDateTime(check.checked_at) : ""}`;
+  return html`<span class="${cx("rsb-cell", toneClass(check?.state), !check && "rsb-cell--nr")}" data-check="${key}" data-state="${state}" title="${tip}">${text}</span>`;
 }
 
 /* ------------------------------------------------------------ tables */

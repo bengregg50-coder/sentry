@@ -1,19 +1,38 @@
 // Agent Memories — five agent lanes: memories each agent wrote (source.actor
 // AGENT, grouped by source.agent_slot), memories each agent references
-// (agents.json memory_refs), and each agent's MEMORY_RECALL / MEMORY_WRITE
-// events. Cross-agent sharing ("agent X recalled what agent Y wrote") is shown
-// only where an event's memory ids resolve to a memory another agent wrote.
+// (agents.json memory_refs), and each agent's MEMORY_RECALL / MEMORY_WRITE /
+// APPLICABILITY_TEST events. Cross-agent sharing ("agent X recalled what agent
+// Y wrote") is shown only where an event's memory ids resolve to a memory
+// another agent wrote. Record counts are per record origin, never merged.
 
 import { html } from "../core/html.js";
 import { isNil, fmtCount, fmtDateTime, humanize } from "../core/format.js";
 import { doc, source, sourceReason, sourceShort, agentSlot } from "../core/state.js";
-import { fetchEvents } from "../core/api.js";
 import { pageHeader, panel, badge, dot, stat, statRow, val, emptyState, notice } from "../components/ui.js";
 import { toneOf } from "../core/tones.js";
-import { SLOTS, MEMORY_EVENT_KINDS, memState, memoryIndex, memHref, agentHref, agentLabel, memLink, frameTable, sectionLabel, sourceTags, typeBadge, tally } from "./_memory-common.js";
+import {
+  SLOTS,
+  MEMORY_EVENT_KINDS,
+  memState,
+  memoryIndex,
+  memHref,
+  agentHref,
+  agentLabel,
+  memLink,
+  frameTable,
+  sectionLabel,
+  sourceTags,
+  typeBadge,
+  originCounts,
+  splitVal,
+  splitText,
+  srcPhrase,
+  loadMemoryEvents,
+  memEvents as memEventsOf,
+  memEventsScope,
+} from "./_memory-common.js";
 
-const EVENT_LIMIT = 500;
-const KIND_SHORT = { MEMORY_RECALL: "RECALL", MEMORY_WRITE: "WRITE" };
+const KIND_SHORT = { MEMORY_RECALL: "RECALL", MEMORY_WRITE: "WRITE", APPLICABILITY_TEST: "TEST" };
 const OTHER = "OTHER";
 const UNRESOLVED = "UNRESOLVED";
 
@@ -34,13 +53,6 @@ function writerText(w, id, idx) {
   return agentLabel(w);
 }
 
-function eventsState(extra) {
-  if (!extra || extra.error) return { ok: false, events: null, src: extra?.source ?? null, error: extra?.error ?? null };
-  const status = extra.source?.status;
-  const ok = status === "OK" || status === "INVALID";
-  return { ok, events: ok ? extra.events : null, src: extra.source, error: null, truncated: ok && extra.events.length >= EVENT_LIMIT };
-}
-
 /* ------------------------------------------------------------ one lane */
 
 function lane(ctx, slot, data) {
@@ -49,18 +61,31 @@ function lane(ctx, slot, data) {
   const agent = sl?.agent;
   const status = sl?.status ?? "NOT_REPORTED";
   const nothing = (!written || !written.length) && (!refs || !refs.length) && (!evs || !evs.length);
-  const mini = (label, v) => html`<div class="mem-lane__stat"><span class="mem-k">${label}</span>${val(isNil(v) ? null : fmtCount(v))}</div>`;
+  const mini = (label, v) => html`<div class="mem-lane__stat"><span class="mem-k">${label}</span>${v ?? val(null)}</div>`;
+  const agentsDoc = doc(ctx, "agents");
+  const memSrc = source(ctx, "memory");
+  const agSrc = source(ctx, "agents");
 
   let body;
   if (nothing) {
     const reasons = [];
-    reasons.push(mems ? `memory.json: no memory sourced from ${agentLabel(slot)}` : `memory.json ${sourceShort(source(ctx, "memory")).toLowerCase()}`);
-    reasons.push(doc(ctx, "agents") ? (agent ? "no memory_refs declared" : "slot not reported by the runtime") : `agents.json ${sourceShort(source(ctx, "agents")).toLowerCase()}`);
-    reasons.push(ev.ok ? "no recall / write events" : `agent_events.jsonl ${ev.src ? sourceShort(ev.src).toLowerCase() : "unavailable"}`);
+    reasons.push(mems ? `memory.json: no memory sourced from ${agentLabel(slot)}` : srcPhrase(memSrc, "memory.json"));
+    reasons.push(agentsDoc ? (agent ? "no memory_refs declared" : "slot not reported by the runtime") : srcPhrase(agSrc, "agents.json"));
+    reasons.push(ev.ok ? "no recall / write / applicability-test events" : ev.src ? srcPhrase(ev.src, "agent_events.jsonl") : "agent_events.jsonl could not be fetched");
+    // "Recorded" only when every lane source is readable; otherwise the title says why the lane is empty.
+    const readable = [!!mems, !!agentsDoc, ev.ok];
+    const shared = [memSrc, agSrc, ev.src].map((x) => (x ? sourceShort(x) : "UNAVAILABLE"));
+    const title = readable.every(Boolean)
+      ? "NO AGENT MEMORIES RECORDED"
+      : readable.some(Boolean)
+        ? "NONE IN AVAILABLE SOURCES"
+        : new Set(shared).size === 1
+          ? `SOURCES ${shared[0]}`
+          : "SOURCES UNAVAILABLE";
     body = emptyState({
-      title: "NO AGENT MEMORIES",
+      title,
       reason: reasons.join(" · "),
-      hint: "Memories this agent writes, the memories it references and its recall / write events appear in this lane.",
+      hint: "Memories this agent writes, the memories it references and its recall, write and applicability-test events appear in this lane.",
       compact: true,
       iconName: "agentmem",
       code: `agent-lane-${slot}-empty`,
@@ -70,7 +95,7 @@ function lane(ctx, slot, data) {
       <div class="mem-lane__sec" data-lane-section="written">
         ${sectionLabel(`Written by ${agentLabel(slot)}`)}
         ${written === null
-          ? html`<div class="mem-lane__none">${sourceShort(source(ctx, "memory"))}</div>`
+          ? html`<div class="mem-lane__none">${sourceShort(memSrc)}</div>`
           : written.length
             ? html`<ul class="mem-lane__list">${written.map(
                 (m) => html`<li class="mem-lane__mem" data-memory-id="${m.memory_id}">
@@ -84,7 +109,7 @@ function lane(ctx, slot, data) {
       <div class="mem-lane__sec" data-lane-section="refs">
         ${sectionLabel("References", "memory_refs")}
         ${refs === null
-          ? html`<div class="mem-lane__none">${doc(ctx, "agents") ? "Slot not reported" : sourceShort(source(ctx, "agents"))}</div>`
+          ? html`<div class="mem-lane__none">${agentsDoc ? "Slot not reported" : sourceShort(agSrc)}</div>`
           : refs.length
             ? html`<div class="mem-lane__refs">${refs.map((id) => {
                 const w = mems ? writerOf(id, idx) : null;
@@ -95,7 +120,7 @@ function lane(ctx, slot, data) {
             : html`<div class="mem-lane__none">None declared</div>`}
       </div>
       <div class="mem-lane__sec" data-lane-section="events">
-        ${sectionLabel("Memory events", "recall · write")}
+        ${sectionLabel("Memory events", "recall · write · test")}
         ${evs === null
           ? html`<div class="mem-lane__none">${ev.src ? sourceShort(ev.src) : "Unavailable"}</div>`
           : evs.length
@@ -114,7 +139,7 @@ function lane(ctx, slot, data) {
                     : html`<span class="mem-lane__none">No memory ids referenced</span>`}</div>
                   <div class="mem-lane__evsum">${e.summary}</div>
                 </li>`;
-              })}${evs.length > 12 ? html`<li class="mem-lane__more">+${evs.length - 12} earlier</li>` : ""}</ul>`
+              })}${evs.length > 12 ? html`<li class="mem-lane__more">+ ${splitText(originCounts(evs.slice(12)))} earlier</li>` : ""}</ul>`
             : html`<div class="mem-lane__none">None recorded</div>`}
       </div>`;
   }
@@ -125,7 +150,7 @@ function lane(ctx, slot, data) {
       ${dot(status)}${badge(status)}
     </header>
     <div class="mem-lane__who">${agent?.codename ?? agent?.specialisation ?? sl?.status_reason ?? "Not reported"}</div>
-    <div class="mem-lane__stats">${mini("Written", written?.length)}${mini("Refs", refs?.length)}${mini("Events", evs?.length)}</div>
+    <div class="mem-lane__stats">${mini("Written", splitVal(originCounts(written), { cls: "mem-split--xs" }))}${mini("Refs", isNil(refs) ? null : val(fmtCount(refs.length)))}${mini("Events", splitVal(originCounts(evs), { cls: "mem-split--xs" }))}</div>
     <div class="mem-lane__body">${body}</div>
   </section>`;
 }
@@ -135,13 +160,14 @@ function lane(ctx, slot, data) {
 function matrix(memEvents, idx, mems, ev) {
   const cols = [...SLOTS, OTHER, UNRESOLVED];
   const can = ev.ok && !!mems;
+  // Each cell lists the recall events behind its references, so it is counted per event origin.
   const cell = {};
   if (can) {
     for (const e of memEvents) {
       if (e.kind !== "MEMORY_RECALL") continue;
       for (const id of e.refs?.memory_ids ?? []) {
         const k = `${e.agent_slot}|${writerOf(id, idx)}`;
-        cell[k] = tally(cell, k) + 1;
+        (cell[k] ??= []).push(e);
       }
     }
   }
@@ -153,16 +179,16 @@ function matrix(memEvents, idx, mems, ev) {
     </thead>
     <tbody>${SLOTS.map(
       (r) => html`<tr><th>${agentLabel(r)}</th>${cols.map((c) => {
-        const n = can ? tally(cell, `${r}|${c}`) : null;
+        const list = can ? cell[`${r}|${c}`] ?? [] : null;
         const kind = typeof c === "number" ? (c === r ? "self" : "cross") : c === OTHER ? "other" : "unres";
-        return html`<td class="mem-matrix__cell mem-matrix__cell--${kind} ${n ? "has" : ""}" data-cell="${r}-${c}">${val(isNil(n) ? null : fmtCount(n))}</td>`;
+        return html`<td class="mem-matrix__cell mem-matrix__cell--${kind} ${list?.length ? "has" : ""}" data-cell="${r}-${c}">${splitVal(originCounts(list), { cls: "mem-split--xs" }) ?? val(null)}</td>`;
       })}</tr>`,
     )}</tbody>
   </table></div>
   <div class="mem-matrix-legend"><span><i class="mem-matrix-key mem-matrix-key--self"></i>Own memory</span><span><i class="mem-matrix-key mem-matrix-key--cross"></i>Cross-agent recall</span><span><i class="mem-matrix-key mem-matrix-key--other"></i>Other: non-agent source</span><span><i class="mem-matrix-key"></i>Unres.: id not in memory.json</span></div>`;
 }
 
-function crossTable(memEvents, idx, mems, ev) {
+function crossTable(memEvents, idx, mems, ev, memSrc) {
   const rows = [];
   if (ev.ok && mems) {
     for (const e of memEvents) {
@@ -190,7 +216,7 @@ function crossTable(memEvents, idx, mems, ev) {
         ? emptyState({
             title: "No cross-agent recall recorded",
             reason: recallRefs
-              ? `${fmtCount(recallRefs)} recalled memory reference(s) in the scanned events — none resolves to a memory written by a different agent.`
+              ? `${fmtCount(recallRefs)} recalled memory reference(s) in the ${ev.complete ? "event stream" : "latest fetched events"} — none resolves to a memory written by a different agent.`
               : "No recall event references a memory.",
             hint: "A row appears here when one agent's MEMORY_RECALL event references a memory another agent wrote.",
             compact: true,
@@ -200,8 +226,8 @@ function crossTable(memEvents, idx, mems, ev) {
         : emptyState({
             title: "Sharing not observable",
             reason: [
-              mems ? null : "memory.json is not connected, so the writer of a recalled memory cannot be resolved.",
-              ev.ok ? null : "The agent event stream is not connected, so no recall is observable.",
+              mems ? null : `${srcPhrase(memSrc, "memory.json")}, so the writer of a recalled memory cannot be resolved.`,
+              ev.ok ? null : `${ev.src ? srcPhrase(ev.src, "The agent event stream") : "The agent event stream could not be fetched"}, so no recall is observable.`,
             ]
               .filter(Boolean)
               .join(" "),
@@ -215,19 +241,12 @@ function crossTable(memEvents, idx, mems, ev) {
 
 export default {
   title: "Agent Memories",
-  async load() {
-    try {
-      const res = await fetchEvents({ limit: EVENT_LIMIT });
-      return { events: res.events, source: res.source, error: null };
-    } catch (err) {
-      return { events: null, source: null, error: String(err && err.message ? err.message : err) };
-    }
-  },
+  load: loadMemoryEvents,
   render(ctx) {
     const { mems, src: memSrc } = memState(ctx);
     const idx = memoryIndex(mems);
     const agents = doc(ctx, "agents");
-    const ev = eventsState(ctx.extra);
+    const ev = memEventsOf(ctx, ctx.extra);
     const memEvents = ev.ok ? ev.events.filter((e) => MEMORY_EVENT_KINDS.includes(e.kind)) : null;
     const agentMems = mems ? mems.filter((m) => m.source.actor === "AGENT") : null;
     const noSlot = agentMems ? agentMems.filter((m) => isNil(m.source.agent_slot)) : null;
@@ -245,20 +264,23 @@ export default {
       };
     });
 
-    let crossCount = null;
+    // Cross-agent recalls: memory references in recall events that resolve to another agent's memory,
+    // counted per origin of the recall event.
+    const crossRefs = [];
     if (memEvents && mems) {
-      crossCount = 0;
       for (const e of memEvents) {
         if (e.kind !== "MEMORY_RECALL") continue;
         for (const id of e.refs?.memory_ids ?? []) {
           const w = writerOf(id, idx);
-          if (typeof w === "number" && w !== e.agent_slot) crossCount++;
+          if (typeof w === "number" && w !== e.agent_slot) crossRefs.push(e);
         }
       }
     }
     const contributing = agentMems ? new Set(agentMems.filter((m) => !isNil(m.source.agent_slot)).map((m) => m.source.agent_slot)).size : null;
     const evWhy = ev.src ? sourceShort(ev.src) : "UNAVAILABLE";
     const memWhy = sourceShort(memSrc);
+    const kindSplit = (kind) => (memEvents ? splitVal(originCounts(memEvents, (e) => e.kind === kind)) : null);
+    const scope = ev.ok ? memEventsScope(ev) : null;
 
     return html`
       ${pageHeader({
@@ -276,17 +298,24 @@ export default {
           span: 12,
           code: "MEM-A01",
           title: "Shared memory activity",
-          sub: ev.ok ? `Latest ${fmtCount(ev.events.length)} event(s) scanned${ev.truncated ? " · older events not shown" : ""}` : ev.src ? sourceReason(ev.src) : "Event stream unavailable",
-          body: statRow(
+          sub: ev.ok
+            ? ev.complete
+              ? "Every memory event in the stream · counts per record origin"
+              : "Latest memory events fetched — older events are not counted · counts per record origin"
+            : ev.src
+              ? sourceReason(ev.src)
+              : "Event stream unavailable",
+          body: html`<div class="mem-stats-6">${statRow(
             [
-              stat({ label: "Agent-sourced memories", value: agentMems ? fmtCount(agentMems.length) : null, hint: "source.actor AGENT", emptyLabel: memWhy }),
+              stat({ label: "Agent-sourced memories", value: splitVal(originCounts(agentMems)), hint: "source.actor AGENT", emptyLabel: memWhy }),
               stat({ label: "Agents contributing", value: contributing === null ? null : `${fmtCount(contributing)} / 5`, hint: "Distinct writing slots", emptyLabel: memWhy }),
-              stat({ label: "Memory writes", value: memEvents ? fmtCount(memEvents.filter((e) => e.kind === "MEMORY_WRITE").length) : null, hint: "MEMORY_WRITE events", emptyLabel: evWhy }),
-              stat({ label: "Memory recalls", value: memEvents ? fmtCount(memEvents.filter((e) => e.kind === "MEMORY_RECALL").length) : null, hint: "MEMORY_RECALL events", emptyLabel: evWhy }),
-              stat({ label: "Cross-agent recalls", value: crossCount === null ? null : fmtCount(crossCount), hint: "Recalled a memory another agent wrote", emptyLabel: memEvents ? memWhy : evWhy }),
+              stat({ label: "Memory writes", value: kindSplit("MEMORY_WRITE"), hint: scope ?? "MEMORY_WRITE events", emptyLabel: evWhy, title: "MEMORY_WRITE events" }),
+              stat({ label: "Memory recalls", value: kindSplit("MEMORY_RECALL"), hint: scope ?? "MEMORY_RECALL events", emptyLabel: evWhy, title: "MEMORY_RECALL events" }),
+              stat({ label: "Applicability tests", value: kindSplit("APPLICABILITY_TEST"), hint: scope ?? "APPLICABILITY_TEST events", emptyLabel: evWhy, title: "APPLICABILITY_TEST events: an agent tested whether a shared memory applies to it" }),
+              stat({ label: "Cross-agent recalls", value: memEvents && mems ? splitVal(originCounts(crossRefs)) : null, hint: "Recalled a memory another agent wrote", emptyLabel: memEvents ? memWhy : evWhy }),
             ],
-            { min: 150 },
-          ),
+            { min: 140 },
+          )}</div>`,
         })}
       </div>
 
@@ -307,7 +336,7 @@ export default {
           span: 5,
           code: "MEM-A03",
           title: "Recall matrix",
-          sub: "Memory references in recall events, by reader and writer",
+          sub: `Memory references in recall events, by reader and writer${ev.ok && !ev.complete ? " · latest fetched events only" : ""}`,
           body: matrix(memEvents ?? [], idx, mems, ev),
           cls: "lg-span-12",
         })}
@@ -316,7 +345,7 @@ export default {
           code: "MEM-A04",
           title: "Cross-agent sharing",
           sub: "Agent X recalled a memory written by agent Y",
-          body: crossTable(memEvents ?? [], idx, mems, ev),
+          body: crossTable(memEvents ?? [], idx, mems, ev, memSrc),
           cls: "lg-span-12",
         })}
       </div>

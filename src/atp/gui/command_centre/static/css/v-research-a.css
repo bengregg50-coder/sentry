@@ -23,9 +23,31 @@
   text-transform: none;
 }
 
-.rsa-wraplabels .stat__label {
+.rsa-wraplabels .stat__label,
+.rsa-wraplabels .stat__hint {
   white-space: normal;
   line-height: 1.35;
+}
+
+/* long panel subtitles (source-status phrases) wrap instead of being cut; when the
+   subtitle and the header actions (a legend) do not fit on one line, the actions move
+   to their own line instead of squeezing the subtitle into a narrow column */
+.rsa-subwrap > .panel__head {
+  flex-wrap: wrap;
+  row-gap: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.rsa-subwrap > .panel__head .panel__sub {
+  white-space: normal;
+  line-height: 1.35;
+  padding: 6px 0;
+  flex: 1 1 260px;
+}
+
+.rsa-subwrap > .panel__head .panel__actions {
+  padding: 4px 0;
 }
 
 .rsa-none {
@@ -270,6 +292,9 @@
 .rsa-metrics__row .v {
   min-width: 52px;
   text-align: right;
+}
+
+.rsa-metrics__row .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -361,7 +386,46 @@
 .rsa-tracks .tracks__head,
 .rsa-tracks .tracks__row {
   grid-template-columns: minmax(300px, 2fr) repeat(10, minmax(40px, 1fr)) 196px;
-  min-width: 1080px;
+  min-width: 0;
+}
+
+/* Narrower desktops: the shared 1080px track minimum pushed the OUTCOME column off-screen at
+   1024. The label column narrows (titles wrap to two lines) and the stage labels alternate
+   between two lines so neighbouring names never collide in narrow stage columns. */
+@media (max-width: 1500px) {
+  .rsa-tracks .tracks__head,
+  .rsa-tracks .tracks__row {
+    grid-template-columns: minmax(200px, 1.5fr) repeat(10, minmax(28px, 1fr)) 176px;
+  }
+  .rsa-tracks .tracks__head {
+    align-items: end;
+  }
+  .rsa-tracks .tracks__head .tracks__stage {
+    white-space: nowrap;
+    letter-spacing: 0.08em;
+  }
+  .rsa-tracks .tracks__head .tracks__stage:nth-child(even):not(:last-child) {
+    padding-bottom: 12px;
+  }
+  .rsa-tracks .tracks__label {
+    white-space: normal;
+  }
+  .rsa-tracks .tracks__title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    line-height: 1.3;
+  }
+  .rsa-tracks .tracks__outcome {
+    padding-left: 10px;
+  }
+  .rsa-tracks .tracks__outcome .badge {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .rsa-tracks .tracks__outcome {
@@ -1649,4 +1713,206 @@ a.rsa-matrix__name:hover .rsa-matrix__label {
   display: inline-flex;
   gap: 8px;
   margin-left: auto;
+}
+
+/* ---------------------------------------------------------------- overview: focus family */
+
+.rsa-focus__fam {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(7, 10, 15, 0.25);
+}
+
+.rsa-focus__famv {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rsa-focus__famname {
+  color: var(--text);
+  font-size: var(--fs-md);
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+.rsa-focus__famrecs {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding-top: 6px;
+  border-top: 1px dotted var(--line-2);
+}
+
+.rsa-focus__famrec {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.rsa-focus__famk {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+/* family chips: a family declared only on non-original records carries its origin tag */
+.rsa-famchip .rsa-split__tag {
+  margin-left: 2px;
+}
+
+/* ---------------------------------------------------------------- overview: partial pipeline */
+
+.rsa-gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.rsa-gap .icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.rsa-gap.tone-bad {
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+  color: var(--tone);
+}
+
+/* ---------------------------------------------------------------- stacked cells */
+
+.rsa-dated--outcome,
+.rsa-dated--rec {
+  white-space: normal;
+}
+
+.rsa-dated--outcome .rsa-outcome {
+  white-space: normal;
+}
+
+.rsa-dated--rec .v {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.rsa-status-term {
+  gap: 5px;
+}
+
+.rsa-status-term__t {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rsa-status-term__t .rsa-dated__k {
+  min-width: 0;
+}
+
+.rsa-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 7px;
+  margin-top: 1px;
+}
+
+.rsa-links__k {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.rsa-links__k + .ref + .rsa-links__k,
+.rsa-links__k + .rsa-sub + .rsa-links__k {
+  margin-left: 4px;
+}
+
+.rsa-running__asof {
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- narrow desktops: registers fit the panel */
+
+/* wrapping cells in flush tables: the shared 200px minimum overflowed the 5-column DSC-04 panel */
+.rsa-flush .table td.wrap {
+  min-width: 150px;
+}
+
+@media (max-width: 1500px) {
+  /* flush tables (programmes, families…): multi-word headers wrap instead of widening a numeric column */
+  .rsa-flush .table th {
+    white-space: normal;
+    letter-spacing: 0.08em;
+    vertical-align: bottom;
+  }
+  .rsa-flush .table td.wrap {
+    min-width: 130px;
+  }
+  .rsa-profile {
+    width: 84px;
+  }
+}
+
+@media (max-width: 1280px) {
+  /* the "PREREG DATE NOT DECLARED" chip wraps inside a table cell instead of widening it */
+  .table .chip.rsa-chip-quiet {
+    white-space: normal;
+    height: auto;
+    min-height: 18px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    line-height: 1.3;
+  }
+  /* stage reached: bar above its label */
+  .rsa-register td.rsa-col-stage .rsa-stage {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .rsa-register .table td.wrap {
+    min-width: 140px;
+  }
+  .rsa-register .table td,
+  .rsa-register .table th,
+  .rsa-flush .table td,
+  .rsa-flush .table th {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .rsa-register td.rsa-col-outcome {
+    min-width: 0;
+  }
+  .rsa-window {
+    white-space: normal;
+  }
+  .rsa-win {
+    flex-wrap: wrap;
+  }
+}
+
+/* a pager under a flush (edge-to-edge) table keeps the panel's inner gutter */
+.rsa-flush .panel__body > .rsa-pager {
+  margin: 10px 12px 12px;
 }

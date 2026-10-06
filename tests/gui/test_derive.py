@@ -46,7 +46,10 @@ def test_connected_but_empty_is_zero(tmp_path):
     (tmp_path / "memory.json").write_text(json.dumps({"meta": meta, "data": {"memories": []}}))
     d = derived_for(FileStateProvider(tmp_path))
     assert d["pipeline"]["available"] is True
-    assert all(s["reached"] == 0 for s in d["pipeline"]["stages"])
+    research_stages = [s for s in d["pipeline"]["stages"] if s["stage"] in ("DISCOVERY", "HYPOTHESIS", "BACKTEST", "ROBUSTNESS", "OOS", "VALIDATION")]
+    deploy_stages = [s for s in d["pipeline"]["stages"] if s not in research_stages]
+    assert all(s["reached"] == 0 for s in research_stages)  # research connected, nothing recorded: real zeros
+    assert all(s["reached"] is None for s in deploy_stages)  # strategies.json absent: unknown, not zero
     assert d["trial_accounting"]["records_total"] == 0
     assert d["memory_stats"]["total"] == 0
     research = next(s for s in d["system"] if s["key"] == "research_engine")
@@ -700,3 +703,37 @@ def test_agent_slot_event_counts_cover_whole_stream(fixture_derived):
     assert ev[1]["by_kind"] == {} and ev[1]["count"] == 0
     empty = derived_for(empty_provider())["agent_slots"][0]["events"]
     assert empty["by_kind"] is None and empty["count"] is None
+
+
+def test_pipeline_stage_counts_need_their_declaring_source(state_factory):
+    # strategies.json missing: deployment stages are unknown, never 0; research stages are hypotheses-only.
+    d = derived_for(FileStateProvider(state_factory(drop=("strategies",))))
+    stages = {s["stage"]: s for s in d["pipeline"]["stages"]}
+    for st in ("APPROVED", "SIM", "LIVE", "SCALED"):
+        assert stages[st]["available"] is False and stages[st]["reached"] is None
+        assert stages[st]["unavailable_source"] == "strategies"
+    assert stages["DISCOVERY"]["available"] is True and stages["DISCOVERY"]["partial"] == ["strategies"]
+    assert stages["BACKTEST"]["terminals"]["RETIRED"] is None
+    # research.json missing: research stages are unknown even though strategies are connected.
+    d = derived_for(FileStateProvider(state_factory(drop=("research",))))
+    stages = {s["stage"]: s for s in d["pipeline"]["stages"]}
+    assert stages["DISCOVERY"]["reached"] is None and stages["VALIDATION"]["reached"] is None
+    assert stages["SIM"]["reached"] == 2  # FX-S003 (DEPLOYED_SIM) + retired FX-S004 whose version was DEPLOYED_SIM
+
+
+def test_missing_documents_are_not_produced_not_disconnected(state_factory):
+    d = derived_for(FileStateProvider(state_factory(drop=("system", "memory"))))
+    memory = next(s for s in d["system"] if s["key"] == "memory")
+    assert memory["state"] == "NOT_PRODUCED"
+    assert {s["state"] for s in derived_for(empty_provider())["system"]} == {"NOT_CONNECTED"}
+
+
+def test_handoff_names_the_actual_agent_source_status(state_factory):
+    def corrupt(doc):
+        doc["data"]["agents"][0]["status"] = "NOT_A_STATUS"
+
+    d = derived_for(FileStateProvider(state_factory({"agents": corrupt})))
+    h = next(h for h in d["handoffs"] if h["strategy_id"] == "FX-S003")
+    step = next(s for s in h["steps"] if s["step"] == "AGENT_ASSIGNMENT")
+    assert step["state"] == "UNKNOWN"
+    assert "rejected by the contract" in step["detail"] and "not connected" not in step["detail"]

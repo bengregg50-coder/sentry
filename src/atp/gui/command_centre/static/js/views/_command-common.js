@@ -84,6 +84,49 @@ export function statusLine(ctx, key, status) {
   </span>`;
 }
 
+/**
+ * Display state of a derived.system entry. derive reports NOT_CONNECTED for a
+ * subsystem with no usable source; when a state directory is configured and the
+ * subsystem's documents are merely not produced, that is NOT_PRODUCED.
+ */
+export function subsystemState(s) {
+  if (!s) return "NOT_CONNECTED";
+  if (s.state === "NOT_CONNECTED" && Object.values(s.sources ?? {}).some((st) => st === "MISSING")) return "NOT_PRODUCED";
+  return s.state;
+}
+
+/** One line on why a subsystem has no usable declaration, worded from its sources' statuses. */
+export function subsystemReason(ctx, s) {
+  const entries = Object.entries(s?.sources ?? {});
+  const file = (k) => source(ctx, k)?.file ?? (k === "agent_events" ? "agent_events.jsonl" : `${k}.json`);
+  const listed = (pred) => entries.filter(([, st]) => pred(st)).map(([k, st]) => `${file(k)} ${(SHORT[st] ?? st).toLowerCase()}`);
+  switch (subsystemState(s)) {
+    case "NOT_CONNECTED":
+      return "No state directory configured";
+    case "NOT_PRODUCED":
+      return listed((st) => st !== "OK").join(" · ");
+    case "SOURCE_ERROR":
+      return listed((st) => st === "INVALID" || st === "UNREADABLE").join(" · ");
+    case "REPORTING": {
+      const sys = source(ctx, "system");
+      return isOk(sys) ? "Sources reporting · state not declared in system.json" : `Sources reporting · system.json ${sourceShort(sys).toLowerCase()}`;
+    }
+    default:
+      return "Status not declared";
+  }
+}
+
+/**
+ * What the cross-checks covered: derived.check_coverage lists every family and whether it ran.
+ * "No findings" may only ever mean "none from the families that ran".
+ */
+export function checkSummary(ctx) {
+  const cov = ctx.snap?.derived?.check_coverage ?? null;
+  if (!Array.isArray(cov)) return { available: false, ran: 0, total: 0, skipped: [] };
+  const ran = cov.filter((c) => c.ran);
+  return { available: true, ran: ran.length, total: cov.length, skipped: cov.filter((c) => !c.ran), anyRan: ran.length > 0 };
+}
+
 /** Count rows of a list, or null when the list itself is absent. */
 export function countWhere(list, pred) {
   if (!Array.isArray(list)) return null;
@@ -99,7 +142,7 @@ export function fc(n) {
 
 /** Record origins in display order (schemas.Origin). */
 export const ORIGINS = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
-const ORIGIN_TAG = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
+export const ORIGIN_TAG = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
 
 /** Tag tone for an origin, same semantics as originBadge(): reconstructed amber, synthetic red. */
 export function originTone(o) {
@@ -129,7 +172,7 @@ export function splitFrom(counts) {
 }
 
 /** Origins with at least one record, in display order (anything unexpected last). */
-function presentOrigins(split) {
+export function presentOrigins(split) {
   const rank = (o) => (ORIGINS.includes(o) ? ORIGINS.indexOf(o) : ORIGINS.length);
   return Object.keys(split)
     .filter((o) => split[o] > 0)
@@ -170,6 +213,25 @@ export function splitText(split, noun = "") {
   if (!split) return "";
   const parts = presentOrigins(split).map((o) => `${fmtCount(split[o])} ${humanize(o).toLowerCase()}`);
   return (parts.length ? parts.join(" · ") : "0") + (noun ? ` ${noun}` : "");
+}
+
+/* ------------------------------------------------------------ agent event stream origins */
+
+/** Most recent events fetched by the command views (enough to cover a typical stream whole). */
+export const EVENT_WINDOW = 1000;
+
+/**
+ * Per-origin split of the valid events in the agent event stream, counted from a
+ * fetched window ({source, events} from /api/cc/events). Only when the window holds
+ * every valid event (of an OK or INVALID stream); otherwise null, because a split of
+ * a partial window would be presented as the whole.
+ */
+export function eventOriginSplit(res) {
+  const evs = res?.events;
+  const src = res?.source;
+  if (!Array.isArray(evs) || !["OK", "INVALID"].includes(src?.status) || isNil(src.valid_events)) return null;
+  if (evs.length < src.valid_events) return null;
+  return originSplit(evs);
 }
 
 /** Small navigation link used in panel actions. */

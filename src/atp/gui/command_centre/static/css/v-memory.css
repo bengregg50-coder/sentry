@@ -427,6 +427,10 @@
   line-height: 1.45;
 }
 
+.mem-card {
+  container-type: inline-size;
+}
+
 .mem-card__checks {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1323,6 +1327,13 @@
   flex: none;
 }
 
+/* Findings / Lessons: the card panel ends with its last card instead of
+   stretching to the height of the side column (a one-card list left a tall
+   blank panel at 1920+). */
+.grid > .mem-list-panel {
+  align-self: start;
+}
+
 /* ---------------------------------------------------------------- agent lanes */
 
 .mem-lanes {
@@ -1823,7 +1834,7 @@
   color: var(--muted);
 }
 
-.mem-vtile__hint .v {
+.mem-vtile__hint .v:not(.is-empty) {
   color: var(--text-2);
 }
 
@@ -1983,8 +1994,11 @@
 
 .mem-ev__foot .v {
   margin-left: 4px;
-  color: var(--text-2);
   letter-spacing: 0.02em;
+}
+
+.mem-ev__foot .v:not(.is-empty) {
+  color: var(--text-2);
 }
 
 .mem-rel-group + .mem-rel-group {
@@ -2043,9 +2057,17 @@
 
 /* ---------------------------------------------------------------- responsive */
 
+/* Five lanes across when they fit; otherwise 3 + 2 on a six-track grid, the
+   second row spanning the full width — never a 4 + 1 or 3 + 2 with an empty slot. */
 @media (max-width: 1700px) {
   .mem-lanes {
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .mem-lanes > .mem-lane:nth-child(-n + 3) {
+    grid-column: span 2;
+  }
+  .mem-lanes > .mem-lane:nth-child(n + 4) {
+    grid-column: span 3;
   }
 }
 
@@ -2077,10 +2099,21 @@
   }
 }
 
-@media (max-width: 1280px) {
+/* A narrow card: the five checks wrap 3 + 2 on a six-track grid, the second row
+   spanning the full width, so no empty track shows the divider colour. */
+@container (max-width: 470px) {
   .mem-card__checks {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
+  .mem-card__check:nth-child(-n + 3) {
+    grid-column: span 2;
+  }
+  .mem-card__check:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 1280px) {
   .mem-integrity,
   .mem-texts,
   .mem-activity {
@@ -2109,4 +2142,189 @@
   .mem-cards {
     grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
   }
+}
+
+/* ---------------------------------------------------------------- per-origin counts (never merged) */
+
+.mem-split {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.mem-split__n {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.mem-split__n + .mem-split__n {
+  padding-left: 8px;
+  border-left: 1px solid var(--line-2);
+}
+
+.mem-split__tag {
+  align-self: center;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--tone, var(--muted)) 40%, transparent);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--tone, var(--muted)) 82%, white);
+}
+
+.mem-split--lg .mem-split__tag {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.mem-split--sm,
+.mem-split--xs,
+.mem-split--bar,
+.mem-split--step {
+  gap: 1px 5px;
+}
+
+.mem-split--sm .mem-split__n + .mem-split__n,
+.mem-split--xs .mem-split__n + .mem-split__n,
+.mem-split--bar .mem-split__n + .mem-split__n,
+.mem-split--step .mem-split__n + .mem-split__n {
+  padding-left: 5px;
+}
+
+.mem-split--sm .mem-split__tag,
+.mem-split--xs .mem-split__tag,
+.mem-split--bar .mem-split__tag,
+.mem-split--step .mem-split__tag {
+  padding: 0 3px;
+  font-size: 7.5px;
+  letter-spacing: 0.08em;
+}
+
+.mem-split--xs .mem-split__n {
+  gap: 3px;
+}
+
+/* inside a tab / chip count: the count colour is the tab's, the tags keep their tone */
+.tab .count .mem-split .v:not(.is-empty),
+.mem-chip__n .mem-split .v:not(.is-empty) {
+  color: inherit;
+}
+
+/* bar rows: the number column widens only when a split is shown */
+.mem-bar__n .mem-split {
+  justify-content: flex-end;
+}
+
+.mem-bars--split .mem-bar {
+  grid-template-columns: minmax(104px, 1.4fr) minmax(24px, 1fr) minmax(72px, max-content);
+}
+
+.mem-bar.is-zero .mem-bar__n .v:not(.is-empty) {
+  color: var(--muted);
+}
+
+/* step counts: supporting / contradicting pair */
+.mem-verdict-n {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+
+.mem-verdict-n__sep {
+  color: var(--faint);
+}
+
+.mem-flow .step__count .mem-split--step {
+  font-size: var(--fs-md, 13px);
+}
+
+/* memory-event kind: applicability test */
+.mem-evkind--test {
+  color: var(--text-2);
+  border-color: var(--line-3);
+}
+
+/* growth chart: one line per origin */
+.mem-growth__line {
+  stroke: var(--blue-2);
+}
+
+.mem-growth__line[class*="tone-"] {
+  stroke: var(--tone);
+}
+
+.mem-growth__dot[class*="tone-"] {
+  border-color: var(--tone);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tone) 45%, transparent);
+}
+
+.mem-growth__legend {
+  position: absolute;
+  top: 5px;
+  left: 40px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.mem-growth__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mem-growth__key i {
+  width: 12px;
+  height: 0;
+  border-top: 1.6px solid var(--tone, var(--blue-2));
+}
+
+.mem-growth__key i.is-dashed {
+  border-top-style: dashed;
+}
+
+.mem-growth__key b {
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+/* Six-stat rows (MEM-A01, MEM-G01): one row of six, or two rows of three —
+   never 4 + 2 or 5 + 1, and wide enough for a per-origin split. */
+.mem-stats-6 > .stat-row {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1440px) {
+  .mem-stats-6 > .stat-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Tabs with per-origin counts: a tab never shrinks into its neighbour; the row wraps instead. */
+.mem-graph-tabs .tabs,
+.mem-filterbar .tabs {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.mem-graph-tabs .tab,
+.mem-filterbar .tab {
+  flex: none;
+}
+
+.tab .count .mem-split {
+  flex-wrap: nowrap;
+  vertical-align: baseline;
 }

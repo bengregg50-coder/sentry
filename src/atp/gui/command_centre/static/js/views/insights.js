@@ -11,8 +11,6 @@ import {
   pageHeader,
   panel,
   badge,
-  stat,
-  statRow,
   sourceTag,
   sourceEmpty,
   emptyState,
@@ -24,7 +22,7 @@ import {
   val,
 } from "../components/ui.js";
 import { icon } from "../components/icons.js";
-import { ORIGINS, ORIGIN_LABEL, countWhere, refResolver, refChips, k, none, offTitle } from "./_data-common.js";
+import { ORIGINS, ORIGIN_LABEL, countWhere, originText, refResolver, refChips, k, none, offTitle, noFindings, checkCoverage } from "./_data-common.js";
 
 const KINDS = ["NULL_RESULT", "RESEARCH_DIGEST", "DATA", "EXECUTION", "GOVERNANCE", "MEMORY", "OTHER"];
 const SEVERITIES = ["CRITICAL", "WARNING", "INFO"];
@@ -69,21 +67,21 @@ function digestBlock({ code, title, src, srcText, body, href, linkLabel }) {
 
 function findingsDigest(ctx) {
   const findings = derived(ctx, "consistency") ?? [];
-  const anyOk = Object.values(ctx.snap?.sources ?? {}).some((s) => s.status === "OK") || ctx.snap?.events_source?.status === "OK";
+  // Counts are facts only when at least one family of cross-checks ran (or produced a finding);
+  // a zero then means "none from the checks that ran", never "consistent".
+  const ran = checkCoverage(ctx).ran.length > 0 || findings.length > 0;
   const sections = [...new Set(findings.map((f) => f.section))];
   return html`
     <div class="dat-sevs">
       ${SEVERITIES.map((sev) => {
-        const n = anyOk ? countWhere(findings, (f) => f.severity === sev) : null;
+        const n = ran ? countWhere(findings, (f) => f.severity === sev) : null;
         return html`<div class="dat-sev" data-severity="${sev}">${severityBadge(sev)}${isNil(n) ? val(null) : html`<span class="v" data-v>${fmtCount(n)}</span>`}</div>`;
       })}
     </div>
-    ${anyOk
-      ? findings.length
-        ? html`<div class="dat-dg__sub">${k("By section")}<span class="dat-refs">${sections.map((s) => html`<span class="dat-file">${s} <b>${fmtCount(countWhere(findings, (f) => f.section === s))}</b></span>`)}</span></div>
-            ${findingsList(findings, { limit: 3 })}`
-        : html`<div class="dat-none-line">${none("No findings — connected state is internally consistent")}</div>`
-      : html`<div class="dat-none-line">${none("Nothing connected — nothing to cross-check")}</div>`}`;
+    ${findings.length
+      ? html`<div class="dat-dg__sub">${k("By section")}<span class="dat-refs">${sections.map((s) => html`<span class="dat-file">${s} <b>${fmtCount(countWhere(findings, (f) => f.section === s))}</b></span>`)}</span></div>
+          ${findingsList(findings, { limit: 3 })}`
+      : noFindings(ctx)}`;
 }
 
 function integrityDigest(ctx) {
@@ -154,6 +152,28 @@ function outcomesDigest(ctx) {
   <div class="dat-foot-note">Counted from declared records, split by record origin and never merged. Failures stay visible — they narrow the search. Full records: <a href="#/research/history">research history</a>.</div>`;
 }
 
+/* ------------------------------------------------------------------ kinds by origin */
+
+/**
+ * Declared insights by kind, one row per record origin (never summed across
+ * origins). An unavailable source shows empty cells, never 0.
+ */
+function kindMatrix(list, off) {
+  return html`<div class="table-wrap"><table class="table table--dense dat-om dat-km" data-kind-matrix>
+    <thead><tr><th>Record origin</th>${KINDS.map((kd) => html`<th class="num" title="${humanize(kd)}">${KIND_SHORT[kd]}</th>`)}<th class="num">All kinds</th></tr></thead>
+    <tbody>${ORIGINS.map((o) => {
+      const rs = list ? list.filter((i) => i.origin === o) : null;
+      const cell = (n, strong) => (isNil(n) ? val(null) : html`<span class="${cx("v", strong && "dat-om__n")}" data-v>${fmtCount(n)}</span>`);
+      return html`<tr class="${cx(rs && !rs.length && "is-none")}" data-origin-row="${o}">
+        <td class="strong">${ORIGIN_LABEL[o]}</td>
+        ${KINDS.map((kd) => html`<td class="num" data-kind="${kd}">${cell(rs ? countWhere(rs, (i) => i.kind === kd) : null)}</td>`)}
+        <td class="num">${cell(rs ? rs.length : null, true)}</td>
+      </tr>`;
+    })}</tbody>
+  </table></div>
+  ${list ? "" : html`<div class="dat-om__off"><span class="dat-none">insights.json · ${off}</span></div>`}`;
+}
+
 /* ------------------------------------------------------------------ view */
 
 export default {
@@ -180,7 +200,7 @@ export default {
       data
         ? emptyState({
             title: scope ?? "No insights produced yet",
-            reason: scope && list.length ? `insights.json declares ${list.length} insight${list.length === 1 ? "" : "s"}, none of this kind.` : "insights.json is connected and declares none.",
+            reason: scope && list.length ? `insights.json declares insights (${originText(list)}), none of this kind.` : "insights.json is connected and declares none.",
             hint: "Research digests and null results appear here when a producer writes them.",
             compact: true,
             iconName: "insights",
@@ -218,34 +238,20 @@ export default {
           cls: "lg-span-12",
           code: "INS-02",
           title: "Declared insights",
-          sub: data ? `${list.length} declared${latest ? ` · latest ${fmtDateTime(latest)}` : ""}` : sourceReason(src),
+          sub: data ? (list.length ? `Declared: ${originText(list)}${latest ? ` · latest ${fmtDateTime(latest)}` : ""}` : "Connected — none declared") : sourceReason(src),
           body: html`
-            <div class="dat-sec">${k("By kind")}<span class="dat-sec__note">as declared in insights.json</span></div>
-            <div class="dat-kinds">${statRow(
-              [
-                ...KINDS.map((kd) => {
-                  const n = list ? countWhere(list, (i) => i.kind === kd) : null;
-                  return stat({ label: KIND_SHORT[kd], value: isNil(n) ? null : fmtCount(n), emptyLabel: off, size: "sm", title: humanize(kd) });
-                }),
-                stat({ label: "Latest", value: latest ? fmtDateTime(latest) : null, emptyLabel: data ? "NONE DECLARED" : off, size: "sm" }),
-              ],
-              { min: 150 },
-            )}</div>
-            <div class="dat-sec dat-sec--gap">${k("By record origin")}<span class="dat-sec__note">never merged</span></div>
-            ${statRow(
-              ORIGINS.map((o) => stat({ label: ORIGIN_LABEL[o], value: list ? fmtCount(countWhere(list, (i) => i.origin === o)) : null, emptyLabel: off, size: "sm" })),
-              { min: 120 },
-            )}`,
+            <div class="dat-sec">${k("By kind and record origin")}<span class="dat-sec__note">as declared in insights.json · origins never merged</span></div>
+            ${kindMatrix(list, off)}`,
         })}
       </div>
 
       <div class="grid">
         ${panel({
           span: 5,
-          cls: "lg-span-12",
+          cls: "lg-span-12 dat-panel-fit",
           code: "INS-03",
           title: "Null results",
-          sub: nulls ? `${nulls.length} declared · newest first` : sourceShort(src),
+          sub: nulls ? (nulls.length ? `Declared: ${originText(nulls)} · newest first` : "None declared") : sourceShort(src),
           variant: nulls?.length ? "accent" : undefined,
           body: html`<div class="dat-fit">${
             nulls
@@ -259,15 +265,17 @@ export default {
         })}
         ${panel({
           span: 7,
-          cls: "lg-span-12",
+          cls: "lg-span-12 dat-panel-fit",
           code: "INS-04",
           title: "Insight stream",
           sub: kindQ ? `Filtered: ${humanize(kindQ)}` : "All kinds · newest first",
           body: html`<div class="dat-tabs">
             ${tabs(
               [
-                { key: "ALL", label: "All", href: "#/insights", count: list ? list.length : null },
-                ...KINDS.map((kd) => ({ key: kd, label: humanize(kd), href: `#/insights?kind=${kd}`, count: list ? countWhere(list, (i) => i.kind === kd) : null })),
+                // No count on the tabs: a per-kind total would sum records of different origins.
+                // INS-02 carries the counts, one row per origin.
+                { key: "ALL", label: "All", href: "#/insights" },
+                ...KINDS.map((kd) => ({ key: kd, label: humanize(kd), href: `#/insights?kind=${kd}` })),
               ],
               kindQ ?? "ALL",
             )}</div>

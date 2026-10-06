@@ -12,7 +12,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from . import __version__
-from .contract import json_schemas
 from .derive import derive_all
 from .provider import StateProvider, load_all
 from .schemas import AGENT_EVENTS_FILE, CONTRACT_VERSION, DOCUMENTS, AgentEventKind
@@ -115,6 +114,8 @@ def create_router(provider: StateProvider) -> APIRouter:
 
     @router.get("/contract/{name}")
     def contract_schema(name: str) -> dict[str, Any]:
+        from .contract import json_schemas  # lazy: keeps `python -m ...contract` free of runpy warnings
+
         schemas = json_schemas()
         key = name.removesuffix(".schema.json")
         if key not in schemas:

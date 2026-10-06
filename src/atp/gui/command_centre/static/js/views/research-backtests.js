@@ -5,18 +5,21 @@
 // they can never be mistaken for validation evidence.
 
 import { html } from "../core/html.js";
-import { humanize, fmtCount } from "../core/format.js";
+import { humanize } from "../core/format.js";
 import { derived } from "../core/state.js";
-import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, metric, findingsList } from "../components/ui.js";
+import { pageHeader, panel, badge, stat, statRow, sourceTag, emptyState, metric, findingsList } from "../components/ui.js";
 import * as B from "./_research-b-common.js";
 
 const KINDS = ["BACKTEST"];
+const PATH = "/research/backtests";
+/** Trial ids listed per cost multiplier before the rest are summarised per origin. */
+const MULT_IDS = 24;
 
 /* ---------------------------------------------------------------- summary */
 
-function summary(rs, trials) {
+function summary(rsrc, trials) {
   const pick = (fn) => (trials ? B.originSplit(trials.filter(fn)) : null);
-  const nc = "NOT CONNECTED";
+  const nc = B.offLabel(rsrc);
   return statRow(
     [
       stat({ label: "Records", value: B.splitVal(B.originSplit(trials)), hint: "Kind BACKTEST", emptyLabel: nc }),
@@ -34,7 +37,7 @@ function summary(rs, trials) {
 
 /* ---------------------------------------------------------------- register */
 
-function register(rs, rsrc, trials) {
+function register(rs, rsrc, trials, query) {
   const hypById = new Map((rs?.hypotheses ?? []).map((h) => [h.hypothesis_id, h]));
   const hasOther = (trials ?? []).some((t) => t.metrics.some((m) => !m.metric.component));
   const columns = [
@@ -49,15 +52,17 @@ function register(rs, rsrc, trials) {
     { label: "Evidence · origin", render: (t) => B.evidenceOriginCell(t) },
   ];
   let empty;
-  if (!rs) empty = sourceEmpty(rsrc, { title: "Backtest register not connected", hint: "Each backtest trial will appear here with gross, cost and net reported separately, its basis and cost multiplier, outcome, window, data and origin." });
+  if (!rs) empty = B.srcEmpty(rsrc, { hint: "Each backtest trial will appear here with gross, cost and net reported separately, its basis and cost multiplier, outcome, window, data and origin." });
   else empty = emptyState({ title: "No backtests recorded", reason: "research.json is connected and contains no trial of kind BACKTEST.", hint: "A backtest appears here once the research ledger records it — passed, failed or running.", compact: true });
-  return B.regTable({
+  // Only a page of rows is materialised; every count on this page comes from the full array.
+  const page = B.pageRows(trials, query.rows, { from: query.from });
+  return html`${B.regTable({
     columns,
-    rows: trials,
+    rows: page.shown,
     empty,
     rowAttrs: (t) => html`data-trial="${t.trial_id}" data-outcome="${t.outcome}"`,
     rowCls: (t) => (t.outcome === "RUNNING" ? "rsb-row--running" : ""),
-  });
+  })}${B.pager(page, (q) => B.withQuery(PATH, query, q), { noun: "backtests" })}`;
 }
 
 function registerFoot(rs) {
@@ -89,8 +94,15 @@ function inSampleFigures(ctx, st, ssrc) {
       )
     : null;
   const empty = !st
-    ? sourceEmpty(ssrc, { title: "Strategy registry not connected", compact: true, hint: "Any current-version metric reported on an IN_SAMPLE basis will be listed here." })
-    : emptyState({ title: "No in-sample figures", reason: `No current strategy version reports a metric on an IN_SAMPLE basis (${fmtCount(st.strategies.length)} strategies checked).`, compact: true, iconName: "shield" });
+    ? B.srcEmpty(ssrc, { compact: true, hint: "Any current-version metric reported on an IN_SAMPLE basis will be listed here." })
+    : emptyState({
+        title: "No in-sample figures",
+        reason: st.strategies.length
+          ? `No current strategy version reports a metric on an IN_SAMPLE basis (${B.splitText(B.originSplit(st.strategies), "strategies")} checked).`
+          : "strategies.json is connected and lists no strategies, so there is no current version to check.",
+        compact: true,
+        iconName: "shield",
+      });
   const findings = (derived(ctx, "consistency") ?? []).filter((f) => f.code === "HEADLINE_METRIC_IN_SAMPLE");
   return html`
     ${B.regTable({ columns, rows, empty, rowAttrs: (r) => html`data-strategy="${r.s.strategy_id}"` })}
@@ -101,7 +113,7 @@ function inSampleFigures(ctx, st, ssrc) {
 /* ---------------------------------------------------------------- cost multipliers */
 
 function costMultipliers(rs, rsrc, trials) {
-  if (!rs) return sourceEmpty(rsrc, { compact: true, title: "Not connected", hint: "Cost multipliers declared on backtest COST / NET metrics will be grouped here." });
+  if (!rs) return B.srcEmpty(rsrc, { compact: true, hint: "Cost multipliers declared on backtest COST / NET metrics will be grouped here." });
   const withCost = trials.filter((t) => t.metrics.some((m) => m.metric.component === "COST" || m.metric.component === "NET"));
   if (!withCost.length) {
     return emptyState({ title: "No cost treatment reported", reason: "No backtest record reports a COST or NET component.", compact: true });
@@ -126,11 +138,20 @@ function costMultipliers(rs, rsrc, trials) {
       (k) => html`<div class="rsb-mults__row" data-mult="${k === null ? "none" : String(k)}">
         <span class="rsb-mults__k">${k === null ? html`<span class="rsb-faint">NOT DECLARED</span>` : html`<span class="chip">${String(k)}× COST</span>`}</span>
         <span class="rsb-mults__n">${B.splitVal(B.originSplit(groups.get(k)))}</span>
-        <span class="rsb-mults__ids">${groups.get(k).map((t) => B.refLink(t.trial_id, B.trialHref(t.trial_id)))}</span>
+        <span class="rsb-mults__ids">${multIds(groups.get(k))}</span>
       </div>`,
     )}
   </div>
   <p class="rsb-note">Grouped by the multiplier each trial declares on its COST / NET metrics. A multiplier above 1× is a cost-stress result; see <a href="#/research/robustness">Robustness</a> for cost-sensitivity trials.</p>`;
+}
+
+/** Trial ids under one multiplier; past MULT_IDS the rest are counted per origin, not listed. */
+function multIds(rows) {
+  const shown = rows.slice(0, MULT_IDS);
+  const rest = rows.slice(MULT_IDS);
+  return html`${shown.map((t) => B.refLink(t.trial_id, B.trialHref(t.trial_id)))}${
+    rest.length ? html`<span class="rsb-faint" data-ids-hidden="${String(rest.length)}" title="Listed in full in the backtest register (BKT-03)">+ ${B.splitText(B.originSplit(rest))} more</span>` : ""
+  }`;
 }
 
 /* ---------------------------------------------------------------- view */
@@ -146,7 +167,7 @@ export default {
         code: "BKT",
         title: "Backtests",
         sub: "Historical simulations of preregistered hypotheses. Each one is a counted trial; gross, cost and net are reported separately with their evidence basis and cost multiplier.",
-        right: html`${sourceTag(rsrc, { now: ctx.now })}`,
+        right: html`${sourceTag(rsrc, { now: ctx.now })}${sourceTag(ssrc, { now: ctx.now })}`,
       })}
 
       <div class="grid">
@@ -173,9 +194,9 @@ export default {
           span: 5,
           code: "BKT-02",
           title: "Backtest ledger",
-          sub: trials ? B.splitText(B.originSplit(trials), "records") : "research.json not connected",
+          sub: trials ? B.splitText(B.originSplit(trials), "records") : B.srcPhrase(rsrc),
           cls: "lg-span-12",
-          body: html`<div class="rsb-stats4">${summary(rs, trials)}</div>
+          body: html`<div class="rsb-stats4">${summary(rsrc, trials)}</div>
             <div class="rsb-label rsb-gap">By outcome <span class="rsb-label__extra">per record origin</span></div>
             ${B.outcomeSplits(trials, { href: (o) => B.qhref("/research/history", { outcome: o }) })}`,
         })}
@@ -186,8 +207,8 @@ export default {
           span: 12,
           code: "BKT-03",
           title: "Backtest register",
-          sub: trials ? `${B.splitText(B.originSplit(trials), "trials")} · ledger order · select a trial id for its full history` : "Source not connected",
-          body: register(rs, rsrc, trials),
+          sub: trials ? `${B.splitText(B.originSplit(trials), "trials")} · ledger order · select a trial id for its full history` : B.srcPhrase(rsrc),
+          body: register(rs, rsrc, trials, ctx.query),
           foot: registerFoot(rs),
         })}
       </div>
@@ -197,7 +218,7 @@ export default {
           span: 7,
           code: "BKT-04",
           title: "In-sample registry figures",
-          sub: "strategies.json · current versions · basis IN_SAMPLE — not validation evidence",
+          sub: st ? "strategies.json · current versions · basis IN_SAMPLE — not validation evidence" : `${B.srcPhrase(ssrc)} · basis IN_SAMPLE — not validation evidence`,
           cls: "lg-span-12",
           body: inSampleFigures(ctx, st, ssrc),
         })}

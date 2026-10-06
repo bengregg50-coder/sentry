@@ -36,6 +36,17 @@ function statusBadge(status) {
   return badge(shownState(status), { label: shownLabel(status), title: `Provider status ${status}` });
 }
 
+/**
+ * A state source is configured when the provider reports a location, or when any
+ * document has a status other than NOT_CONFIGURED (a provider may serve state
+ * without a filesystem location). Never inferred from the location alone.
+ */
+function isConfigured(snap) {
+  if (snap.provider?.location) return true;
+  const srcs = Object.values(snap.sources ?? {});
+  return srcs.some((s) => s.status !== "NOT_CONFIGURED") || (!!snap.events_source && snap.events_source.status !== "NOT_CONFIGURED");
+}
+
 const API = [
   ["/api/cc/health", "Liveness, versions, provider"],
   ["/api/cc/revision", "Cheap change token (polled every 4s)"],
@@ -54,12 +65,16 @@ function originOf(meta) {
 
 function providerPanel(snap) {
   const loc = snap.provider?.location;
-  return html`
+  return html`<div class="dat-cq"><div class="dat-prov-body">
     <div class="dat-prov ${loc ? "is-on" : ""}">
       <div class="dat-prov__icon">${icon(loc ? "data" : "empty")}</div>
       <div class="dat-prov__main">
         ${k("State location")}
-        ${loc ? html`<code class="dat-prov__path" title="${loc}">${loc}</code>` : html`<div class="dat-prov__none">${badge("NOT_CONFIGURED")}<span>No state directory or provider location</span></div>`}
+        ${loc
+          ? html`<code class="dat-prov__path" title="${loc}">${loc}</code>`
+          : isConfigured(snap)
+            ? html`<div class="dat-prov__none">${val(null)}<span>The provider reports no location</span></div>`
+            : html`<div class="dat-prov__none">${badge("NOT_CONFIGURED")}<span>No state directory or provider location</span></div>`}
       </div>
     </div>
     ${kv(
@@ -72,7 +87,8 @@ function providerPanel(snap) {
         ["Revision", html`<span class="mono">${snap.revision}</span>`],
       ],
       { cols: 2 },
-    )}`;
+    )}
+  </div></div>`;
 }
 
 /* ------------------------------------------------------------------ validation summary */
@@ -82,7 +98,8 @@ function validationPanel(snap) {
   const ev = snap.events_source;
   const byOrigin = new Map(ORIGINS.map((o) => [o, srcs.filter((s) => s.meta?.origin === o)]));
   const anyMeta = srcs.some((s) => s.meta);
-  return html`
+  return html`<div class="dat-cq"><div class="dat-val">
+    <div class="dat-val__status">
     <div class="dat-vs">
       ${SOURCE_STATUSES.map((st) => {
         const n = srcs.filter((s) => s.status === st).length;
@@ -101,6 +118,8 @@ function validationPanel(snap) {
         ? html`<span class="mono small text-2">${fmtCount(ev.total_lines)} lines · ${fmtCount(ev.valid_events)} valid · ${fmtCount(ev.invalid_lines)} invalid</span>`
         : html`<span class="muted small">${STATUS_DESC[ev.status] ?? sourceShort(ev)}</span>`}
     </div>
+    </div>
+    <div class="dat-val__prov">
     <div class="dat-sec dat-sec--gap">${k("Envelope provenance")}<span class="dat-sec__note">meta.origin per document · never merged</span></div>
     <div class="dat-prov-origins">
       ${ORIGINS.map((o) => {
@@ -110,7 +129,9 @@ function validationPanel(snap) {
           <span class="dat-po__v">${docs.length ? html`<span class="dat-refs">${docs.map((s) => html`<span class="dat-file">${s.file}</span>`)}</span>` : none(anyMeta ? "None" : "No envelope read")}</span>
         </div>`;
       })}
-    </div>`;
+    </div>
+    </div>
+  </div></div>`;
 }
 
 /* ------------------------------------------------------------------ subsystem feeds */
@@ -120,7 +141,10 @@ function feedsPanel(ctx) {
   const snap = ctx.snap;
   const fileOf = (key) => (key === "agent_events" ? snap.events_source.file : snap.sources[key]?.file ?? key);
   if (!sys.length) return emptyState({ title: "No snapshot", compact: true });
-  return html`<div class="dat-feeds">
+  // One row when the subsystems fit, else two even rows — never a lone item on the last row.
+  const n = sys.length;
+  const cols = (c) => raw(String(Math.max(1, c)));
+  return html`<div class="dat-feeds" style="--feeds-wide:${cols(n <= 6 ? n : Math.ceil(n / 2))};--feeds-mid:${cols(n % 3 === 0 ? 3 : n % 2 === 0 ? Math.min(n / 2, 4) : Math.ceil(n / 2))}">
     ${sys.map(
       (s) => html`<div class="dat-feed" data-subsystem="${s.key}">
         <div class="split"><span class="dat-feed__label">${s.label}</span>${badge(s.state)}</div>
@@ -142,6 +166,12 @@ function locCell(src) {
   return html`<span class="dat-doc__loc"><code title="${src.path}"><bdi>${src.path}</bdi></code><small>${val(src.modified_at ? fmtDateTime(src.modified_at) : null)}<span class="dat-doc__dot">·</span>${val(isNil(src.size) ? null : fmtBytes(src.size))}</small></span>`;
 }
 
+function missingHint(src) {
+  return html`<div class="dat-doc__hint">${icon("info")}${
+    src.path ? html`Not produced yet — the provider expects it at <code>${src.path}</code>` : "Not produced yet — the provider reports no path"
+  }</div>`;
+}
+
 function docRow(src, i) {
   const st = src.status;
   const meta = src.meta;
@@ -155,13 +185,13 @@ function docRow(src, i) {
       ? html`<span class="mono" title="producer">${meta.producer}</span><small>${val(fmtDateTime(meta.generated_at))}<span class="dat-doc__dot">·</span>schema v${meta.schema_version}</small>${
           meta.notes?.length ? html`<small class="dat-doc__note" title="${meta.notes.join("\n")}">NOTE${meta.notes.length > 1 ? `S ${meta.notes.length}` : ""} · ${meta.notes[0]}</small>` : ""
         }`
-      : html`${val(null)}<small>${st === "INVALID" ? "Envelope meta invalid" : "No envelope read"}</small>`}</span>
+      : html`${val(null)}<small>${st === "INVALID" ? "Envelope meta missing or invalid" : "No envelope read"}</small>`}</span>
     <span class="dat-doc__origin">${originOf(meta)}</span>
     <a class="dat-doc__schema" href="${schemaHref(src.key)}" target="_blank" rel="noopener" title="JSON Schema for ${src.file}">${icon("file")}<span>${schemaFile(src.key)}</span></a>
     ${err
       ? html`<div class="dat-doc__err" data-source-error="${src.key}"><span class="dat-doc__err-k">${icon("alert")}${st === "INVALID" ? "Contract validation error" : "Read error"} · ${src.file}</span><pre>${err}</pre></div>`
       : ""}
-    ${st === "MISSING" ? html`<div class="dat-doc__hint">${icon("info")}Not produced yet — the provider expects it at <code>${src.path}</code></div>` : ""}
+    ${st === "MISSING" ? missingHint(src) : ""}
   </div>`;
 }
 
@@ -180,18 +210,30 @@ function eventsRow(ev, i) {
     <span class="dat-doc__origin"><span class="muted small">PER EVENT</span></span>
     <a class="dat-doc__schema" href="${schemaHref("agent_events")}" target="_blank" rel="noopener" title="JSON Schema for one agent event">${icon("file")}<span>${schemaFile("agent_events")}</span></a>
     ${err ? html`<div class="dat-doc__err" data-source-error="agent_events"><span class="dat-doc__err-k">${icon("alert")}${st === "INVALID" ? "Invalid event lines" : "Read error"} · ${ev.file}</span><pre>${err}</pre></div>` : ""}
-    ${st === "MISSING" ? html`<div class="dat-doc__hint">${icon("info")}Not produced yet — the provider expects it at <code>${ev.path}</code></div>` : ""}
+    ${st === "MISSING" ? missingHint(ev) : ""}
   </div>`;
 }
 
 function documentsPanel(snap) {
   const srcs = Object.values(snap.sources ?? {});
-  const broken = srcs.filter((s) => s.status === "INVALID" || s.status === "UNREADABLE");
+  const ev = snap.events_source;
+  const invalid = srcs.filter((s) => s.status === "INVALID");
+  const unreadable = srcs.filter((s) => s.status === "UNREADABLE");
+  const evBroken = ev && (ev.status === "INVALID" || ev.status === "UNREADABLE");
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    invalid.length ? `${plural(invalid.length, "document", "documents")} rejected by the contract` : null,
+    unreadable.length ? `${plural(unreadable.length, "document", "documents")} unreadable` : null,
+    evBroken ? (ev.status === "INVALID" ? `${ev.file}: ${plural(ev.invalid_lines ?? 0, "invalid line", "invalid lines")}` : `${ev.file} unreadable`) : null,
+  ].filter(Boolean);
+  const docsBroken = [...invalid, ...unreadable];
   return html`
-    ${broken.length
+    ${parts.length
       ? html`<div class="dat-doc-alert">${notice({
-          title: `${broken.length} document${broken.length === 1 ? "" : "s"} rejected by the contract`,
-          body: html`${broken.map((s) => s.file).join(", ")} — the Command Centre shows these as unavailable rather than rendering partial or coerced state. Full errors below.`,
+          title: parts.join(" · "),
+          body: html`${docsBroken.length ? html`${docsBroken.map((s) => s.file).join(", ")} — the Command Centre shows ${docsBroken.length === 1 ? "this document" : "these documents"} as unavailable rather than rendering partial or coerced state. ` : ""}${
+            evBroken ? (ev.status === "INVALID" ? "Invalid event lines are reported, never rendered; valid lines are shown. " : "No event is shown from an unreadable stream. ") : ""
+          }Full errors below.`,
           tone: "bad",
         })}</div>`
       : ""}
@@ -209,7 +251,7 @@ function documentsPanel(snap) {
 function flowPanel(ctx) {
   const snap = ctx.snap;
   const srcs = Object.values(snap.sources ?? {});
-  const configured = !!snap.provider?.location;
+  const configured = isConfigured(snap);
   const present = srcs.filter((s) => s.status !== "NOT_CONFIGURED" && s.status !== "MISSING");
   const ok = srcs.filter((s) => s.status === "OK");
   const producers = [...new Set(srcs.map((s) => s.meta?.producer).filter(Boolean))];
@@ -224,14 +266,16 @@ function flowPanel(ctx) {
       live: present.length > 0,
       body: producers.length
         ? html`<div class="dat-flow__count">${String(producers.length)} <span>declared in envelopes</span></div><span class="dat-refs">${producers.slice(0, 2).map((p) => html`<span class="dat-file" title="${p}">${p}</span>`)}${producers.length > 2 ? html`<span class="dat-file dat-file--none" title="${producers.slice(2).join(", ")}">+${producers.length - 2}</span>` : ""}</span>`
-        : none(configured ? "No producer declared" : "Not connected"),
+        : none(!configured ? "Not connected" : present.length ? "No producer declared" : "Nothing produced"),
     },
     {
       key: "STATE",
       title: "State directory",
       sub: `StateProvider · ${srcs.length} documents + ${snap.events_source.file}`,
       live: configured,
-      body: configured ? html`<code class="dat-flow__code" title="${snap.provider.location}">${snap.provider.kind} · ${snap.provider.location}</code>` : badge("NOT_CONFIGURED"),
+      body: configured
+        ? html`<code class="dat-flow__code" title="${snap.provider.location ?? ""}">${snap.provider.kind}${snap.provider.location ? html` · ${snap.provider.location}` : ""}</code>`
+        : badge("NOT_CONFIGURED"),
     },
     {
       key: "VALIDATION",
@@ -317,17 +361,18 @@ mount_command_centre(app, provider)   # adds /api/cc/*, /cc/static/*, UI at "/"<
 
 function apiPanel(snap) {
   const keys = Object.keys(snap.sources ?? {});
-  return html`
+  return html`<div class="dat-cq">
     <div class="dat-sec">${k("Read-only endpoints")}<span class="dat-sec__note">GET only · local</span></div>
     <div class="dat-api">
       ${API.map(([path, desc]) => html`<a class="dat-api__row" href="${path}" target="_blank" rel="noopener"><span class="dat-api__m">GET</span><code>${path}</code><span class="dat-api__d">${desc}</span></a>`)}
     </div>
-    <div class="dat-sec dat-sec--gap">${k("Contract schemas")}<span class="dat-sec__note">/api/cc/contract/&lt;name&gt;.schema.json</span></div>
+    <div class="dat-sec dat-sec--gap">${k("Contract schemas")}<span class="dat-sec__note">/api/cc/contract/&lt;name&gt;.schema.json · payload model</span></div>
     <div class="dat-schemas">
       ${[...keys, "agent_events"].map(
-        (key) => html`<a class="dat-schema" href="${schemaHref(key)}" target="_blank" rel="noopener" data-schema="${key}">${icon("file")}<span>${schemaFile(key)}</span></a>`,
+        (key) => html`<a class="dat-schema" href="${schemaHref(key)}" target="_blank" rel="noopener" data-schema="${key}">${icon("file")}<span class="dat-schema__f">${schemaFile(key)}</span><small class="dat-schema__m">${(PAYLOAD_MODEL[key] ?? "").split(" · ")[0]}</small></a>`,
       )}
-    </div>`;
+    </div>
+  </div>`;
 }
 
 /**
@@ -350,7 +395,9 @@ export default {
     const snap = ctx.snap;
     const srcs = Object.values(snap.sources ?? {});
     const okN = srcs.filter((s) => s.status === "OK").length;
-    const configured = !!snap.provider?.location;
+    const configured = isConfigured(snap);
+    const loc = snap.provider?.location;
+    const allOff = srcs.length > 0 && srcs.every((s) => s.status === "NOT_CONFIGURED");
 
     return html`
       ${pageHeader({
@@ -364,9 +411,12 @@ export default {
       })}
 
       <div class="grid">
-        ${panel({ span: 4, cls: "lg-span-6 md-span-6", code: "SRC-01", title: "Provider", sub: "Where state is read from", body: providerPanel(snap) })}
-        ${panel({ span: 4, cls: "lg-span-6 md-span-6", code: "SRC-02", title: "Validation", sub: `${srcs.length} contract documents + event stream`, body: validationPanel(snap) })}
-        ${panel({ span: 4, cls: "lg-span-12", code: "SRC-03", title: "Subsystem feeds", sub: "Which documents feed each subsystem", body: feedsPanel(ctx) })}
+        ${panel({ span: 4, cls: "dat-span-prov", code: "SRC-01", title: "Provider", sub: "Where state is read from", body: providerPanel(snap) })}
+        ${panel({ span: 8, cls: "dat-span-val", code: "SRC-02", title: "Validation", sub: `${srcs.length} contract documents + event stream`, body: validationPanel(snap) })}
+      </div>
+
+      <div class="grid">
+        ${panel({ span: 12, code: "SRC-03", title: "Subsystem feeds", sub: "Which documents feed each subsystem", body: feedsPanel(ctx) })}
       </div>
 
       <div class="grid">
@@ -374,7 +424,9 @@ export default {
           span: 12,
           code: "SRC-04",
           title: "Contract documents",
-          sub: configured ? `${okN} of ${srcs.length} connected · state dir ${snap.provider.location}` : "No state directory configured — every document is NOT CONNECTED",
+          sub: allOff
+            ? "No state directory configured — every document is NOT CONNECTED"
+            : `${okN} of ${srcs.length} connected${loc ? ` · state dir ${loc}` : ""}`,
           body: documentsPanel(snap),
         })}
       </div>
@@ -386,7 +438,7 @@ export default {
           title: "Read-only data flow",
           sub: "Producers → state directory → validation → derived cross-checks → read-only API → UI",
           body: flowPanel(ctx),
-          foot: html`Animated links carry state that is actually flowing now. Dashed links are dormant: nothing upstream is connected. There is no reverse path — the UI cannot write, order or deploy.`,
+          foot: html`Animated links carry state that is flowing now. A dashed link is dormant: the stage on one side of it has nothing to pass on. There is no reverse path — the UI cannot write, order or deploy.`,
         })}
       </div>
 

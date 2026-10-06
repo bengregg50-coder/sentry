@@ -168,7 +168,67 @@
 .st-split--xl .v {
   font-size: var(--fs-3xl);
   font-weight: 400;
+}
+
+/* value colour never overrides the faint .is-empty dash */
+.st-split--xl .v:not(.is-empty) {
   color: var(--text);
+}
+
+/* inline origin split (tab counts, subtitles, sentences): "3 · 2 RECON" */
+.st-split--inline {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0 5px;
+  vertical-align: baseline;
+}
+
+.st-split--inline .st-split__n {
+  gap: 3px;
+}
+
+.st-split--inline .st-split__n + .st-split__n::before {
+  content: "·";
+  margin-right: 2px;
+  color: var(--faint);
+}
+
+.st-split--inline .st-split__tag {
+  font-size: 8px;
+  padding: 0 3px;
+}
+
+.st-split--tab .st-split__tag {
+  font-size: 7.5px;
+  letter-spacing: 0.1em;
+}
+
+.st-filterdef__n .st-split--inline .v:not(.is-empty) {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* unavailable sources: a rejected or unreadable document reads as a failure, not an absence */
+.st-nodata.tone-bad,
+.st-title-name--nc.tone-bad,
+.st-verdict.is-nc.tone-bad .st-verdict__word {
+  color: var(--tone);
+}
+
+.st-verdict.is-nc.tone-bad {
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+}
+
+.st-verdict.is-nc.tone-bad::before {
+  background: var(--tone);
+}
+
+.st-inline-note.tone-bad {
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+}
+
+.st-inline-note.tone-bad .icon {
+  color: var(--tone);
 }
 
 /* tables that keep their structure when empty */
@@ -739,6 +799,18 @@
   white-space: nowrap;
 }
 
+/* a narrow stage lists its sources one per row, so a long status (NOT CONNECTED, CONTRACT ERROR)
+   never runs into the next column */
+[data-flow-stage="OPERATIONS"] {
+  container-type: inline-size;
+}
+
+@container (max-width: 210px) {
+  .st-flow__srcs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .st-flow__conn {
   display: flex;
   align-items: center;
@@ -770,10 +842,6 @@
   font-size: 8.5px;
   letter-spacing: 0.14em;
   color: var(--muted);
-}
-
-.st-controls .control {
-  padding: 7px 10px;
 }
 
 /* ---------------------------------------------------------------- detail: header + hero */
@@ -1382,20 +1450,8 @@
 }
 
 .st-ctlrow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
-}
-
-.st-ctlrow__why {
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  flex: 1 1 260px;
 }
 
 /* ---------------------------------------------------------------- detail: lineage, known list */
@@ -1766,19 +1822,6 @@
   }
 }
 
-/* side stacks become a pair of columns once they drop to full width */
-@media (max-width: 1280px) {
-  .stack.st-pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--gap);
-    align-items: stretch;
-  }
-  .stack.st-pair > * + * {
-    margin-top: 0;
-  }
-}
-
 /* key/value grids widen with their panel */
 @container (min-width: 820px) {
   .st-kvwide .kv {
@@ -1790,4 +1833,135 @@
   .st-kvwide--4 .kv {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+/* ---------------------------------------------------------------- locked deployment controls (compact) */
+
+.st-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.st-ctl__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.st-ctl__state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.st-ctl__why {
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.st-ctl__act {
+  margin-right: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* ---------------------------------------------------------------- one column seam: fact rail + main column */
+
+/* Pages built from .st-cols share one seam (rail 4/12 · main 8/12). Each column stacks its own
+   panels, so no panel stretches to an unrelated neighbour's height; only the last panel of each
+   column takes up the remainder so the two columns end together. */
+.st-cols > .st-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-width: 0;
+}
+
+.st-cols > .st-col > .panel:last-child {
+  flex: 1 0 auto;
+}
+
+/* below 1440px both columns dissolve into the grid and panels follow the reading order */
+@media (max-width: 1440px) {
+  .st-cols > .st-col {
+    display: contents;
+  }
+  .st-cols > .st-col > .panel {
+    grid-column: span 12;
+  }
+  .st-cols .st-o1 { order: 1; }
+  .st-cols .st-o2 { order: 2; }
+  .st-cols .st-o3 { order: 3; }
+  .st-cols .st-o4 { order: 4; }
+  .st-cols .st-o5 { order: 5; }
+  .st-cols .st-o6 { order: 6; }
+}
+
+@media (max-width: 1280px) {
+  .st-cols > .st-col > .panel.st-half {
+    grid-column: span 6;
+  }
+}
+
+/* lifecycle and registry verdict share a row: whichever is shorter centres its main block in the
+   extra height (diagram, verdict) instead of leaving a blank strip at the panel bottom */
+@media (min-width: 1441px) {
+  .st-lcpanel > .panel__body {
+    display: flex;
+    flex-direction: column;
+  }
+  .st-lcpanel .st-lc-wrap {
+    flex: 1 0 auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .st-verdictpanel > .panel__body {
+    display: flex;
+    flex-direction: column;
+  }
+  .st-verdictpanel .st-verdict {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .st-verdictpanel .st-verdict__k {
+    margin-bottom: auto;
+  }
+  .st-verdictpanel .st-verdict > :last-child {
+    margin-bottom: auto;
+  }
+}
+
+/* one-line unavailable-source state: icon beside a title over its reason, at any column width */
+.st-offempty .empty--inline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 3px 8px;
+}
+
+.st-offempty .empty--inline > .empty__icon {
+  grid-row: span 2;
+  margin-top: 1px;
+}
+
+.st-offempty .empty--inline > :not(.empty__icon) {
+  grid-column: 2;
+}
+
+/* as a panel's sole content it fills the panel, like any other empty state */
+.panel__body > .st-offempty:only-child,
+.panel__body > .st-offempty:only-child > .empty {
+  height: 100%;
 }

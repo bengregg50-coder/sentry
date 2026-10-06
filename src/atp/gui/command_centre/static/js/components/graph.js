@@ -92,7 +92,7 @@ export function knowledgeGraph(graph, { perColumn = 30, focus } = {}) {
 
   const parts = [];
   GRAPH_COLUMNS.forEach((t, i) => {
-    parts.push(`<text x="${colX[i]}" y="20" text-anchor="middle" class="svg-label svg-label--muted">${esc(COLUMN_LABEL[t])} · ${cols[i].length}</text>`);
+    parts.push(`<text x="${colX[i]}" y="20" text-anchor="middle" class="svg-label svg-label--muted">${esc(COLUMN_LABEL[t])}</text>`);
     parts.push(`<line x1="${colX[i]}" y1="30" x2="${colX[i]}" y2="${H - 16}" stroke="var(--line)" />`);
     if (overflow[i]) parts.push(`<text x="${colX[i]}" y="${H - 4}" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:8.5px">+${overflow[i]} MORE</text>`);
   });

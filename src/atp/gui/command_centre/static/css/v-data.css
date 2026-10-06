@@ -156,18 +156,6 @@
 
 /* ================================================================ datasets */
 
-.dat-sumgrid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-@media (max-width: 1500px) {
-  .dat-sumgrid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* data governance rows */
 
 .dat-gov {
@@ -1006,7 +994,9 @@
 
 .dat-feeds {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  /* --feeds-wide / --feeds-mid are set by the view from the subsystem count, so a row
+     never ends with a lone item or a filler cell (6 feeds: 6 across, else 3 + 3). */
+  grid-template-columns: repeat(var(--feeds-wide, 6), minmax(0, 1fr));
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(7, 10, 15, 0.35);
@@ -1544,15 +1534,16 @@
 
 .dat-schemas {
   display: grid;
-  gap: 4px 12px;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 .dat-schema {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--cyan-2);
@@ -1563,6 +1554,18 @@
 .dat-schema span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.dat-schema__m {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.dat-schema:hover .dat-schema__m {
+  color: var(--text-2);
 }
 
 .dat-schema .icon {
@@ -2040,15 +2043,8 @@
   }
 }
 
-.dat-kinds > .stat-row {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 /* <=1280 the summary and governance panels are full width: use the room */
 @media (max-width: 1280px) {
-  .dat-sumgrid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
   .dat-gov {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2062,8 +2058,199 @@
 }
 
 @media (max-width: 900px) {
-  .dat-sumgrid,
   .dat-gov {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ================================================================ round 3: layout balance, origin matrices */
+
+/* Feeds: one row of every subsystem when wide; two even rows below 1500px. */
+@media (max-width: 1500px) {
+  .dat-feeds {
+    grid-template-columns: repeat(var(--feeds-mid, 3), minmax(0, 1fr));
+  }
+}
+
+/* State Sources row 1: Provider + Validation. Validation is the wider panel and lays
+   its status list and envelope provenance side by side, so the two panels end
+   together instead of leaving a tall blank under the Provider. */
+@media (max-width: 1440px) {
+  .grid > .dat-span-prov,
+  .grid > .dat-span-val {
+    grid-column: span 12;
+  }
+}
+
+.dat-cq {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.dat-prov-body,
+.dat-val {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dat-val__prov > .dat-sec:first-child {
+  margin-top: 14px;
+}
+
+@container (min-width: 620px) {
+  .dat-val {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 16px;
+    align-items: start;
+  }
+  .dat-val__prov > .dat-sec:first-child {
+    margin-top: 0;
+  }
+}
+
+/* full-width Provider (<=1100px): location beside the facts */
+@container (min-width: 760px) {
+  .dat-prov-body {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    column-gap: 18px;
+    align-items: start;
+  }
+  .dat-prov-body > .dat-prov {
+    margin-bottom: 0;
+  }
+}
+
+/* List panels whose length is set by declared state end with their content instead of
+   stretching to a taller neighbour (a short list left a 200px+ blank at 1920). */
+.grid > .dat-panel-fit {
+  align-self: start;
+}
+
+/* Insights doctrine: when the hero stretches to its neighbour, the rules sit at the foot. */
+@media (min-width: 1441px) {
+  .dat-hero {
+    height: 100%;
+  }
+  .dat-hero__rules {
+    margin-top: auto;
+  }
+}
+
+/* Per-origin matrices (Datasets summary, Insights by kind): one row per record origin. */
+.dat-om {
+  table-layout: auto;
+}
+
+.dat-om th,
+.dat-om td {
+  white-space: nowrap;
+}
+
+/* dates may break onto two lines when the panel is narrow (1024), never the counts */
+.dat-om th.dat-om__wrap,
+.dat-om td.dat-om__wrap {
+  white-space: normal;
+}
+
+.dat-om td.strong {
+  color: var(--text);
+}
+
+.dat-om .dat-om__n:not(.is-empty),
+.dat-om .dat-om__n .v:not(.is-empty) {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* a toned count (PASS / WARN / FAIL / reconstructed) takes its tone; an empty cell never does */
+.dat-om .v[class*="tone-"]:not(.is-empty) {
+  color: var(--tone);
+}
+
+/* a connected source with no record of this origin: real zeros, quietly (still not "empty") */
+.dat-om tr.is-none td,
+.dat-om tr.is-none td.strong,
+.dat-om tr.is-none .v:not(.is-empty) {
+  color: var(--muted);
+}
+
+.dat-om__span {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+}
+
+.dat-om__span i {
+  font-style: normal;
+  color: var(--faint);
+}
+
+.dat-om__off {
+  margin-top: 6px;
+}
+
+/* composition chips: value, then its record count per origin */
+.dat-tally b {
+  margin-left: 2px;
+}
+
+.dat-tally i {
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* check coverage under an empty findings list */
+.dat-cov {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dat-cov__skip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.dat-cov__skip b {
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+/* Contract & API beside "How to connect" (>1440px): the schema index reads as one
+   column — file, then its payload model — which also ends the panel level with its neighbour. */
+@media (min-width: 1441px) {
+  .dat-schemas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Datasets summary beside Data governance (>1500px): a declared composition reads as a
+   spec list — one field per line — rather than a short strip under the origin matrix.
+   With no catalogue (every cell says why) it stays a compact strip. */
+@media (min-width: 1501px) {
+  .dat-comp--list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dat-comp--list .dat-comp__cell {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    padding: 5px 12px;
+  }
+  .dat-comp--list .dat-comp__k {
+    flex: none;
+    width: 104px;
   }
 }

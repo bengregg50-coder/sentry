@@ -14,6 +14,8 @@ import { TERMINALS } from "../components/pipeline.js";
 import * as R from "./_research-a-common.js";
 
 const QUEUE_STAGES = new Set(["DISCOVERY", "HYPOTHESIS"]);
+// Hypothesis ids listed per family row; each row is one family and one origin, so the remainder is never a merged count.
+const ID_CAP = 12;
 
 const AREA_DESC = {
   CANDIDATE_AREA: "Proposed direction — not yet researched",
@@ -28,7 +30,8 @@ function heroBody(rs, src) {
   const areas = rs?.research_areas ?? null;
   const byStatus = areas ? R.groupBy(areas, (a) => a.status) : null;
   const queue = rs ? rs.hypotheses.filter((h) => QUEUE_STAGES.has(h.stage_reached) && !h.terminal) : null;
-  const families = rs ? new Set([...rs.hypotheses, ...rs.trials].map((r) => r.family).filter(Boolean)) : null;
+  // Distinct families per record origin (the per-origin sets may overlap; never added together).
+  const families = rs ? R.distinctByOrigin([...rs.hypotheses, ...rs.trials], (r) => r.family) : null;
   const nc = rs ? undefined : R.offLabel(src);
   return html`<div class="rsa-hero">
     <div class="rsa-hero__main">
@@ -39,7 +42,13 @@ function heroBody(rs, src) {
             stat({ label: humanize(s === "CANDIDATE_AREA" ? "CANDIDATE" : s), value: R.count(byStatus ? byStatus.get(s)?.length ?? 0 : null), hint: "Areas", emptyLabel: nc }),
           ),
           stat({ label: "Queue", value: R.splitVal(R.splitByOrigin(queue)), hint: "Untested", emptyLabel: nc }),
-          stat({ label: "Families", value: R.count(families?.size), hint: "Explored", emptyLabel: nc }),
+          stat({
+            label: "Families",
+            value: R.splitVal(families, { what: "distinct families" }),
+            hint: "Explored, per origin",
+            emptyLabel: nc,
+            title: "Distinct families on hypotheses and trials, counted per record origin; a family on both original and reconstructed records appears in both counts, which are never added.",
+          }),
         ],
         { min: 96 },
       )}
@@ -58,8 +67,8 @@ function heroBody(rs, src) {
     </div>
     <aside class="rsa-hero__doctrine">
       <div class="rsa-hero__k">MECHANISM FIRST</div>
-      <p>Research starts from an <b>economically motivated mechanism</b> — never from an endless parameter search.</p>
-      <p>A direction that fails is marked exhausted and stays visible here, so it is not silently re-mined under a new name.</p>
+      <p>Research must start from an <b>economically motivated mechanism</b> — never from an endless parameter search.</p>
+      <p>A direction the research engine declares exhausted stays listed here, so it is not silently re-mined under a new name.</p>
     </aside>
   </div>`;
 }
@@ -107,11 +116,13 @@ function areasBody(rs, src) {
 
 /* ---------------------------------------------------------------- queue */
 
-function queueBody(rs, src) {
+function queueBody(rs, src, rowsQ) {
   const rows = rs ? rs.hypotheses.filter((h) => QUEUE_STAGES.has(h.stage_reached) && !h.terminal).sort(R.byId("hypothesis_id")) : null;
-  return R.frameTable({
+  // Only a page of the queue is materialised; the DSC-01 queue count comes from the full list.
+  const page = R.pageRows(rows, rowsQ);
+  return html`${R.frameTable({
     dense: true,
-    rows,
+    rows: page.shown,
     rowHref: (h) => R.hypHref(h.hypothesis_id),
     columns: [
       {
@@ -125,7 +136,9 @@ function queueBody(rs, src) {
         label: "Family · programme",
         render: (h) =>
           h.family || h.programme_id
-            ? html`<div class="rsa-stack-cell"><span class="mono rsa-nowrap">${h.family ?? "—"}</span>${h.programme_id ? R.ref(h.programme_id, R.programmeHref(h.programme_id)) : html`<span class="rsa-sub">no programme</span>`}</div>`
+            ? html`<div class="rsa-stack-cell">${h.family ? html`<span class="mono rsa-nowrap">${h.family}</span>` : html`<span class="rsa-sub">family not declared</span>`}${
+                h.programme_id ? R.ref(h.programme_id, R.programmeHref(h.programme_id)) : html`<span class="rsa-sub">programme not declared</span>`
+              }</div>`
             : null,
       },
       { key: "status", label: "Status · stage", render: (h) => html`<div class="rsa-stack-cell">${badge(h.status)}${R.stageCell(h.stage_reached, h.terminal)}</div>` },
@@ -134,7 +147,7 @@ function queueBody(rs, src) {
     empty: rs
       ? emptyState({ title: "Discovery queue empty", reason: "No hypothesis is at DISCOVERY or HYPOTHESIS stage without a terminal outcome.", compact: true })
       : R.srcEmpty(src, "Discovery queue", { compact: true, hint: "Hypotheses registered but not yet tested appear here, with their preregistration status." }),
-  });
+  })}${R.pager(page, (n) => R.qhref("/research/discovery", { rows: n }), { noun: "hypotheses" })}`;
 }
 
 function stoppedBody(rs, src) {
@@ -155,7 +168,10 @@ function stoppedBody(rs, src) {
         key: "decision",
         label: "Decision",
         cls: "wrap",
-        render: (h) => (h.decision_reason || h.decided_at ? html`<div class="rsa-stack-cell"><span>${h.decision_reason ?? ""}</span><span class="rsa-sub mono">${h.decided_at ? fmtDate(h.decided_at) : "no decision date"}</span></div>` : null),
+        render: (h) =>
+          h.decision_reason || h.decided_at
+            ? html`<div class="rsa-stack-cell"><span>${h.decision_reason ?? html`<span class="rsa-sub">reason not declared</span>`}</span><span class="rsa-sub mono">${h.decided_at ? fmtDate(h.decided_at) : "decision date not declared"}</span></div>`
+            : null,
       },
     ],
     empty: rs
@@ -232,7 +248,9 @@ function familiesBody(rs, src) {
       cls: "wrap",
       render: (r) =>
         r.ids.length || r.programmes.length
-          ? html`<span class="rsa-refs">${r.ids.map((id) => R.ref(id, R.hypHref(id)))}${r.programmes.length ? html`<span class="rsa-refs__sep">·</span>` : ""}${r.programmes.map((p) => R.ref(p, R.programmeHref(p)))}</span>`
+          ? html`<span class="rsa-refs">${r.ids.slice(0, ID_CAP).map((id) => R.ref(id, R.hypHref(id)))}${
+              r.ids.length > ID_CAP ? html`<span class="rsa-sub" data-ids-hidden="${String(r.ids.length - ID_CAP)}">+${fmtCount(r.ids.length - ID_CAP)} more</span>` : ""
+            }${r.programmes.length ? html`<span class="rsa-refs__sep">·</span>` : ""}${r.programmes.map((p) => R.ref(p, R.programmeHref(p)))}</span>`
           : null,
     },
   ];
@@ -262,7 +280,7 @@ export default {
         kicker: "RESEARCH ENGINE",
         code: "DSC",
         title: "Discovery",
-        sub: "Where new research comes from: economically motivated mechanisms, not endless parameter search. Explored and exhausted directions stay on screen so they are never silently re-mined.",
+        sub: "Where new research comes from: economically motivated mechanisms, not endless parameter search. Directions declared explored or exhausted stay on screen, so they are not silently re-mined.",
         right: sourceTag(src, { now: ctx.now }),
       })}
 
@@ -286,9 +304,9 @@ export default {
           code: "DSC-03",
           title: "Discovery queue",
           sub: "Hypotheses at DISCOVERY / HYPOTHESIS stage with no terminal outcome",
-          body: queueBody(rs, src),
+          body: queueBody(rs, src, ctx.query.rows),
           variant: "flush",
-          cls: "lg-span-12 rsa-flush",
+          cls: "lg-span-12 rsa-flush rsa-subwrap",
         })}
         ${panel({
           span: 5,
@@ -297,7 +315,7 @@ export default {
           sub: "Terminal outcome at DISCOVERY / HYPOTHESIS",
           body: stoppedBody(rs, src),
           variant: "flush",
-          cls: "lg-span-12 rsa-flush",
+          cls: "lg-span-12 rsa-flush rsa-subwrap",
         })}
       </div>
 

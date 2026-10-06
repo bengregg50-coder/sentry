@@ -64,7 +64,8 @@ def test_empty_routes_clean_and_show_no_values(browser, empty_url, route):
 def test_empty_library_keeps_full_structure(browser, empty_url, route):
     page = new_page(browser, empty_url)
     visit(page, route)
-    assert page.get_attribute(".st-verdict", "data-validated-state") == "not-connected"
+    assert page.get_attribute(".st-verdict", "data-validated-state") == "unavailable"
+    assert page.get_attribute(".st-verdict", "data-source-status") == "NOT_CONFIGURED"
     assert page.inner_text("[data-validated-count]").strip() == "NOT CONNECTED"
     # lifecycle: seven stages + two terminals, all empty
     assert page.get_attribute(".st-lifecycle", "data-lifecycle-available") == "0"
@@ -155,7 +156,8 @@ def test_fixture_validated_lists_s003_not_retired_s004(browser, fixture_url):
 def test_fixture_library_counts_tabs_lifecycle_and_origin(browser, fixture_url):
     page = new_page(browser, fixture_url)
     visit(page, "/strategies")
-    assert _tabs(page) == [["All", "5"], ["Candidates", "2"], ["Validated", "1"], ["Deployed", "1"], ["Retired", "1"]]
+    # tab counts carry their record origin (every fixture record is SYNTHETIC_FIXTURE)
+    assert _tabs(page) == [["All", "5SYNTH"], ["Candidates", "2SYNTH"], ["Validated", "1SYNTH"], ["Deployed", "1SYNTH"], ["Retired", "1SYNTH"]]
     counts = dict(page.eval_on_selector_all(".st-lc-node", "els => els.map(e => [e.dataset.status, e.dataset.count])"))
     assert counts == {
         "CANDIDATE": "1", "IN_VALIDATION": "1", "VALIDATED": "0", "APPROVED": "0", "DEPLOYED_SIM": "1",
@@ -539,3 +541,219 @@ def test_regime_results_render_with_state_and_basis(browser, state_factory):
         page.close()
     finally:
         server.should_exit = True
+
+
+# ---------------------------------------------------------------- round 2: origin splits, status wording, layout
+
+
+def _mixed_origins(d):
+    by_id = {s["strategy_id"]: s for s in d["data"]["strategies"]}
+    by_id["FX-S001"]["origin"] = "ORIGINAL"
+    by_id["FX-S002"]["origin"] = "RECONSTRUCTED"
+
+
+def _split_parts(page, selector: str) -> list[str]:
+    return [t.strip() for t in page.locator(selector).locator(".st-split__n").all_text_contents()]
+
+
+def test_tab_counts_and_registered_totals_never_merge_origins(browser, state_factory):
+    """Tabs, the filter strip, STR-01 and STR-03 count per origin — never "5" for 1 original + 1 reconstructed + 3 synthetic."""
+    url, server = start_server(state_factory({"strategies": _mixed_origins}))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/strategies")
+        tabs = page.locator(".tabs .tab")
+        assert _split_parts(page, ".tabs .tab:nth-child(1) .count") == ["1", "1RECON", "3SYNTH"]
+        # FX-S001 (CANDIDATE, ORIGINAL) and FX-S002 (IN_VALIDATION, RECONSTRUCTED)
+        assert _split_parts(page, ".tabs .tab:nth-child(2) .count") == ["1", "1RECON"]
+        assert tabs.count() == 5
+        # filter strip: listed of registered, each split
+        assert _split_parts(page, "[data-filter-count]") == ["1", "1RECON", "3SYNTH", "1", "1RECON", "3SYNTH"]
+        text = view_text(page)
+        assert not re.search(r"\b5 of 5 registered", text), text
+        assert "Current status of 5 registered" not in text
+        # STR-01 / STR-03 subtitles carry the split too
+        sub1 = page.locator(".panel", has=page.locator(".panel__code", has_text="STR-01")).locator(".panel__sub")
+        assert [t.strip() for t in sub1.locator(".st-split__n").all_text_contents()] == ["1", "1RECON", "3SYNTH"]
+        visit(page, "/strategies/candidates")
+        assert _split_parts(page, "[data-filter-count]") == ["1", "1RECON", "1", "1RECON", "3SYNTH"]
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+@pytest.mark.parametrize(
+    "status,word,mutate",
+    [
+        ("MISSING", "NOT PRODUCED", None),
+        ("INVALID", "CONTRACT ERROR", lambda d: d["data"].update({"unexpected_field": 1})),
+    ],
+)
+def test_unavailable_registry_is_worded_by_its_status(browser, state_factory, status, word, mutate):
+    """A missing or contract-invalid strategies.json is never described as "not connected"."""
+    state = state_factory({"strategies": mutate}) if mutate else state_factory(drop=("strategies",))
+    url, server = start_server(state)
+    try:
+        page = new_page(browser, url)
+        for route in ("/strategies", "/strategies/validated", "/strategy/FX-S003"):
+            v = visit(page, route)
+            assert v.clean, v.describe()
+            text = view_text(page)
+            assert "not connected" not in text.lower(), (route, [ln for ln in text.splitlines() if "not connected" in ln.lower()])
+            assert word in text.upper(), route
+            assert page.locator(f'[data-empty-state="source-strategies-{status}"]').count() >= 1, route
+        # library: verdict word, KPI empty labels and the eligibility line all carry the status
+        visit(page, "/strategies")
+        assert page.get_attribute(".st-verdict", "data-validated-state") == "unavailable"
+        assert page.get_attribute(".st-verdict", "data-source-status") == status
+        assert page.inner_text("[data-validated-count]").strip() == word
+        assert set(t.strip() for t in page.locator(".st-kpis .stat__hint").all_text_contents()) == {word}
+        verdict_cls = page.get_attribute(".st-verdict", "class")
+        assert ("tone-bad" in verdict_cls) == (status == "INVALID"), verdict_cls
+        assert page.locator(".tabs .count").count() == 0
+        # detail: every check carries the registry status, red only for a rejected document
+        visit(page, "/strategy/FX-S003")
+        states = set(page.eval_on_selector_all(".st-chkgroups .st-chk", "els => els.map(e => e.dataset.state)"))
+        assert states == {"NOT_PRODUCED" if status == "MISSING" else "INVALID"}, states
+        labels = set(t.strip() for t in page.locator(".st-chkgroups .st-chk__state .badge").all_text_contents())
+        assert labels == {word}, labels
+        assert page.locator(".st-chkgroups .badge.tone-ok").count() == 0
+        title = page.locator(".page-head .st-title-name--nc")
+        assert title.get_attribute("data-source-status") == status
+        assert title.inner_text().strip().lower() == ("registry not produced" if status == "MISSING" else "registry rejected by the contract")
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_strategy_findings_only_claim_checks_that_ran(browser, tmp_path):
+    """With only strategies.json present, "no findings" names the checks that could not run."""
+    url, server = start_server(_registry_only_state(tmp_path))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/strategies")
+        empty = page.locator('[data-empty-state="no-strategy-findings"]')
+        assert empty.count() == 1
+        msg = empty.inner_text()
+        assert "passes" not in msg
+        assert "that ran" in msg
+        assert "Not run" in msg and "Agent assignment eligibility (agents.json not produced)" in msg, msg
+        visit(page, "/strategy/FX-S003")
+        msg = page.locator('[data-empty-state="no-strategy-findings"]').inner_text()
+        assert "FX-S003 or its proposals" in msg and "Not run" in msg, msg
+        # the agent runtime is absent: worded as not produced, and nothing claims an agent runs the strategy
+        note = page.locator("[data-agents-source]")
+        assert note.get_attribute("data-agents-source") == "MISSING"
+        assert "agents.json has not been produced" in note.inner_text()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_delivery_flow_agent_stage_claims_assignment_not_running(browser, fixture_url, empty_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/strategies")
+    agent = page.locator('[data-flow-stage="AGENT"]').inner_text().upper()
+    assert "SLOTS DECLARING AN ASSIGNMENT" in agent and "RUNNING" not in agent, agent
+    page.close()
+    page = new_page(browser, empty_url)
+    visit(page, "/strategies")
+    agent = page.locator('[data-flow-stage="AGENT"]').inner_text().upper()
+    assert "AGENTS · NOT CONNECTED" in agent, agent
+    page.close()
+
+
+@pytest.mark.parametrize("route", ["/strategies", "/strategy/FX-S003"])
+def test_locked_controls_keep_every_action_specific_blocker(browser, fixture_url, route):
+    """ENABLE_LIVE's own blocker (LIVE-scope approval) is shown — not only the reasons shared by all actions."""
+    page = new_page(browser, fixture_url)
+    visit(page, route)
+    assert set(page.eval_on_selector_all("[data-controls] [data-control]", "els => els.map(e => e.dataset.enabled)")) == {"0"}
+    common = page.locator('[data-controls] [data-blocker="common"]').all_text_contents()
+    assert any("read-only" in t for t in common), common
+    live = page.locator('[data-controls] [data-blocker="ENABLE_LIVE"]')
+    assert live.count() == 1 and "LIVE-scope" in live.inner_text(), live.all_text_contents()
+    page.close()
+
+
+def test_split_xl_empty_value_stays_faint(browser, fixture_url):
+    """.st-split--xl colours its values, but never overrides an .is-empty dash."""
+    page = new_page(browser, fixture_url)
+    visit(page, "/strategies")
+    colors = page.evaluate(
+        """() => {
+          const host = document.querySelector('.st-verdict');
+          const mk = (cls) => { const s = document.createElement('span'); s.className = 'st-split ' + cls;
+            const v = document.createElement('span'); v.className = 'v is-empty'; v.textContent = '—'; s.appendChild(v); host.appendChild(s); return getComputedStyle(v).color; };
+          const plain = document.createElement('span'); plain.className = 'v is-empty'; host.appendChild(plain);
+          return { xl: mk('st-split--xl'), plain: getComputedStyle(plain).color, value: getComputedStyle(document.querySelector('.st-split--xl .v')).color };
+        }"""
+    )
+    assert colors["xl"] == colors["plain"], colors
+    assert colors["value"] != colors["plain"], colors
+    page.close()
+
+
+_PANEL_BLANK = """() => [...document.querySelectorAll('.view .panel')].map(p => {
+  const r = p.getBoundingClientRect(); const body = p.querySelector('.panel__body');
+  let maxB = 0; for (const c of body.children) { const cr = c.getBoundingClientRect(); if (cr.height > 0) maxB = Math.max(maxB, cr.bottom); }
+  const foot = p.querySelector('.panel__foot');
+  return { code: p.querySelector('.panel__code')?.textContent.trim(), left: Math.round(r.left), right: Math.round(r.right),
+           blank: Math.round((foot ? foot.getBoundingClientRect().top : r.bottom) - maxB) };
+})"""
+
+
+@pytest.mark.parametrize("width", [1920, 2560])
+@pytest.mark.parametrize("mode", ["empty", "fixture"])
+@pytest.mark.parametrize("route", ["/strategies", "/strategy/FX-S003", "/strategy/FX-S002"])
+def test_panels_not_stretched_into_blank_strips(browser, empty_url, fixture_url, mode, route, width):
+    """No panel is stretched far past its content by a taller neighbour (e.g. the empty STR-D07 hand-off)."""
+    page = new_page(browser, fixture_url if mode == "fixture" else empty_url, width=width)
+    visit(page, route)
+    panels = page.evaluate(_PANEL_BLANK)
+    worst = [p for p in panels if p["blank"] > 90]
+    assert worst == [], worst
+    page.close()
+
+
+@pytest.mark.parametrize("mode", ["empty", "fixture"])
+def test_detail_uses_one_column_seam(browser, empty_url, fixture_url, mode):
+    """Every paired row on the detail page splits at the same seam, so gutters line up down the page."""
+    page = new_page(browser, fixture_url if mode == "fixture" else empty_url, width=1920)
+    visit(page, "/strategy/FX-S003")
+    panels = {p["code"]: p for p in page.evaluate(_PANEL_BLANK)}
+    rail = {panels[c]["right"] for c in ("STR-D01", "STR-D04", "STR-D05", "STR-D09", "STR-D08", "STR-D12")}
+    main = {panels[c]["left"] for c in ("STR-D02", "STR-D03", "STR-D07", "STR-D10", "STR-D11")}
+    assert len(rail) == 1 and len(main) == 1, (rail, main)
+    assert 0 < min(main) - max(rail) <= 24
+    page.close()
+
+
+def test_detail_reading_order_below_1440(browser, fixture_url):
+    """When the columns dissolve, panels stack in reading order (identity, performance, checks, …)."""
+    page = new_page(browser, fixture_url, width=1280)
+    visit(page, "/strategy/FX-S003")
+    order = page.evaluate(
+        "() => [...document.querySelectorAll('.view .panel')].map(p => [p.querySelector('.panel__code').textContent.trim(), p.getBoundingClientRect().top]).sort((a, b) => a[1] - b[1]).map(x => x[0])"
+    )
+    assert order == ["STR-D01", "STR-D02", "STR-D03", "STR-D04", "STR-D05", "STR-D09", "STR-D06", "STR-D07", "STR-D08", "STR-D10", "STR-D11", "STR-D12"], order
+    overflow = page.evaluate("() => { const m = document.querySelector('.main'); return m.scrollWidth - m.clientWidth; }")
+    assert overflow <= 1
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1024, 1440, 1920])
+def test_flow_source_states_never_collide(browser, empty_url, width):
+    """The OPS stage's per-source status labels (NOT CONNECTED …) never run into each other."""
+    page = new_page(browser, empty_url, width=width)
+    visit(page, "/strategies")
+    hits = page.evaluate(
+        """() => { const els = [...document.querySelectorAll('.st-flow__srcstate')]; const r = els.map(e => e.getBoundingClientRect());
+          const stage = document.querySelector('[data-flow-stage="OPERATIONS"]').getBoundingClientRect(); const out = [];
+          els.forEach((e, i) => { if (e.scrollWidth > e.clientWidth + 1) out.push(['overflows its cell', i, e.textContent]); });
+          r.forEach((a, i) => { if (a.right > stage.right + 1) out.push(['outside', i]);
+            r.forEach((b, j) => { if (j > i && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) out.push(['overlap', i, j]); }); });
+          return out; }"""
+    )
+    assert hits == [], hits
+    page.close()

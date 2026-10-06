@@ -1,13 +1,16 @@
 // Shared helpers for the data views (Datasets, State Sources, Insights).
 // Everything rendered comes from the snapshot (documents / sources / derived).
 // Nothing is estimated, defaulted or inferred:
-//  * source not connected  -> sourceEmpty / NOT CONNECTED
+//  * source unavailable    -> sourceEmpty, titled by its real status (not connected /
+//                             not produced / contract error / unreadable)
 //  * connected, nothing    -> "None declared"-style empty state (a real 0 is a fact)
 //  * value not reported    -> val(null)
+//  * record counts         -> split by record origin, never summed across origins
+//  * "no findings"         -> only ever "none from the checks that ran"
 
 import { html, cx } from "../core/html.js";
-import { isNil, humanize } from "../core/format.js";
-import { doc } from "../core/state.js";
+import { isNil, humanize, fmtCount } from "../core/format.js";
+import { doc, derived, sourceShort, sourceTitle } from "../core/state.js";
 import { val } from "../components/ui.js";
 
 /** Contract payload model per document key (architecture labels from schemas.py). */
@@ -34,6 +37,26 @@ export const SOURCE_STATUSES = ["OK", "MISSING", "INVALID", "UNREADABLE", "NOT_C
 export const ORIGINS = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
 
 export const ORIGIN_LABEL = { ORIGINAL: "Original", RECONSTRUCTED: "Reconstructed", SYNTHETIC_FIXTURE: "Synthetic fixture" };
+
+const ORIGIN_WORD = { ORIGINAL: "original", RECONSTRUCTED: "reconstructed", SYNTHETIC_FIXTURE: "synthetic fixture" };
+
+/** Compact origin tags for per-origin counts inside chips. */
+export const ORIGIN_ABBR = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
+
+/** Non-zero per-origin counts of records, in ORIGINS order: [[origin, n], ...]. */
+export function originCounts(rows) {
+  return ORIGINS.map((o) => [o, countWhere(rows, (r) => r.origin === o)]).filter(([, n]) => n > 0);
+}
+
+/**
+ * Per-origin count text, e.g. "2 original · 1 reconstructed". Records of different
+ * origins are never summed into one number. Empty string when there are no records.
+ */
+export function originText(rows) {
+  return originCounts(rows)
+    .map(([o, n]) => `${fmtCount(n)} ${ORIGIN_WORD[o]}`)
+    .join(" · ");
+}
 
 /** Local URL of a contract JSON Schema served by the read-only API. */
 export function schemaHref(key) {
@@ -131,14 +154,44 @@ export function label(v) {
  * INVALID document is never described as "not connected".
  */
 export function offTitle(src, what) {
-  switch (src?.status) {
-    case "MISSING":
-      return `${what} not produced`;
-    case "INVALID":
-      return `${what} rejected by the contract`;
-    case "UNREADABLE":
-      return `${what} unreadable`;
-    default:
-      return `${what} not connected`;
+  return src?.status === "OK" ? what : sourceTitle(src, what);
+}
+
+/**
+ * Cross-check coverage (derived.check_coverage) for the given families, or all.
+ * "No findings" may only ever mean "none from the checks that ran".
+ */
+export function checkCoverage(ctx, keys) {
+  const all = derived(ctx, "check_coverage") ?? [];
+  const fams = keys ? all.filter((c) => keys.includes(c.key)) : all;
+  return { ran: fams.filter((c) => c.ran), skipped: fams.filter((c) => !c.ran) };
+}
+
+/** Why a check family did not run, with each missing source's real status. */
+export function skippedReason(c) {
+  if (c.missing?.length) return c.missing.map((m) => `${m.file} ${sourceShort({ status: m.status }).toLowerCase()}`).join(", ");
+  return c.note ?? "not run";
+}
+
+/**
+ * Empty findings block that never over-claims: it names how many check families
+ * ran and lists each one that did not, with the reason. With no family run it
+ * says nothing could be cross-checked, and why.
+ */
+export function noFindings(ctx, { keys, what = "findings" } = {}) {
+  const { ran, skipped } = checkCoverage(ctx, keys);
+  const srcs = Object.values(ctx.snap?.sources ?? {});
+  if (!ran.length) {
+    // Provenance checks run whenever any document exists (valid or not), so here nothing exists to check.
+    const nothing = !srcs.length || srcs.every((s) => s.status === "NOT_CONFIGURED")
+      ? "Nothing connected — nothing to cross-check"
+      : "No document produced — nothing to cross-check";
+    return html`<div class="dat-none-line dat-cov" data-coverage="none">${none(nothing)}</div>`;
   }
+  return html`<div class="dat-none-line dat-cov" data-coverage="${ran.length}/${ran.length + skipped.length}">
+    ${none(`No ${what} from the ${ran.length} check ${ran.length === 1 ? "family" : "families"} that ran`)}
+    ${skipped.length
+      ? html`<ul class="dat-cov__skip">${skipped.map((c) => html`<li data-skipped="${c.key}"><b>${c.label}</b> not run · ${skippedReason(c)}</li>`)}</ul>`
+      : ""}
+  </div>`;
 }

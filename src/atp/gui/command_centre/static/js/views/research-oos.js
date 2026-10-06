@@ -6,12 +6,16 @@
 
 import { html } from "../core/html.js";
 import { humanize, fmtCount, fmtDate, fmtDateTime } from "../core/format.js";
-import { pageHeader, panel, badge, stat, statRow, sourceTag, sourceEmpty, emptyState, originBadge, val } from "../components/ui.js";
+import { pageHeader, panel, badge, stat, statRow, sourceTag, emptyState, originBadge, val } from "../components/ui.js";
+import { toneClass } from "../core/tones.js";
 import * as B from "./_research-b-common.js";
 import { windowTimeline, mountTimeline, roleLegend, ROLE_LABEL } from "./_research-b-timeline.js";
 
 const KINDS = ["OOS", "WALK_FORWARD"];
 const OOS_STATES = ["PASS", "FAIL", "PENDING", "INCONCLUSIVE", "BLOCKED", "NOT_RUN", "NOT_APPLICABLE"];
+const PATH = "/research/oos";
+/** What the governance oos_separation check asks — shown as a question, never as its result. */
+const SEP_ASK = "Checks that holdout data stays untouched until its declared evaluation.";
 
 /* ---------------------------------------------------------------- governance separation */
 
@@ -23,13 +27,13 @@ function separation(gov, gsrc) {
   </div>`;
   let body;
   if (!gov) {
-    body = sourceEmpty(gsrc, { compact: true, title: "Governance not connected", hint: "The oos_separation check — holdout data untouched until its declared evaluation — will show here." });
+    body = B.srcEmpty(gsrc, { compact: true, hint: "The oos_separation check — holdout data untouched until its declared evaluation — will show here." });
   } else {
     const c = gov.checks.find((x) => x.key === "oos_separation") ?? null;
     const state = c?.state ?? "NOT_REPORTED";
     body = html`<div class="rsb-sep" data-check="oos_separation" data-state="${state}">
       <div class="split"><span class="rsb-sep__k">OOS SEPARATION · GOVERNANCE</span>${badge(state, { size: "lg", label: c ? undefined : "NOT REPORTED" })}</div>
-      <div class="rsb-sep__d">${c?.detail ?? "Holdout data untouched until its declared evaluation."}</div>
+      <div class="rsb-sep__d">${c?.detail ?? html`<span class="text-2">${SEP_ASK}</span>${c ? "" : " Governance has not reported it, so nothing is asserted either way."}`}</div>
       <div class="rsb-sep__m">${
         c
           ? html`${c.checked_at ? html`CHECKED ${fmtDateTime(c.checked_at)}` : "NO CHECK TIMESTAMP"}${c.evidence_ref ? html` · <span class="ref">${c.evidence_ref}</span>` : ""}`
@@ -42,12 +46,10 @@ function separation(gov, gsrc) {
 
 /* ---------------------------------------------------------------- summary */
 
-function summary(rs, trials, cv) {
-  const nc = "NOT CONNECTED";
+function summary(rs, rsrc, ssrc, trials, cv) {
+  const nc = B.offLabel(rsrc);
   const pick = (fn) => (trials ? B.originSplit(trials.filter(fn)) : null);
   const progs = rs ? rs.programmes.filter((p) => p.evaluation_windows.length) : null;
-  const oosSplit = B.checkStateSplit(cv, "out_of_sample");
-  const oosReported = oosSplit ? oosSplit.reduce((a, [, n]) => a + n, 0) : null;
   return html`<div class="rsb-stats4">${statRow(
     [
       stat({ label: "OOS trials", value: B.splitVal(pick((t) => t.kind === "OOS")), hint: "Kind OOS", emptyLabel: nc }),
@@ -55,10 +57,10 @@ function summary(rs, trials, cv) {
       stat({ label: "With windows", value: progs ? B.splitVal(B.originSplit(progs)) : null, hint: "Programmes declaring them", emptyLabel: nc }),
       stat({
         label: "OOS checks reported",
-        title: "Current strategy versions reporting the out_of_sample check, in any state — not a pass count",
-        value: cv ? html`<span data-check-reported="out_of_sample">${val(fmtCount(oosReported))}<span class="unit">/ ${fmtCount(cv.length)}</span></span>` : null,
-        hint: html`<span class="rsb-stat-split" data-check-split="out_of_sample">${B.checkSplitBadges(oosSplit, { none: "NONE REPORTED" })}</span>`,
-        emptyLabel: nc,
+        title: "Current strategy versions reporting the out_of_sample check, in any state — not a pass count; counted per strategy origin",
+        value: cv ? html`<span data-check-reported="out_of_sample">${B.reportedVal(cv, "out_of_sample")}</span>` : null,
+        hint: html`<span class="rsb-stat-split" data-check-split="out_of_sample">${B.checkSplitView(cv, "out_of_sample", { none: "NONE REPORTED" })}</span>`,
+        emptyLabel: B.offLabel(ssrc),
       }),
     ],
     { min: 118 },
@@ -99,12 +101,14 @@ function windowsPanel(rs, rsrc, trials) {
   if (!rs) {
     return html`<div class="rsb-tl-frame" data-timeline="0">
       <div class="rsb-tl-frame__axis"></div>
-      ${sourceEmpty(rsrc, { title: "Evaluation windows not connected", hint: "Each programme's declared windows — primary evidence, confirmation, holdout, out-of-sample, implementation verification — will be drawn on a time axis from their real dates, with OOS and walk-forward trial windows beneath them." })}
+      ${B.srcEmpty(rsrc, { hint: "Each programme's declared windows — primary evidence, confirmation, holdout, out-of-sample, implementation verification — will be drawn on a time axis from their real dates, with OOS and walk-forward trial windows beneath them." })}
     </div>${roleLegend()}`;
   }
   lastLanes = lanesFor(rs, trials);
   const svg = windowTimeline(lastLanes);
   const declared = rs.programmes.flatMap((p) => p.evaluation_windows.map((w) => ({ p, w })));
+  const withWindows = rs.programmes.filter((p) => p.evaluation_windows.length);
+  const unfrozen = withWindows.filter((p) => !p.frozen_at && !p.sealed_at);
   const undrawnProgs = rs.programmes.filter((p) => !p.evaluation_windows.length && !trials.some((t) => t.programme_id === p.programme_id));
   const columns = [
     { label: "Programme", render: ({ p }) => html`<span class="cluster">${B.refLink(p.programme_id, B.programmeHref(p.programme_id))}${badge(p.status)}${originBadge(p.origin)}</span>` },
@@ -119,12 +123,23 @@ function windowsPanel(rs, rsrc, trials) {
     ${svg ??
     html`<div class="rsb-tl-frame" data-timeline="0"><div class="rsb-tl-frame__axis"></div>${emptyState({
       title: "No dated windows to draw",
-      reason: `${fmtCount(rs.programmes.length)} programme(s) connected; none declares a dated evaluation window and no OOS / walk-forward trial records a window.`,
+      reason: rs.programmes.length
+        ? `${B.splitText(B.originSplit(rs.programmes), "programme(s)")} in research.json; none declares a dated evaluation window and no OOS / walk-forward trial records a window.`
+        : "research.json lists no programmes and no OOS / walk-forward trial records a window.",
       compact: true,
     })}</div>`}
     ${roleLegend()}
-    <p class="rsb-note rsb-note--fixed" data-note="windows-fixed"><b>Windows are fixed before results.</b> They are declared in each programme's frozen specification; the freeze or seal date is shown with them. Trial windows beneath each programme are as recorded by the ledger — the timeline draws, it does not judge overlap.</p>
-    <div class="rsb-gap">${B.label("Declared evaluation windows", `${fmtCount(declared.length)} across ${fmtCount(rs.programmes.length)} programmes`)}</div>
+    <p class="rsb-note rsb-note--fixed" data-note="windows-fixed" data-unfrozen="${String(unfrozen.length)}"><b>Doctrine: windows are fixed before results.</b> Each declared window is listed with the freeze or seal date of the programme specification that declares it${
+      unfrozen.length
+        ? html` — <span class="${"rsb-toned " + toneClass("WARN")}" data-unfrozen-ids="${unfrozen.map((p) => p.programme_id).join(",")}">${unfrozen.map((p, i) => html`${i ? ", " : ""}${B.refLink(p.programme_id, B.programmeHref(p.programme_id))}`)} ${unfrozen.length === 1 ? "declares" : "declare"} windows without a frozen or sealed specification</span>`
+        : ""
+    }. Trial windows beneath each programme are as recorded by the ledger — the timeline draws, it does not judge overlap.</p>
+    <div class="rsb-gap">${B.label(
+      "Declared evaluation windows",
+      declared.length
+        ? `${B.splitText(B.originSplit(declared.map(({ p }) => p)), "window(s)")} · from ${B.splitText(B.originSplit(withWindows), "programme(s)")}`
+        : `none declared · ${B.splitText(B.originSplit(rs.programmes), "programme(s)")} in research.json`,
+    )}</div>
     ${B.regTable({
       columns,
       rows: declared,
@@ -162,14 +177,14 @@ function strategies(st, ssrc, cv) {
     },
   ];
   const empty = !st
-    ? sourceEmpty(ssrc, { title: "Strategy registry not connected", compact: true, hint: "Each strategy's current version will appear with its out_of_sample and walk_forward checks and any figures reported on an OOS or walk-forward basis." })
+    ? B.srcEmpty(ssrc, { compact: true, hint: "Each strategy's current version will appear with its out_of_sample and walk_forward checks and any figures reported on an OOS or walk-forward basis." })
     : emptyState({ title: "No strategies registered", reason: "strategies.json is connected and lists no strategies.", compact: true });
   return B.regTable({ columns, rows: cv, empty, rowAttrs: ({ s }) => html`data-strategy="${s.strategy_id}"` });
 }
 
 /* ---------------------------------------------------------------- register */
 
-function register(rs, rsrc, trials) {
+function register(rs, rsrc, trials, query) {
   const hypById = new Map((rs?.hypotheses ?? []).map((h) => [h.hypothesis_id, h]));
   const columns = [
     { label: "Trial", render: (t) => B.trialCell(t), cls: "rsb-nowrap" },
@@ -187,9 +202,15 @@ function register(rs, rsrc, trials) {
     { label: "Evidence · origin", render: (t) => B.evidenceOriginCell(t) },
   ];
   const empty = !rs
-    ? sourceEmpty(rsrc, { title: "OOS register not connected", hint: "Every out-of-sample and walk-forward trial will be listed here with its oos_state, outcome, window, data and gross / cost / net." })
+    ? B.srcEmpty(rsrc, { hint: "Every out-of-sample and walk-forward trial will be listed here with its oos_state, outcome, window, data and gross / cost / net." })
     : emptyState({ title: "No OOS or walk-forward trials recorded", reason: "The ledger records no trial of kind OOS or WALK_FORWARD.", compact: true });
-  return B.regTable({ columns, rows: trials, empty, rowAttrs: (t) => html`data-trial="${t.trial_id}" data-oos-state="${t.oos_state ?? ""}"` });
+  // Only a page of rows is materialised; every count on this page comes from the full array.
+  const page = B.pageRows(trials, query.rows, { from: query.from });
+  return html`${B.regTable({ columns, rows: page.shown, empty, rowAttrs: (t) => html`data-trial="${t.trial_id}" data-oos-state="${t.oos_state ?? ""}"` })}${B.pager(
+    page,
+    (q) => B.withQuery(PATH, query, q),
+    { noun: "trials" },
+  )}`;
 }
 
 /* ---------------------------------------------------------------- view */
@@ -206,18 +227,18 @@ export default {
         code: "OOS",
         title: "Out-of-Sample",
         sub: "Evidence on data the hypothesis never saw: declared evaluation windows, the trials run on them, the governance separation check, and each strategy's out-of-sample and walk-forward checks.",
-        right: html`${sourceTag(rsrc, { now: ctx.now })}${sourceTag(gsrc, { now: ctx.now })}`,
+        right: html`${sourceTag(rsrc, { now: ctx.now })}${sourceTag(ssrc, { now: ctx.now })}${sourceTag(gsrc, { now: ctx.now })}`,
       })}
 
       <div class="grid">
-        ${panel({ span: 5, code: "OOS-01", title: "Separation", sub: "governance.json · oos_separation", variant: "hero", cls: "lg-span-12", body: separation(gov, gsrc) })}
+        ${panel({ span: 5, code: "OOS-01", title: "Separation", sub: gov ? "governance.json · oos_separation" : `${B.srcPhrase(gsrc)} · oos_separation`, variant: "hero", cls: "lg-span-12", body: separation(gov, gsrc) })}
         ${panel({
           span: 7,
           code: "OOS-02",
           title: "Out-of-sample ledger",
-          sub: trials ? B.splitText(B.originSplit(trials), "OOS / walk-forward records") : "research.json not connected",
+          sub: trials ? B.splitText(B.originSplit(trials), "OOS / walk-forward records") : B.srcPhrase(rsrc),
           cls: "lg-span-12",
-          body: summary(rs, trials, cv),
+          body: summary(rs, rsrc, ssrc, trials, cv),
         })}
       </div>
 
@@ -226,7 +247,7 @@ export default {
           span: 12,
           code: "OOS-03",
           title: "Evaluation windows",
-          sub: rs ? "Programmes' declared windows · OOS and walk-forward trial windows beneath · drawn from real dates only" : "research.json not connected",
+          sub: rs ? "Programmes' declared windows · OOS and walk-forward trial windows beneath · drawn from real dates only" : B.srcPhrase(rsrc),
           body: windowsPanel(rs, rsrc, trials ?? []),
         })}
       </div>
@@ -236,7 +257,7 @@ export default {
           span: 12,
           code: "OOS-04",
           title: "Strategy out-of-sample evidence",
-          sub: cv ? `${fmtCount(cv.length)} strategies · current versions` : "strategies.json not connected",
+          sub: cv ? `${B.splitText(B.originSplit(cv.map(({ s }) => s)), "strategies")} · current versions` : B.srcPhrase(ssrc),
           body: strategies(st, ssrc, cv),
         })}
       </div>
@@ -246,8 +267,8 @@ export default {
           span: 12,
           code: "OOS-05",
           title: "OOS & walk-forward register",
-          sub: trials ? `${B.splitText(B.originSplit(trials), "trials")} · ledger order` : "Source not connected",
-          body: register(rs, rsrc, trials),
+          sub: trials ? `${B.splitText(B.originSplit(trials), "trials")} · ledger order` : B.srcPhrase(rsrc),
+          body: register(rs, rsrc, trials, ctx.query),
         })}
       </div>
     `;

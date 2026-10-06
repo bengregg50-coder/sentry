@@ -315,7 +315,12 @@ def test_datasets_connected_but_empty(browser, state_factory):
         text = view_text(page).upper()
         assert "NO DATASETS DECLARED" in text
         # a connected, empty catalogue is a fact: zero records, not "not connected"
-        assert "NOT CONNECTED" not in page.inner_text(".dat-sumgrid").upper()
+        assert "NOT CONNECTED" not in page.inner_text(".dat-sum").upper()
+        records = page.eval_on_selector_all(
+            "[data-origin-matrix] [data-origin-row] .dat-om__n [data-v]",
+            "els => els.map(e => [e.textContent.trim(), e.classList.contains('is-empty')])",
+        )
+        assert records == [["0", False]] * 3  # real zeros per origin, never blanks
         page.close()
     finally:
         server.should_exit = True
@@ -344,3 +349,270 @@ def test_insights_fixture_null_result_emphasised(browser, fixture_url):
     stream = page.eval_on_selector_all(".dat-tabs ~ .dat-fit [data-insight]", "els => els.map(e => e.dataset.insight)")
     assert stream == ["FX-I2"]
     page.close()
+
+
+# --------------------------------------------------------------------------- round 3 regressions
+
+_ALL_DOCS = tuple(f[: -len(".json")] for f in DOC_FILES) + ("agent_events.jsonl",)
+
+
+def _panel_text(page, code: str, part: str = "") -> str:
+    """Inner text of a panel (or one of its parts: '.panel__sub', '.panel__body') by its code."""
+    return page.evaluate(
+        """([code, part]) => {
+            const p = [...document.querySelectorAll('.view .panel')]
+              .find(x => x.querySelector(':scope > .panel__head .panel__code')?.textContent.trim() === code);
+            if (!p) return null;
+            return (part ? p.querySelector(part) : p)?.innerText ?? null;
+        }""",
+        [code, part],
+    )
+
+
+_BLANK_JS = """codes => Object.fromEntries(codes.map(c => {
+    const p = [...document.querySelectorAll('.view .panel')]
+      .find(x => x.querySelector(':scope > .panel__head .panel__code')?.textContent.trim() === c);
+    if (!p) return [c, null];
+    const body = p.querySelector(':scope > .panel__body');
+    let bottom = 0;
+    for (const ch of body.children) { const r = ch.getBoundingClientRect(); if (r.height > 0) bottom = Math.max(bottom, r.bottom); }
+    return [c, Math.round(body.getBoundingClientRect().bottom - bottom)];
+}))"""
+
+_FEED_ROWS_JS = """() => { const rows = {};
+    for (const f of document.querySelectorAll('.view .dat-feed')) { const y = Math.round(f.getBoundingClientRect().top); rows[y] = (rows[y] || 0) + 1; }
+    return Object.keys(rows).sort((a, b) => a - b).map(k => rows[k]); }"""
+
+_EMPTY_NOT_FAINT_JS = """() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--faint)';
+    document.body.appendChild(probe);
+    const faint = getComputedStyle(probe).color;
+    probe.remove();
+    return [...document.querySelectorAll('.view [data-v].is-empty, .view [data-v][data-empty]')]
+      .filter(e => getComputedStyle(e).color !== faint)
+      .map(e => e.className + ' -> ' + getComputedStyle(e).color);
+}"""
+
+
+def test_missing_documents_are_not_produced_not_disconnected(browser, state_factory):
+    """A configured state dir where nothing was produced: every label says NOT PRODUCED, never NOT CONNECTED."""
+    url, server = start_server(state_factory(drop=_ALL_DOCS))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/data/sources")
+        assert v.clean, v.describe()
+        assert set(_doc_rows(page).values()) == {"MISSING"}
+        assert page.get_attribute(".dat-hdr .badge", "data-state") == "NOT_PRODUCED"
+        assert "0/12 DOCUMENTS CONNECTED" in page.inner_text(".dat-hdr").upper()
+        sub = _panel_text(page, "SRC-04", ".panel__sub")
+        assert sub.startswith("0 of 12 connected") and "NOT CONNECTED" not in sub.upper()
+        assert "NOTHING PRODUCED" in page.inner_text('[data-flow-stage="PRODUCERS"]').upper()
+        assert page.query_selector(".dat-doc-alert") is None  # MISSING is not a contract error
+
+        v = visit(page, "/data")
+        assert v.clean, v.describe()
+        gov = page.eval_on_selector_all("[data-gov-row][data-state]", "els => els.map(e => e.dataset.state)")
+        assert gov == ["NOT_PRODUCED"] * 3
+        labels = page.eval_on_selector_all("[data-gov-row][data-state] .badge", "els => els.map(e => e.textContent.trim())")
+        assert labels == ["NOT PRODUCED"] * 3
+        dat02 = _panel_text(page, "DAT-02").upper()
+        assert "NO DOCUMENT PRODUCED — NOTHING TO CROSS-CHECK" in dat02
+        assert "NOTHING CONNECTED" not in dat02
+        assert present_values(page) == []
+
+        v = visit(page, "/insights")
+        assert v.clean, v.describe()
+        d1 = page.inner_text('[data-digest="D1"]').upper()
+        assert "NO DOCUMENT PRODUCED — NOTHING TO CROSS-CHECK" in d1 and "NOTHING CONNECTED" not in d1
+        assert "INSIGHTS NOT CONNECTED" not in view_text(page).upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_invalid_governance_is_a_contract_error_on_datasets(browser, state_factory):
+    def corrupt(doc):
+        doc["data"]["checks"][0]["state"] = "NOT_A_STATE"
+
+    url, server = start_server(state_factory({"governance": corrupt}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/data")
+        assert v.clean, v.describe()
+        gov = page.eval_on_selector_all("[data-gov-row][data-state]", "els => els.map(e => e.dataset.state)")
+        assert gov == ["INVALID"] * 3
+        badges = page.eval_on_selector_all("[data-gov-row][data-state] .badge", "els => els.map(e => [e.textContent.trim(), e.className])")
+        assert all(t == "CONTRACT ERROR" and "tone-bad" in c for t, c in badges)
+        # check descriptions say what is examined, never a finding nobody reported
+        text = _panel_text(page, "DAT-02")
+        for desc in ("Checks datasets against their manifests", "Checks each result is bound to a dataset content hash"):
+            assert desc in text
+        assert "verified against manifests" not in text and "bound to every result" not in text
+        assert "NOT CONNECTED" not in text.upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_sources_notice_names_each_failure_kind(browser, state_factory):
+    def corrupt(doc):
+        doc["data"]["hypotheses"][0]["status"] = "NOT_A_STATUS"
+
+    target = state_factory({"research": corrupt})
+    (target / "strategies.json").write_text("{not json")
+    with (target / "agent_events.jsonl").open("a") as fh:
+        fh.write("{not an event}\n")
+    url, server = start_server(target)
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/data/sources")
+        assert v.clean, v.describe()
+        rows = _doc_rows(page)
+        assert rows["research"] == "INVALID" and rows["strategies"] == "UNREADABLE"
+        alert = page.inner_text(".dat-doc-alert").upper()
+        # an unreadable file is not "rejected by the contract"; the stream's invalid lines are named too
+        assert "1 DOCUMENT REJECTED BY THE CONTRACT" in alert
+        assert "1 DOCUMENT UNREADABLE" in alert
+        assert "AGENT_EVENTS.JSONL: 1 INVALID LINE" in alert
+        assert "2 DOCUMENTS REJECTED" not in alert
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_datasets_summary_never_merges_origins(browser, state_factory):
+    def mixed(doc):
+        doc["data"]["datasets"][0]["origin"] = "ORIGINAL"  # FX-DS-A: PASS
+        doc["data"]["datasets"][2]["origin"] = "RECONSTRUCTED"  # FX-DS-C: PASS, reconstructed flag
+
+    url, server = start_server(state_factory({"datasets": mixed}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/data")
+        assert v.clean, v.describe()
+        assert _panel_text(page, "DAT-01", ".panel__sub") == "Declared records: 1 original · 1 reconstructed · 1 synthetic fixture"
+        matrix = page.evaluate(
+            """() => Object.fromEntries([...document.querySelectorAll('[data-origin-matrix] [data-origin-row]')]
+                .map(r => [r.dataset.originRow, [...r.querySelectorAll('td')].slice(1, 8).map(td => td.innerText.trim())]))"""
+        )
+        #                 records PASS WARN FAIL UNKNOWN recon gaps
+        assert matrix["ORIGINAL"] == ["1", "1", "0", "0", "0", "0", "0"]
+        assert matrix["RECONSTRUCTED"] == ["1", "1", "0", "0", "0", "1", "0"]
+        assert matrix["SYNTHETIC_FIXTURE"] == ["1", "0", "1", "0", "0", "0", "1"]
+        # composition chips carry a count per origin, never one merged "×3"
+        venue = page.eval_on_selector('[data-comp="venue"] .dat-tally', "e => e.textContent.replace(/\\s+/g, '')")
+        assert venue == "FIXTURE-VENUE1ORIG1RECON1SYNTH"
+        assert "×" not in _panel_text(page, "DAT-01")
+        # a PASS count is green only where it is a declared pass; WARN is amber
+        assert "tone-ok" in page.get_attribute('[data-origin-row="ORIGINAL"] td:nth-child(3) .v', "class")
+        assert "tone-warn" in page.get_attribute('[data-origin-row="SYNTHETIC_FIXTURE"] td:nth-child(4) .v', "class")
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_insights_counts_split_by_origin_and_tabs_carry_no_merged_count(browser, state_factory):
+    def mixed(doc):
+        for i in doc["data"]["insights"]:
+            i["origin"] = "ORIGINAL" if i["insight_id"] == "FX-I1" else "RECONSTRUCTED"
+
+    url, server = start_server(state_factory({"insights": mixed}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/insights")
+        assert v.clean, v.describe()
+        assert _panel_text(page, "INS-02", ".panel__sub").startswith("Declared: 1 original · 1 reconstructed")
+        assert _panel_text(page, "INS-03", ".panel__sub") == "Declared: 1 original · newest first"
+        cell = lambda origin, kind: page.inner_text(f'[data-kind-matrix] [data-origin-row="{origin}"] [data-kind="{kind}"]').strip()
+        assert cell("ORIGINAL", "NULL_RESULT") == "1" and cell("ORIGINAL", "GOVERNANCE") == "0"
+        assert cell("RECONSTRUCTED", "GOVERNANCE") == "1" and cell("RECONSTRUCTED", "NULL_RESULT") == "0"
+        assert cell("SYNTHETIC_FIXTURE", "NULL_RESULT") == "0"
+        assert page.query_selector(".dat-tabs .tab .count") is None
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_findings_digest_counts_when_only_invalid_documents_exist(browser, state_factory):
+    """Provenance checks ran on an INVALID document: its finding is shown, never "nothing connected"."""
+
+    def corrupt(doc):
+        doc["data"]["insights"][0]["kind"] = "NOT_A_KIND"
+
+    keep_invalid = tuple(k for k in _ALL_DOCS if k != "insights")
+    url, server = start_server(state_factory({"insights": corrupt}, drop=keep_invalid))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/insights")
+        assert v.clean, v.describe()
+        d1 = page.inner_text('[data-digest="D1"]').upper()
+        assert "NOTHING CONNECTED" not in d1 and "NOTHING TO CROSS-CHECK" not in d1
+        assert page.query_selector('[data-digest="D1"] [data-finding="SOURCE_INVALID"]') is not None
+        warn = page.inner_text('[data-digest="D1"] [data-severity="WARNING"] [data-v]').strip()
+        assert warn == "1"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_no_findings_names_the_checks_that_ran(browser, fixture_url, state_factory):
+    page = new_page(browser, fixture_url)
+    v = visit(page, "/data")
+    assert v.clean, v.describe()
+    dat02 = _panel_text(page, "DAT-02")
+    assert "NO DATA-SOURCE FINDINGS FROM THE 2 CHECK FAMILIES THAT RAN" in dat02.upper()
+    assert "connected documents conform" not in dat02
+    assert page.query_selector('[data-skipped="freshness"]') is not None
+    page.close()
+
+    url, server = start_server(state_factory(drop=("research",)))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/data")
+        assert v.clean, v.describe()
+        skipped = page.inner_text('[data-skipped="data_citations"]')
+        assert "Dataset citations" in skipped and "research.json not produced" in skipped
+        assert "FROM THE 1 CHECK FAMILY THAT RAN" in _panel_text(page, "DAT-02").upper()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+@pytest.mark.parametrize("width", [1024, 1440, 1920])
+def test_subsystem_feeds_have_no_orphan_row(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    v = visit(page, "/data/sources")
+    assert v.clean, v.describe()
+    rows = page.evaluate(_FEED_ROWS_JS)
+    assert rows == ([6] if width > 1500 else [3, 3]), rows
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1920, 2560])
+@pytest.mark.parametrize("mode", ["empty", "fixture"])
+def test_paired_panels_do_not_leave_tall_blank_bottoms(browser, empty_url, fixture_url, mode, width):
+    page = new_page(browser, empty_url if mode == "empty" else fixture_url, width=width)
+    for route, codes in (("/data/sources", ["SRC-01", "SRC-02", "SRC-07"]), ("/insights", ["INS-03", "INS-04"]), ("/data", ["DAT-01", "DAT-02"])):
+        v = visit(page, route)
+        assert v.clean, v.describe()
+        blank = page.evaluate(_BLANK_JS, codes)
+        # body padding is 14px; before this fix SRC-01/SRC-07/INS-04 left 200-270px blank at 1920+
+        assert all(b is not None and b <= 110 for b in blank.values()), (route, blank)
+    page.close()
+
+
+@pytest.mark.parametrize("mode", ["empty", "fixture"])
+def test_empty_values_stay_faint_and_no_horizontal_overflow(browser, empty_url, fixture_url, mode):
+    for width in (1024, 1920):
+        page = new_page(browser, empty_url if mode == "empty" else fixture_url, width=width)
+        for route in ROUTES:
+            v = visit(page, route)
+            assert v.clean, v.describe()
+            assert page.evaluate(_EMPTY_NOT_FAINT_JS) == [], (route, width)
+            over = page.evaluate(
+                "() => [...document.querySelectorAll('.view .table-wrap, .view .panel__body')].filter(e => e.scrollWidth > e.clientWidth + 1).length"
+            )
+            assert over == 0, (route, width)
+            assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+        page.close()

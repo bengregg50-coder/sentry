@@ -9,7 +9,8 @@
 import { html, raw, cx } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, humanize, pad2 } from "../core/format.js";
 import { toneOf, toneClass } from "../core/tones.js";
-import { doc, source, derived } from "../core/state.js";
+import { doc, source, derived, sourceTitle } from "../core/state.js";
+import { fetchEvents } from "../core/api.js";
 import { badge, val, originBadge, sourceTag } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 
@@ -52,7 +53,8 @@ export const EVIDENCE_KINDS = [
 ];
 export const STANCES = ["SUPPORTS", "CONTRADICTS", "NEUTRAL"];
 export const SLOTS = [1, 2, 3, 4, 5];
-export const MEMORY_EVENT_KINDS = ["MEMORY_RECALL", "MEMORY_WRITE"];
+/** Agent event kinds that name memories (refs.memory_ids): recall, write, and an applicability test of a shared memory. */
+export const MEMORY_EVENT_KINDS = ["MEMORY_RECALL", "MEMORY_WRITE", "APPLICABILITY_TEST"];
 
 /* ------------------------------------------------------------ state access */
 
@@ -64,6 +66,61 @@ export function memState(ctx) {
 
 export function memoryIndex(mems) {
   return new Map((mems ?? []).map((m) => [m.memory_id, m]));
+}
+
+/** "memory.json not produced" / "… rejected by the contract" / "… not connected" — never one fixed phrase. */
+export function srcPhrase(src, what) {
+  return sourceTitle(src, what ?? src?.file ?? "source");
+}
+
+/** True when derive's family of memory cross-checks ran (derived.check_coverage). */
+export function memoryChecksRan(ctx) {
+  const fam = (derived(ctx, "check_coverage") ?? []).find((c) => c.key === "memory");
+  return { ran: !!fam?.ran, note: fam?.note ?? null };
+}
+
+/* ------------------------------------------------------------ memory events (MEMORY_RECALL / MEMORY_WRITE / APPLICABILITY_TEST) */
+
+/** Per-kind fetch window. A stream with more memory events of one kind is labelled partial, never extrapolated. */
+export const MEMORY_EVENT_LIMIT = 5000;
+
+/** View load(): every MEMORY_RECALL, MEMORY_WRITE and APPLICABILITY_TEST event (newest first), fetched per kind. */
+export async function loadMemoryEvents() {
+  try {
+    const res = await Promise.all(MEMORY_EVENT_KINDS.map((kind) => fetchEvents({ kind, limit: MEMORY_EVENT_LIMIT })));
+    const events = res.flatMap((r) => r.events).sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+    const fetched = Object.fromEntries(MEMORY_EVENT_KINDS.map((k, i) => [k, res[i].events.length]));
+    return { events, source: res[0].source, fetched, error: null };
+  } catch (err) {
+    return { events: null, source: null, fetched: null, error: String(err && err.message ? err.message : err) };
+  }
+}
+
+/** Exact count of one event kind over the whole stream (derived.agent_slots[].events.by_kind), or null. */
+export function streamKindTotal(ctx, kind) {
+  const slots = derived(ctx, "agent_slots");
+  if (!slots || !slots.length || slots.some((s) => !s.events?.available || isNil(s.events.by_kind))) return null;
+  return slots.reduce((n, s) => n + tally(s.events.by_kind, kind), 0);
+}
+
+/**
+ * The fetched memory events: ok (stream readable — OK, or INVALID with valid
+ * lines kept), and complete when the fetch holds every memory event the whole
+ * stream has (checked against derive's exact per-kind counts).
+ */
+export function memEvents(ctx, extra) {
+  if (!extra || extra.error || !extra.source) return { ok: false, complete: false, events: null, src: extra?.source ?? null, error: extra?.error ?? null };
+  const ok = extra.source.status === "OK" || extra.source.status === "INVALID";
+  const complete = ok && MEMORY_EVENT_KINDS.every((k) => {
+    const total = streamKindTotal(ctx, k);
+    return !isNil(total) && extra.fetched?.[k] === total;
+  });
+  return { ok, complete, events: ok ? extra.events : null, src: extra.source, error: null };
+}
+
+/** Hint for a count over the fetched memory events. */
+export function memEventsScope(ev) {
+  return ev.complete ? "Whole stream" : `Latest ${fmtCount(MEMORY_EVENT_LIMIT)} fetched`;
 }
 
 /* ------------------------------------------------------------ links */
@@ -154,6 +211,75 @@ export function stanceBadge(stance) {
   return badge(stance);
 }
 
+/* ------------------------------------------------------------ per-origin counts (never merged)
+   A count of records is always shown per record origin: ORIGINAL untagged,
+   every other origin tagged (RECON amber, SYNTH red). Rows without an origin
+   field (e.g. proposals in the graph) are UNDECLARED; graph placeholders for
+   references that resolve to nothing are UNRESOLVED. */
+
+export const ORIGIN_TAG = { RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH", UNDECLARED: "NO ORIGIN", UNRESOLVED: "UNRES." };
+const SPLIT_ORDER = [...ORIGINS, "UNDECLARED", "UNRESOLVED"];
+
+/** Records per origin (optionally only those matching `pred`). null rows (source not connected) -> null. */
+export function originCounts(rows, pred, originOf = (r) => r.origin) {
+  if (!Array.isArray(rows)) return null;
+  const out = {};
+  for (const r of rows) {
+    if (pred && !pred(r)) continue;
+    const o = originOf(r) ?? "UNDECLARED";
+    out[o] = tally(out, o) + 1;
+  }
+  return out;
+}
+
+/** Origins with at least one record, in display order. */
+export function splitParts(split) {
+  if (isNil(split)) return [];
+  const rank = (o) => (SPLIT_ORDER.includes(o) ? SPLIT_ORDER.indexOf(o) : SPLIT_ORDER.length);
+  return Object.keys(split)
+    .filter((o) => split[o] > 0)
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+/** True when a split holds any record that is not ORIGINAL (so a single plain number would hide it). */
+export function hasOtherOrigins(split) {
+  return splitParts(split).some((o) => o !== "ORIGINAL");
+}
+
+/** Records in a split, for bar scaling and zero checks only — never displayed as a number. */
+export function splitSize(split) {
+  return isNil(split) ? null : splitParts(split).reduce((n, o) => n + split[o], 0);
+}
+
+function originTagTone(o) {
+  if (o === "SYNTHETIC_FIXTURE") return toneClass("INVALID");
+  if (o === "RECONSTRUCTED") return toneClass("RECONSTRUCTED");
+  return toneClass(null);
+}
+
+/**
+ * One number per origin present ("4 · 2 RECON"). A connected source with no
+ * matching record renders a single real 0. null (not connected) -> null, so
+ * stat() / val() / tabs() render their own empty state.
+ */
+export function splitVal(split, { cls } = {}) {
+  if (isNil(split)) return null;
+  const parts = splitParts(split);
+  if (!parts.length) return html`<span class="${cx("mem-split", cls)}" data-origin-split><span class="mem-split__n" data-origin="NONE">${val(fmtCount(0))}</span></span>`;
+  return html`<span class="${cx("mem-split", cls)}" data-origin-split>${parts.map(
+    (o) => html`<span class="mem-split__n" data-origin="${o}" title="${fmtCount(split[o])} ${humanize(o).toLowerCase()} — counted separately, never merged with other origins">${val(fmtCount(split[o]))}${
+      o === "ORIGINAL" ? "" : html`<span class="${cx("mem-split__tag", originTagTone(o))}">${ORIGIN_TAG[o] ?? o}</span>`
+    }</span>`,
+  )}</span>`;
+}
+
+/** Plain-text split, e.g. "4 original · 2 reconstructed" (never one merged total). */
+export function splitText(split, noun = "") {
+  if (isNil(split)) return "";
+  const parts = splitParts(split).map((o) => `${fmtCount(split[o])} ${humanize(o).toLowerCase()}`);
+  return (parts.length ? parts.join(" · ") : "0") + (noun ? ` ${noun}` : "");
+}
+
 export function originSplit(records, originOf = (r) => r.origin) {
   if (!records) return val(null);
   if (records.length === 0) return html`<span class="mem-orig mem-orig--zero">0 RECORDED</span>`;
@@ -176,22 +302,27 @@ export function sourceTags(ctx, keys) {
 /* ------------------------------------------------------------ distribution bars */
 
 /**
- * rows: [{key, label?, n: number|null, tone?, href?}] — n null means not connected.
- * Bar length is relative to the largest row (display scaling only). A tone
- * class is applied only to a bar that has something to show, so an empty
- * panel never carries a state colour.
+ * rows: [{key, label?, n?: number|null, split?: {origin: n}|null, tone?, href?}]
+ * — n / split null means not connected. With a `split`, the number is shown per
+ * origin whenever any record is not ORIGINAL (never one merged figure). Bar
+ * length is relative to the largest row (display scaling only). A tone class
+ * is applied only to a bar that has something to show, so an empty panel
+ * never carries a state colour.
  */
 export function bars(rows, { neutral = false } = {}) {
-  const max = Math.max(0, ...rows.filter((r) => !isNil(r.n)).map((r) => r.n));
-  return html`<div class="mem-bars">${rows.map((r) => {
+  const sized = rows.map((r) => ({ ...r, n: r.split !== undefined ? splitSize(r.split) : r.n }));
+  const max = Math.max(0, ...sized.filter((r) => !isNil(r.n)).map((r) => r.n));
+  const splitMode = sized.some((r) => hasOtherOrigins(r.split));
+  return html`<div class="${cx("mem-bars", splitMode && "mem-bars--split")}">${sized.map((r) => {
     const empty = isNil(r.n);
     const has = !empty && r.n > 0;
     const pct = has && max > 0 ? (r.n / max) * 100 : 0;
     const tone = has ? r.tone ?? (neutral ? null : toneOf(r.key)) : null;
     const label = r.label ?? humanize(r.key);
+    const num = hasOtherOrigins(r.split) ? splitVal(r.split, { cls: "mem-split--bar" }) : val(empty ? null : fmtCount(r.n));
     const inner = html`<span class="mem-bar__label" title="${label}">${label}</span>
       <span class="mem-bar__track">${has ? html`<i class="${cx("mem-bar__fill", tone ? `tone-${tone}` : "mem-bar__fill--neutral")}" style="width:${raw(pct.toFixed(1))}%"></i>` : ""}</span>
-      <span class="mem-bar__n">${val(empty ? null : fmtCount(r.n))}</span>`;
+      <span class="mem-bar__n">${num}</span>`;
     const cls = cx("mem-bar", empty && "is-empty", !empty && r.n === 0 && "is-zero", r.href && "mem-bar--link", r.active && "is-active");
     return r.href ? html`<a class="${cls}" href="${r.href}" data-bar="${r.key}">${inner}</a>` : html`<div class="${cls}" data-bar="${r.key}">${inner}</div>`;
   })}</div>`;

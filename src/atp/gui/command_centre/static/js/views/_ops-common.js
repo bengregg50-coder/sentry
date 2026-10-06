@@ -4,13 +4,15 @@
 // derived.*. Nothing is estimated, summed across sources or defaulted.
 //
 // Conventions:
-//  * source not connected  -> sourceEmpty / "NOT CONNECTED" (never zero)
+//  * source unavailable    -> sourceEmpty / sourceShort(): NOT CONNECTED (no state dir),
+//                             NOT PRODUCED (missing), CONTRACT ERROR (invalid), UNREADABLE.
+//                             Never zero, and never one blanket "not connected".
 //  * connected, nothing    -> "None recorded"-style empty state; a real 0 is a fact
 //  * value not reported    -> val(null)
 
 import { html, raw, cx } from "../core/html.js";
-import { isNil, fmtNum, fmtCount, fmtDateTime, fmtAge, fmtMetric, humanize, pad2 } from "../core/format.js";
-import { source, derived, sourceShort, sourceReason } from "../core/state.js";
+import { isNil, fmtNum, fmtCount, fmtDateTime, fmtAge, fmtMetric, humanize, pad2, fmtLimit } from "../core/format.js";
+import { source, derived, sourceShort, sourceReason, sourceTitle } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
 import { badge, dot, chip, val, metric, basisChip, meter, emptyState, sourceEmpty, sourceTag } from "../components/ui.js";
 import { icon } from "../components/icons.js";
@@ -56,13 +58,11 @@ export function mcell(m) {
   return html`<span class="ops-m">${metric(m ?? null)}</span>`;
 }
 
-const LIMIT_UNIT = { ratio: ["", 2], pct: ["%", 2], bps: ["bps", 1], count: ["", 0], currency: ["CCY", 2], contracts: ["ct", 0] };
-
-/** A plain number with a RiskLimit unit (risk limits carry no Metric envelope). */
-export function unitVal(v, unit) {
-  if (isNil(v)) return val(null);
-  const [suffix, dp] = LIMIT_UNIT[unit] ?? ["", 2];
-  return val(fmtNum(v, dp), { unit: suffix ? ` ${suffix}` : "" });
+/** A plain number with a RiskLimit's unit and declared currency (risk limits carry no Metric envelope). */
+export function unitVal(v, limit) {
+  const f = fmtLimit(v, typeof limit === "string" ? { unit: limit } : limit);
+  if (f.empty) return val(null);
+  return val(f.text, { unit: f.suffix ? ` ${f.suffix}` : "" });
 }
 
 /** Plain float with a fixed suffix (ms, bps). */
@@ -129,8 +129,8 @@ export function limitRow(l, { compact = false } = {}) {
     </div>
     ${meter(l.used, l.limit, { state: l.state })}
     <div class="ops-limit__nums">
-      <span><span class="ops-k">USED</span>${unitVal(l.used, l.unit)}</span>
-      <span><span class="ops-k">LIMIT</span>${unitVal(l.limit, l.unit)}</span>
+      <span><span class="ops-k">USED</span>${unitVal(l.used, l)}</span>
+      <span><span class="ops-k">LIMIT</span>${unitVal(l.limit, l)}</span>
     </div>
   </div>`;
 }
@@ -157,19 +157,44 @@ export function connectionList(conns, { now, empty } = {}) {
 
 /* ------------------------------------------------------------------ agent slots */
 
-/** Slot head used in per-agent ops grids: id + derived status. */
-export function slotHead(slot) {
+/**
+ * Status badge for an agent slot. Without an OK agents.json the slot's status is
+ * not known: the badge names the source state (NOT CONNECTED / NOT PRODUCED /
+ * CONTRACT ERROR / UNREADABLE) instead of the derived not-connected default.
+ */
+export function slotStatus(ctx, slot) {
+  const agentsSrc = source(ctx, "agents");
+  if (agentsSrc?.status !== "OK") return { state: absentState(agentsSrc), label: sourceShort(agentsSrc) };
   const status = slot?.status ?? "NOT_REPORTED";
-  return html`<a class="ops-slot__head" href="#/agents/${slot.slot}">
-    <span class="ops-slot__id">${slotName(slot.slot)}</span>${dot(status)}${badge(status)}
+  return { state: status, label: status === "SOURCE_ERROR" ? "SOURCE ERROR" : undefined };
+}
+
+export function slotBadge(ctx, slot) {
+  const st = slotStatus(ctx, slot);
+  return badge(st.state, { label: st.label });
+}
+
+/** Slot head used in per-agent ops grids: id + status (source-aware). */
+export function slotHead(ctx, slot) {
+  const st = slotStatus(ctx, slot);
+  return html`<a class="ops-slot__head" href="#/agents/${slot.slot}" data-slot-status="${st.state}">
+    <span class="ops-slot__id">${slotName(slot.slot)}</span>${dot(st.state)}${badge(st.state, { label: st.label })}
   </a>`;
 }
+
+const SLOT_REASON = {
+  NOT_CONFIGURED: "No state directory is configured.",
+  MISSING: "The agent runtime has not produced agents.json.",
+  INVALID: "agents.json fails the state contract — see Provenance.",
+  UNREADABLE: "agents.json could not be read — see Provenance.",
+};
 
 /** Why an agent slot has nothing to show, from derived.agent_slots. Short: shown five times. */
 export function slotAbsence(ctx, slot) {
   const agentsSrc = source(ctx, "agents");
-  if (!derived(ctx, "agent_slots") || agentsSrc?.status !== "OK")
-    return { title: `agents.json ${sourceShort(agentsSrc)}`, reason: "Appears once the agent runtime produces agents.json." };
+  if (agentsSrc?.status !== "OK")
+    return { title: `agents.json ${sourceShort(agentsSrc)}`, reason: SLOT_REASON[agentsSrc?.status] ?? sourceReason(agentsSrc) ?? "" };
+  if (!derived(ctx, "agent_slots")) return { title: "Slots not derived", reason: "derived.agent_slots is unavailable in this snapshot." };
   if (!slot.reported) return { title: "Slot not reported", reason: "agents.json does not report this slot." };
   return null;
 }
@@ -205,9 +230,66 @@ export function absentState(src) {
   return src?.status === "INVALID" || src?.status === "UNREADABLE" ? src.status : "NOT_CONNECTED";
 }
 
-/** Compact "source unavailable" body for a panel. */
-export function absent(ctx, key, opts = {}) {
-  return sourceEmpty(source(ctx, key), { compact: true, ...opts });
+/**
+ * Status-accurate "until" clause for a document that is not available, e.g.
+ * "once the trading engine produces portfolio.json" (MISSING) or "once
+ * portfolio.json conforms to the state contract" (INVALID).
+ */
+export function untilAvailable(src, producer) {
+  const file = src?.file ?? "the document";
+  switch (src?.status) {
+    case "MISSING":
+      return `once ${producer} produces ${file}`;
+    case "INVALID":
+      return `once ${file} conforms to the state contract`;
+    case "UNREADABLE":
+      return `once ${file} can be read`;
+    case "NOT_CONFIGURED":
+      return `once ${file} is connected`;
+    default:
+      return `once ${file} is available`;
+  }
+}
+
+/**
+ * Compact "source unavailable" body for a panel. `what` names the content
+ * ("Exposures"); the title then follows the source status via sourceTitle()
+ * ("Exposures not produced", "Exposures rejected by the contract", ...).
+ */
+export function absent(ctx, key, { what, ...opts } = {}) {
+  const src = source(ctx, key);
+  return sourceEmpty(src, { compact: true, ...(what ? { title: sourceTitle(src, what) } : {}), ...opts });
+}
+
+/* ------------------------------------------------------------------ origins */
+
+export const ORIGIN_ORDER = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
+const ORIGIN_SHORT = { ORIGINAL: "ORIGINAL", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
+
+/** {origin: count} over records; origins missing from a record count as UNKNOWN. Never summed for display. */
+export function originCounts(records, originOf = (r) => r?.origin) {
+  const out = {};
+  for (const r of records) {
+    const o = originOf(r) ?? "UNKNOWN";
+    out[o] = (out[o] ?? 0) + 1;
+  }
+  return out;
+}
+
+const originRank = (o) => (ORIGIN_ORDER.includes(o) ? ORIGIN_ORDER.indexOf(o) : ORIGIN_ORDER.length);
+
+/**
+ * A count kept per origin: one figure per origin in `origins` (the origins the
+ * population spans), each tagged, e.g. "2 ORIGINAL · 1 RECON". With a single
+ * origin it is a plain count. Records of different origins are never added up.
+ */
+export function originCountVal(counts, origins) {
+  if (!counts) return val(null);
+  const list = [...new Set(origins)].sort((a, b) => originRank(a) - originRank(b));
+  if (list.length <= 1) return val(fmtCount(counts[list[0]] ?? 0));
+  return html`<span class="ops-osplit" data-origin-split>${list.map(
+    (o) => html`<span class="ops-osplit__n" data-origin="${o}" title="${humanize(o)} records, counted separately">${val(fmtCount(counts[o] ?? 0))}<span class="ops-osplit__tag ${toneClass(o === "SYNTHETIC_FIXTURE" ? "INVALID" : o === "ORIGINAL" ? null : o)}">${ORIGIN_SHORT[o] ?? humanize(o)}</span></span>`,
+  )}</span>`;
 }
 
 /** Column header strip shown above an empty list so the structure stays visible. */
@@ -216,7 +298,7 @@ export function ghostHead(cols, { cls } = {}) {
 }
 
 export function doctrine(items) {
-  return html`<div class="ops-doctrine">${items.map(([b, s]) => html`<div class="ops-doctrine__item">${icon("shield")}<div><b>${b}</b><span>${s}</span></div></div>`)}</div>`;
+  return html`<div class="ops-doctrine ops-doctrine--n${String(items.length)}">${items.map(([b, s]) => html`<div class="ops-doctrine__item">${icon("shield")}<div><b>${b}</b><span>${s}</span></div></div>`)}</div>`;
 }
 
 /* ------------------------------------------------------------------ charts */
