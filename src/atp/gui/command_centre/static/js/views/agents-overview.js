@@ -253,10 +253,10 @@ function memoryNetwork(ctx) {
     live
       ? `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(34,211,238,.22)" stroke-width="2"/><line class="flow-dash" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--cyan-2)" stroke-width="1.2"/>`
       : `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--faint)" stroke-width="1" stroke-dasharray="2 4"/>`;
-  const valText = (x, y, v, suffix, cls = "") =>
+  const valText = (x, y, v, suffix, cls = "", anchor = "middle") =>
     isNil(v)
-      ? `<text x="${x}" y="${y}" text-anchor="middle" class="svg-label svg-label--muted ${cls}" data-v data-empty="1">${EMPTY}</text>`
-      : `<text x="${x}" y="${y}" text-anchor="middle" class="svg-label ${cls}" data-v>${esc(String(v))}${suffix ? esc(suffix) : ""}</text>`;
+      ? `<text x="${x}" y="${y}" text-anchor="${anchor}" class="svg-label svg-label--muted ${cls}" data-v data-empty="1">${EMPTY}</text>`
+      : `<text x="${x}" y="${y}" text-anchor="${anchor}" class="svg-label ${cls}" data-v>${esc(String(v))}${suffix ? esc(suffix) : ""}</text>`;
 
   // research <-> memory
   const rmLive = resOk && memOk;
@@ -286,10 +286,12 @@ function memoryNetwork(ctx) {
     const live = memOk && !!refs;
     const x = xs[i];
     p.push(flow(x, 164, x, 196, live));
+    // status starts 7 in from the left border and refs end 7 in from the right, so the longest
+    // status (NOT REPORTED / SOURCE ERROR) stays inside the node instead of running past its edge.
     p.push(`<g class="ag-net__node ${toneClass(sv.status)}" data-net-slot="${n}"><rect x="${x - 78}" y="196" width="156" height="50" rx="3"/>`);
     p.push(`<text x="${x}" y="215" text-anchor="middle" class="svg-label svg-label--strong">AGENT ${pad2(n)}</text>`);
-    p.push(`<text x="${x - 6}" y="234" text-anchor="end" class="svg-label svg-label--muted" style="font-size:8.5px">${esc(humanize(sv.status))}</text>`);
-    p.push(valText(x + 26, 234, refs, " REFS", "ag-net__refs"));
+    p.push(`<text x="${x - 71}" y="234" class="svg-label svg-label--muted" style="font-size:8.5px" data-net-status>${esc(humanize(sv.status))}</text>`);
+    p.push(valText(x + 71, 234, refs, " REFS", "ag-net__refs", "end"));
     p.push(`</g>`);
   });
   return html`<div class="diagram ag-net" style="--diagram-min:760px">${raw(`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="One research intelligence, five agents, shared memory">${p.join("")}</svg>`)}</div>`;

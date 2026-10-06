@@ -658,6 +658,8 @@
             "deployment_package": null
           }
         ],
+        "stage_reached": "OOS",
+        "terminal": "REJECTED",
         "origin": "SYNTHETIC_FIXTURE"
       }
     ],

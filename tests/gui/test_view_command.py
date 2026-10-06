@@ -27,6 +27,43 @@ def _text(page, selector):
     return page.inner_text(selector).strip()
 
 
+def _split(page, scope):
+    """{origin: displayed count} for every per-origin count inside ``scope`` (first match)."""
+    return page.eval_on_selector(
+        scope,
+        """el => Object.fromEntries([...el.querySelectorAll('[data-origin]')]
+            .map(n => [n.dataset.origin, n.querySelector('[data-v]').textContent.trim()]))""",
+    )
+
+
+def _stat(label, panel=".cc-panel-kpi"):
+    """Selector for the value of the stat tile labelled ``label`` inside ``panel``."""
+    return f'{panel} .stat:has(> .stat__label:text-is("{label}")) > .stat__value'
+
+
+def _derived(page):
+    """derived block of the snapshot the page is rendering (the UI must show it verbatim)."""
+    return page.evaluate("fetch('/api/cc/snapshot').then(r => r.json()).then(s => s.derived)")
+
+
+def _panel_codes(page):
+    return page.eval_on_selector_all(".view .panel__code", "els => els.map(e => e.textContent.trim())")
+
+
+def _mixed_origins(state_factory):
+    """Fixture with two RECONSTRUCTED candidates and two RECONSTRUCTED memories (others ORIGINAL)."""
+
+    def strategies(d):
+        for s in d["data"]["strategies"]:
+            s["origin"] = "RECONSTRUCTED" if s["strategy_id"] in ("FX-S001", "FX-S002") else "ORIGINAL"
+
+    def memory(d):
+        for m in d["data"]["memories"]:
+            m["origin"] = "RECONSTRUCTED" if m["memory_id"] in ("FX-M0004", "FX-M0006") else "ORIGINAL"
+
+    return state_factory({"strategies": strategies, "memory": memory})
+
+
 # ---------------------------------------------------------------- both routes
 
 
@@ -109,6 +146,13 @@ def test_home_empty_structure_is_complete_and_honest(browser, empty_url):
     assert page.locator("[data-event]").count() == 0
     assert "EVENT STREAM NOT CONNECTED" in view_text(page).upper()
 
+    # declared trial accounting has its place on the home page, explicitly not connected
+    assert page.get_attribute("[data-trial-accounting]", "data-trial-accounting") == "NOT_CONNECTED"
+    assert all("is-empty" in (c or "") for c in _attr_all(page, "[data-acct] [data-v]", "class"))
+
+    # panel codes follow reading order
+    assert _panel_codes(page) == [f"CMD-{i:02d}" for i in range(1, 13)]
+
     # controls render locked, from derived.controls
     keys = _attr_all(page, ".cc-deck [data-control]", "data-control")
     assert keys == ["ASSIGN_STRATEGY", "START_SIMULATION", "ENABLE_LIVE", "HALT_AGENT", "TRIP_KILL_SWITCH"]
@@ -128,14 +172,29 @@ def test_home_fixture_renders_declared_records(browser, fixture_url):
     assert page.get_attribute('[data-agent-slot="4"]', "data-agent-status") == "STANDBY"
     assert page.get_attribute('[data-agent-slot="5"]', "data-agent-status") == "NOT_REPORTED"
 
-    # research status: validated count is a real number from derived.research_summary
+    # research status: validated count is a real number, tagged with its record origin
     assert page.get_attribute('[data-kpi="validated"]', "data-available") == "1"
     assert _text(page, '[data-kpi="validated"] [data-v]') == "1"
+    assert _split(page, '[data-kpi="validated"]') == {"SYNTHETIC_FIXTURE": "1"}
+
+    # research status counts are per origin, never one merged total (7 ORIGINAL + 1 RECONSTRUCTED hypotheses)
+    assert _split(page, _stat("Hypotheses")) == {"ORIGINAL": "7", "RECONSTRUCTED": "1"}
+    assert _split(page, _stat("Trial records")) == {"ORIGINAL": "9", "RECONSTRUCTED": "2"}
+    assert _split(page, _stat("Memories")) == {"SYNTHETIC_FIXTURE": "6"}
+    hyp_tile = _text(page, '.cc-panel-kpi .stat:has(> .stat__label:text-is("Hypotheses"))')
+    assert "8" not in hyp_tile and "RECON" in hyp_tile.upper()
+    # declared trial accounting: three separate ledger figures, never summed by the UI
+    assert page.get_attribute("[data-trial-accounting]", "data-trial-accounting") == "DECLARED"
+    assert _text(page, '[data-acct="reconstructed_baseline"] [data-v]') == "5"
+    assert _text(page, '[data-acct="live_recorded"] [data-v]') == "9"
+    assert _text(page, '[data-acct="global_count"] [data-v]') == "14"
 
     # pipeline available with declared counts
     assert page.get_attribute("[data-pipeline-available]", "data-pipeline-available") == "1"
-    assert page.locator('.pl-node[data-stage="DISCOVERY"] [data-v]').text_content().strip() == "12"
-    assert page.locator('[data-terminal="REJECTED"] b').text_content().strip() == "3"
+    discovery = _derived(page)["pipeline"]["stages"][0]
+    assert discovery["stage"] == "DISCOVERY" and discovery["reached"] is not None
+    assert page.locator('.pl-node[data-stage="DISCOVERY"] [data-v]').text_content().strip() == str(discovery["reached"])
+    assert _split(page, '[data-terminal="REJECTED"]') == {"ORIGINAL": "1", "RECONSTRUCTED": "1", "SYNTHETIC_FIXTURE": "1"}
 
     # subsystems: declared states displayed verbatim, warning stays amber
     trading = page.locator('.cc-sys[data-subsystem="trading_engine"]')
@@ -147,7 +206,7 @@ def test_home_fixture_renders_declared_records(browser, fixture_url):
     assert "FX-P02" in focus and "FX-H007" in focus and "FIXTURE: run implementation verification" in focus
     assert page.locator('[data-programme="FX-P02"]').count() == 1
     assert page.locator('[data-programme="FX-P01"]').count() == 0  # SEALED, not active
-    assert page.locator('[data-hyp-status="REJECTED"] b').text_content().strip() == "2"
+    assert _split(page, '[data-hyp-status="REJECTED"]') == {"ORIGINAL": "1", "RECONSTRUCTED": "1"}
 
     # memory: recent titles resolved from documents.memory, origin badge shown
     row = page.locator('[data-memory="FX-M0006"]')
@@ -172,10 +231,108 @@ def test_home_fixture_renders_declared_records(browser, fixture_url):
     assert page.locator("[data-event]").count() == 6
     assert page.locator('[data-event="FX-E0014"]').count() == 1
 
-    # system loop fully connected with real counts
+    # system loop fully connected with real counts; record nodes show ORIGINAL only, all origins listed beside
     assert set(_attr_all(page, ".cc-ring [data-cycle-node]", "data-connected")) == {"1"}
     obs = page.locator('.cc-ring [data-cycle-node="OBSERVATIONS"] [data-v]').text_content().strip()
     assert obs == "15"
+    assert page.locator('.cc-ring [data-cycle-node="RESEARCH"] [data-v]').text_content().strip() == "7"
+    assert _split(page, '[data-loop-node="RESEARCH"]') == {"ORIGINAL": "7", "RECONSTRUCTED": "1"}
+
+    # live strip badges are sized to their content, never stretched to the column
+    slack = page.eval_on_selector_all(
+        ".cc-live-head .badge",
+        """els => els.map(el => { const r = document.createRange(); r.selectNodeContents(el);
+            return el.getBoundingClientRect().width - r.getBoundingClientRect().width })""",
+    )
+    assert slack and max(slack) < 24, slack
+
+    assert _panel_codes(page) == [f"CMD-{i:02d}" for i in range(1, 13)]
+    page.close()
+
+
+def test_home_counts_never_merge_origins(browser, state_factory):
+    """Mixed origins: RECONSTRUCTED records are tagged and counted apart, never folded into a total."""
+    url, server = start_server(_mixed_origins(state_factory))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/")
+        assert v.clean, v.describe()
+        # both candidates are RECONSTRUCTED: no untagged "2"
+        assert _split(page, _stat("Candidates")) == {"RECONSTRUCTED": "2"}
+        assert _split(page, _stat("Memories")) == {"ORIGINAL": "4", "RECONSTRUCTED": "2"}
+        assert _split(page, _stat("Deployed")) == {"ORIGINAL": "1"}
+        assert _split(page, _stat("Memories", ".cc-panel-mem")) == {"ORIGINAL": "4", "RECONSTRUCTED": "2"}
+        for tag in page.eval_on_selector_all('[data-origin="RECONSTRUCTED"] .cc-split__tag', "els => els.map(e => e.className)"):
+            assert "tone-warn" in tag and "tone-ok" not in tag
+        # loop ring shows the ORIGINAL count; the legend lists the reconstructed records beside it
+        assert page.locator('.cc-ring [data-cycle-node="KNOWLEDGE"] [data-v]').text_content().strip() == "4"
+        assert _split(page, '[data-loop-node="KNOWLEDGE"]') == {"ORIGINAL": "4", "RECONSTRUCTED": "2"}
+        assert _split(page, '[data-loop-node="STRATEGIES"]') == {"ORIGINAL": "3", "RECONSTRUCTED": "2"}
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_home_shows_declared_trial_accounting_when_records_are_absent(browser, state_factory):
+    """Post-loss shape: no individual trials, but the ledger declares 112 reconstructed + 3 live (115)."""
+
+    def post_loss(d):
+        d["data"]["trials"] = []
+        d["data"]["trial_accounting"].update({"reconstructed_baseline": 112, "live_recorded": 3, "global_count": 115})
+
+    url, server = start_server(state_factory({"research": post_loss}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/")
+        assert v.clean, v.describe()
+        assert _split(page, _stat("Trial records")) == {"ORIGINAL": "0"}
+        assert _text(page, '[data-acct="reconstructed_baseline"] [data-v]') == "112"
+        assert "RECON" in _text(page, '[data-acct="reconstructed_baseline"]').upper()
+        assert _text(page, '[data-acct="live_recorded"] [data-v]') == "3"
+        assert _text(page, '[data-acct="global_count"] [data-v]') == "115"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_home_undeclared_trial_accounting_is_not_a_zero(browser, state_factory):
+    def no_accounting(d):
+        d["data"]["trial_accounting"] = None
+
+    url, server = start_server(state_factory({"research": no_accounting}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/")
+        assert v.clean, v.describe()
+        assert page.get_attribute("[data-trial-accounting]", "data-trial-accounting") == "NOT_DECLARED"
+        assert all("is-empty" in (c or "") for c in _attr_all(page, "[data-acct] [data-v]", "class"))
+        assert "not declared" in _text(page, "[data-trial-accounting]").lower()
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+@pytest.mark.parametrize("route", list(ROUTES))
+def test_empty_values_render_faint(browser, empty_url, route):
+    """An empty value (—) is never painted in the bright value colour by a view rule."""
+    page = new_page(browser, empty_url)
+    v = visit(page, route)
+    assert v.clean, v.describe()
+    colours = page.evaluate(
+        """() => {
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--faint)';
+            document.querySelector('.view').appendChild(probe);
+            const faint = getComputedStyle(probe).color;
+            probe.remove();
+            const bad = [...document.querySelectorAll('.view .v.is-empty')]
+              .filter(el => getComputedStyle(el).color !== faint)
+              .map(el => (el.parentElement.className || el.parentElement.tagName) + ' ' + getComputedStyle(el).color);
+            return { faint, bad, n: document.querySelectorAll('.view .v.is-empty').length };
+        }"""
+    )
+    assert colours["n"] > 0
+    assert colours["bad"] == [], colours
     page.close()
 
 
@@ -307,7 +464,8 @@ def test_system_fixture_renders_declared_counts(browser, fixture_url):
     learn_obs = page.locator('.cc-learn .step[data-step="OBSERVE"] .step__count').text_content().strip()
     assert learn_obs == "2"
     gov = page.locator('.cc-learn .step[data-step="GOVERNANCE_APPROVAL"] .step__count').text_content().strip()
-    assert gov == "0"
+    declared_gov = next(st["count"] for st in _derived(page)["learning"]["stages"] if st["key"] == "GOVERNANCE_APPROVAL")
+    assert gov == str(declared_gov)
 
     assert page.get_attribute('[data-role="BACKTESTER"]', "data-state") == "BLOCKED"
     assert page.get_attribute('[data-role="GOVERNANCE"]', "data-state") == "NOT_BUILT"
@@ -318,6 +476,13 @@ def test_system_fixture_renders_declared_counts(browser, fixture_url):
     assert page.get_attribute('.cc-ring [data-cycle-node="BETTER_STRATEGIES"] [data-v]', "data-empty") == "1"
     assert "9" in _text(page, '[data-ledger="Trial records · original"]')
     assert "2" in _text(page, '[data-ledger="Trial records · reconstructed"]')
+    # rejected hypotheses: FX-H001 is ORIGINAL, FX-H002 RECONSTRUCTED — one row per origin, never "2"
+    assert page.locator('[data-ledger="Hypotheses rejected"]').count() == 0
+    assert _text(page, '[data-ledger="Hypotheses rejected · original"] .cc-ledger__v') == "1"
+    assert _text(page, '[data-ledger="Hypotheses rejected · reconstructed"] .cc-ledger__v') == "1"
+    # memory-backed rows carry their record origin
+    assert _split(page, '[data-ledger="Memories"]') == {"SYNTHETIC_FIXTURE": "6"}
+    assert _split(page, '[data-ledger="Programmes"]') == {"SYNTHETIC_FIXTURE": "4"}
 
     # architecture overlay: everything connected; agent channel stays locked
     assert page.get_attribute('[data-arch-link="research-state"]', "data-connected") == "1"

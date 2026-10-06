@@ -4,13 +4,17 @@
 // Red (bad) for failure, rejection, risk, violations, broken sources.
 // Cyan (info) for active/operational states; blue (accent) for sealed/frozen records.
 // Anything unknown is muted — never green by default.
+//
+// "COMPLETE" is NOT a pass: a research programme can complete with a null result.
+// It is neutral (info) here; deployment-handoff steps use stepTone(), where a
+// COMPLETE step is defined as "every gate up to and including this one passed".
 
-const OK = ["PASS", "VALIDATED", "APPROVED", "MATCH", "COMPLETE", "OK"];
+const OK = ["PASS", "VALIDATED", "APPROVED", "MATCH", "OK", "ELIGIBLE"];
 
 const WARN = [
   "PENDING", "BLOCKED", "BLOCKED_BY_DATA", "WARN", "WARNING", "DIFFERS", "RECONSTRUCTED", "DEGRADED",
   "INCONCLUSIVE", "PROVISIONAL", "REVIEW", "UNVERIFIED", "PAUSED", "PARTIAL", "SPEC_DRAFT", "STALE",
-  "MEDIUM", "LOST", "EVIDENCE_LOST", "SOURCE_MISSING", "STARTING", "PROPOSED_CHANGE",
+  "MEDIUM", "LOW", "LOST", "EVIDENCE_LOST", "SOURCE_MISSING", "STARTING", "PROPOSED_CHANGE",
 ];
 
 const BAD = [
@@ -23,7 +27,8 @@ const INFO = [
   "RUNNING", "ACTIVE", "LIVE", "SIMULATING", "PAPER", "TESTING", "ONLINE", "CONNECTED", "REPORTING",
   "IN_PROGRESS", "IN_RESEARCH", "PREREGISTERED", "WORKING", "CANDIDATE", "IN_VALIDATION", "DEPLOYED_SIM",
   "DEPLOYED_LIVE", "SCALED", "STANDBY", "ARMED", "SIM", "LONG", "SHORT", "FILLED", "HIGH", "RETAIN",
-  "SUPPORTS", "ORIGINAL", "RELEASED_AS_VERSION", "SPEC_FROZEN", "FROZEN", "VERIFIED",
+  "SUPPORTS", "ORIGINAL", "RELEASED_AS_VERSION", "SPEC_FROZEN", "FROZEN", "VERIFIED", "COMPLETE",
+  "IN_SIMULATION",
 ];
 
 const ACCENT = ["SEALED", "LOCKED"];
@@ -49,4 +54,28 @@ export function severityTone(sev) {
   return { CRITICAL: "bad", WARNING: "warn", INFO: "info" }[sev] ?? "muted";
 }
 
-export const TONE_TABLE = { OK, WARN, BAD, INFO, ACCENT };
+/**
+ * Step states of derived.handoffs (and other step flows). A handoff step is COMPLETE only
+ * when it and every earlier gate passed, so here — and only here — COMPLETE is green.
+ * RUNNING (an ongoing simulation) is cyan; NOT_REACHED / WITHDRAWN / NOT_STARTED are muted.
+ */
+const STEP = {
+  COMPLETE: "ok",
+  BLOCKED: "warn",
+  NOT_REACHED: "muted",
+  WITHDRAWN: "muted",
+  NOT_STARTED: "muted",
+  UNKNOWN: "muted",
+  VIOLATION: "bad",
+};
+
+export function stepTone(state) {
+  if (state === null || state === undefined) return "muted";
+  return STEP[String(state).toUpperCase()] ?? toneOf(state);
+}
+
+export function stepToneClass(state) {
+  return `tone-${stepTone(state)}`;
+}
+
+export const TONE_TABLE = { OK, WARN, BAD, INFO, ACCENT, STEP };

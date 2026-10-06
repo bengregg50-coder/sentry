@@ -6,7 +6,7 @@
 
 import { html } from "../core/html.js";
 import { fmtCount, fmtDate, fmtDateTime, humanize, shortHash, isNil } from "../core/format.js";
-import { source, derived, sourceReason } from "../core/state.js";
+import { source, derived, sourceReason, sourceShort } from "../core/state.js";
 import {
   pageHeader,
   panel,
@@ -15,7 +15,6 @@ import {
   stat,
   statRow,
   sourceTag,
-  sourceEmpty,
   emptyState,
   kv,
   val,
@@ -28,12 +27,29 @@ import { toneOf, toneClass, severityTone } from "../core/tones.js";
 import { icon } from "../components/icons.js";
 import * as R from "./_research-a-common.js";
 
-const ACCOUNTING_CODES = new Set([
-  "TRIAL_COUNT_MISMATCH",
-  "RECONSTRUCTED_RECORDS_INCOMPLETE",
-  "LIVE_RECORD_COUNT_DIFFERS",
-  "SEALED_EVIDENCE_NOT_SEPARATE",
-]);
+// Ledger cross-checks are run by the server (derive.py, consistency findings). Each one
+// compares declared trial_accounting fields with the records present, and runs only when
+// those fields are declared — so "no finding" from a check that could not run is never
+// shown as consistency. The field preconditions mirror derive.py's (the snapshot does not
+// yet say per check whether it ran); the view decides nothing about the counts themselves.
+const ACCOUNTING_CHECKS = [
+  {
+    key: "GLOBAL_SUM",
+    label: "Global = baseline + live-recorded",
+    needs: ["reconstructed_baseline", "live_recorded", "global_count"],
+    codes: ["TRIAL_COUNT_MISMATCH"],
+  },
+  {
+    key: "RECONSTRUCTED_RECORDS",
+    label: "Reconstructed records vs baseline",
+    needs: ["reconstructed_baseline"],
+    codes: ["RECONSTRUCTED_RECORDS_INCOMPLETE", "RECONSTRUCTED_RECORDS_EXCEED_BASELINE"],
+  },
+  { key: "LIVE_RECORDS", label: "Original records vs live-recorded", needs: ["live_recorded"], codes: ["LIVE_RECORD_COUNT_DIFFERS"] },
+  { key: "SEALED_SEPARATE", label: "Sealed evidence kept separate", needs: ["sealed_evidence_separate"], codes: ["SEALED_EVIDENCE_NOT_SEPARATE"] },
+];
+const ACCOUNTING_CODES = new Set(ACCOUNTING_CHECKS.flatMap((c) => c.codes));
+const SEVERITY_RANK = { CRITICAL: 3, WARNING: 2, INFO: 1 };
 
 /* ---------------------------------------------------------------- focus */
 
@@ -49,8 +65,7 @@ function focusSlot(kind, id, record, href) {
 
 function focusBody(rs, src) {
   if (!rs) {
-    return sourceEmpty(src, {
-      title: "Research focus not connected",
+    return R.srcEmpty(src, "Research focus", {
       hint: "The programme and hypothesis under investigation, a summary and the next action appear here once the research engine exports research.json.",
     });
   }
@@ -91,7 +106,7 @@ function focusBody(rs, src) {
 
 /* ---------------------------------------------------------------- summary */
 
-function summaryBody(ctx, rs) {
+function summaryBody(ctx, rs, src) {
   const sum = derived(ctx, "research_summary");
   const hyps = rs?.hypotheses ?? null;
   const trials = rs?.trials ?? null;
@@ -99,7 +114,7 @@ function summaryBody(ctx, rs) {
   const families = sum?.research_available ? sum.families : null;
   const origins = R.originColumns(hyps);
   const byStatus = R.countMatrix(hyps, (h) => h.status);
-  const reason = rs ? null : "NOT CONNECTED";
+  const reason = rs ? null : R.offLabel(src);
   return html`
     ${statRow(
       [
@@ -125,7 +140,7 @@ function summaryBody(ctx, rs) {
           ? families.length
             ? html`<div class="rsa-chips">${families.map((f) => chip(f))}</div>`
             : html`<div class="rsa-none">No families declared on any hypothesis.</div>`
-          : html`<div class="rsa-none">Not connected — families appear as hypotheses are registered.</div>`}
+          : html`<div class="rsa-none">${R.offLabel(src)} — families appear as hypotheses are registered.</div>`}
         <a class="rsa-more" href="#/research/discovery">${icon("discovery")}Families explored &amp; research areas</a>
         <a class="rsa-more" href="#/research/hypotheses">${icon("hypothesis")}Hypothesis register</a>
         <a class="rsa-more" href="#/research/experiments">${icon("experiment")}Experiment ledger</a>
@@ -198,8 +213,7 @@ function programmesBody(rs, src, focusId) {
     rowCls: (p) => (p.programme_id === focusId ? "rsa-row--focus" : ""),
     empty: rs
       ? emptyState({ title: "No programmes declared", reason: "research.json is connected but lists no research programmes.", compact: true })
-      : sourceEmpty(src, {
-          title: "Programmes not connected",
+      : R.srcEmpty(src, "Programmes", {
           compact: true,
           hint: "Each programme appears with its status (e.g. SPEC FROZEN, SEALED, DEFERRED), universe status, frozen specification hash and evaluation windows.",
         }),
@@ -211,15 +225,16 @@ function programmesBody(rs, src, focusId) {
 function accountingBody(ctx, src) {
   const ta = derived(ctx, "trial_accounting");
   if (!ta?.available) {
+    const off = R.offLabel(src);
     return html`${statRow(
       [
-        stat({ label: "Reconstructed baseline", value: null, emptyLabel: "NOT CONNECTED" }),
-        stat({ label: "Live-recorded", value: null, emptyLabel: "NOT CONNECTED" }),
-        stat({ label: "Global (declared)", value: null, emptyLabel: "NOT CONNECTED" }),
+        stat({ label: "Reconstructed baseline", value: null, emptyLabel: off }),
+        stat({ label: "Live-recorded", value: null, emptyLabel: off }),
+        stat({ label: "Global (declared)", value: null, emptyLabel: off }),
       ],
       { min: 130 },
     )}
-    <div class="rsa-autoh">${sourceEmpty(src, { title: "Trial ledger not connected", compact: true, hint: "Counts are never estimated. They appear only when the research ledger exports trial_accounting." })}</div>`;
+    <div class="rsa-autoh">${R.srcEmpty(src, "Trial ledger", { compact: true, hint: "Counts are never estimated. They appear only when the research ledger exports trial_accounting." })}</div>`;
   }
   const d = ta.declared;
   const recs = ta.records_by_origin ?? {};
@@ -250,33 +265,80 @@ function accountingBody(ctx, src) {
         ])
       : emptyState({ title: "Trial accounting not declared", reason: "research.json is connected but carries no trial_accounting block.", compact: true })}
     ${d?.notes?.length ? html`<ul class="rsa-notes rsa-notes--block">${d.notes.map((n) => html`<li>${n}</li>`)}</ul>` : ""}
-    <div class="rsa-label rsa-label--gap">Ledger cross-checks</div>
-    ${findingsList(findings, {
-      empty: emptyState({ title: "No accounting discrepancies", reason: "Declared counts are consistent with the records present.", compact: true, iconName: "shield" }),
+    ${crossChecksBody(ctx, d, findings)}`;
+}
+
+/** Which ledger cross-checks ran, and what they found. Nothing checked is never shown as consistent. */
+function crossChecksBody(ctx, d, findings) {
+  const failed = (derived(ctx, "errors") ?? []).some((e) => e.section === "consistency");
+  const head = (note) => html`<div class="rsa-label rsa-label--gap rsa-xc__label">Ledger cross-checks${note ? html`<span class="rsa-xc__note">${note}</span>` : ""}</div>`;
+  if (failed) {
+    return html`${head(null)}${emptyState({
+      title: "Cross-checks not run",
+      reason: "The consistency checks could not be computed from the declared state (see DERIVATION_ERROR in Governance).",
+      compact: true,
+      iconName: "alert",
+      code: "accounting-checks-failed",
     })}`;
+  }
+  if (!d) {
+    return html`${head(null)}${emptyState({
+      title: "Cross-checks not run",
+      reason: "trial_accounting is not declared, so there are no ledger counts to check the records against.",
+      inline: true,
+      code: "accounting-checks-not-run",
+    })}`;
+  }
+  const rows = ACCOUNTING_CHECKS.map((c) => {
+    const missing = c.needs.filter((k) => isNil(d[k]));
+    const hits = findings.filter((f) => c.codes.includes(f.code));
+    const worst = hits.reduce((w, f) => ((SEVERITY_RANK[f.severity] ?? 0) > (SEVERITY_RANK[w] ?? 0) ? f.severity : w), hits[0]?.severity ?? null);
+    const state = missing.length ? "NOT_RUN" : hits.length ? "FLAGGED" : "NO_DISCREPANCY";
+    return { c, missing, hits, worst, state };
+  });
+  const ran = rows.filter((r) => r.state !== "NOT_RUN").length;
+  const note = ran === rows.length ? `${ran} of ${rows.length} run` : `${ran} of ${rows.length} run · partially checked`;
+  return html`${head(note)}
+    <div class="rsa-xc" data-checks-run="${String(ran)}" data-checks-total="${String(rows.length)}">${rows.map(
+      (r) => html`<div class="rsa-xc__row" data-check="${r.c.key}" data-check-state="${r.state}">
+        <span class="rsa-xc__k">${r.c.label}</span>
+        <span class="rsa-xc__v">${
+          r.state === "NOT_RUN"
+            ? html`${chip("NOT RUN", { cls: "rsa-chip-quiet" })}<span class="rsa-xc__why">${r.missing.join(", ")} not declared</span>`
+            : r.state === "FLAGGED"
+              ? html`<span class="badge tone-${severityTone(r.worst)}" data-state="${r.worst}">FLAGGED · ${r.worst}</span>`
+              : chip("NO DISCREPANCY", { title: "This check ran on the declared counts and raised no finding" })
+        }</span>
+      </div>`,
+    )}</div>
+    ${findings.length
+      ? findingsList(findings)
+      : ran === rows.length
+        ? emptyState({ title: "No accounting discrepancies", reason: "Every ledger cross-check ran on the declared counts and raised no finding.", compact: true, iconName: "shield", code: "accounting-consistent" })
+        : ""}`;
 }
 
 /* ---------------------------------------------------------------- roles */
 
 function rolesBody(rs, src) {
   const byRole = new Map((rs?.roles ?? []).map((r) => [r.role, r]));
-  return html`<div class="rsa-roles">${R.ROLES.map(([key, label, desc]) => {
+  return html`<div class="rsa-roles-wrap"><div class="rsa-roles">${R.ROLES.map(([key, label, desc]) => {
     const r = byRole.get(key);
-    const state = r?.state ?? (rs ? "NOT_REPORTED" : "NOT_CONNECTED");
+    const state = r?.state ?? (rs ? "NOT_REPORTED" : R.offState(src));
     return html`<div class="rsa-role ${toneClass(r ? r.state : null)}" data-role="${key}" data-state="${state}">
-      <div class="split"><span class="rsa-role__label">${label}</span>${badge(state)}</div>
+      <div class="split"><span class="rsa-role__label">${label}</span>${r || rs ? badge(state) : R.offBadge(src)}</div>
       <div class="rsa-role__desc">${r?.detail ?? desc}</div>
       <div class="rsa-role__meta">${r?.last_activity_at
         ? html`LAST ACTIVITY ${fmtDateTime(r.last_activity_at)}`
-        : html`<span>${r ? "NO ACTIVITY RECORDED" : rs ? "NOT REPORTED BY RESEARCH ENGINE" : "SOURCE NOT CONNECTED"}</span>`}</div>
+        : html`<span>${r ? "NO ACTIVITY RECORDED" : rs ? "NOT REPORTED BY RESEARCH ENGINE" : `SOURCE ${sourceShort(src)}`}</span>`}</div>
     </div>`;
-  })}</div>${rs ? "" : html`<div class="rsa-foot-note">${sourceReason(src)}</div>`}`;
+  })}</div></div>${rs ? "" : html`<div class="rsa-foot-note">${sourceReason(src)}</div>`}`;
 }
 
 /* ---------------------------------------------------------------- notices + doctrine */
 
 function noticesBody(rs, src) {
-  if (!rs) return sourceEmpty(src, { title: "Integrity notices not connected", compact: true, hint: "Source losses, reconstructions and other integrity events declared by the research engine appear here." });
+  if (!rs) return R.srcEmpty(src, "Integrity notices", { compact: true, hint: "Source losses, reconstructions and other integrity events declared by the research engine appear here." });
   if (!rs.integrity_notices.length) return emptyState({ title: "No integrity notices declared", reason: "The research engine reports no integrity events.", compact: true, iconName: "shield" });
   return html`${rs.integrity_notices.map((n) =>
     notice({
@@ -331,7 +393,7 @@ export default {
 
       <div class="grid">
         ${panel({ span: 4, code: "RES-01", title: "Current focus", sub: "Declared by the research engine", body: focusBody(rs, src), cls: "lg-span-12", variant: "accent" })}
-        ${panel({ span: 8, code: "RES-02", title: "Research summary", sub: rs ? "Counts of declared records, by origin" : sourceReason(src), body: summaryBody(ctx, rs), cls: "lg-span-12" })}
+        ${panel({ span: 8, code: "RES-02", title: "Research summary", sub: rs ? "Counts of declared records, by origin" : sourceReason(src), body: summaryBody(ctx, rs, src), cls: "lg-span-12" })}
       </div>
 
       <div class="grid">
@@ -339,7 +401,9 @@ export default {
           span: 12,
           code: "RES-03",
           title: "Research → deployment pipeline",
-          sub: pipeline?.available ? "Items reaching each stage · terminal lanes show where they stopped" : "research.json and strategies.json not connected",
+          sub: pipeline?.available
+            ? "Items reaching each stage · terminal lanes show where they stopped"
+            : [src, stratSrc].map((x) => `${x?.file ?? "source"} ${sourceShort(x).toLowerCase()}`).join(" · "),
           actions: legend(TERMINALS.map((t) => [humanize(t), toneOf(t)])),
           body: html`<div class="rsa-pipe">${pipelineDiagram(pipeline)}</div>`,
         })}
@@ -354,8 +418,7 @@ export default {
           body: items
             ? html`<div class="rsa-tracks">${pipelineTracks(items, { hrefFor: R.itemHref, limit: 40 })}</div>`
             : R.tracksFrame(
-                sourceEmpty(src, {
-                  title: "No pipeline items",
+                R.srcEmpty(src, "Pipeline tracks", {
                   compact: true,
                   hint: "Each hypothesis and strategy appears as a track from DISCOVERY to the stage it reached, ending in its terminal outcome.",
                 }),

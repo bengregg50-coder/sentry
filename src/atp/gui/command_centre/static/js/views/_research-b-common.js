@@ -123,6 +123,43 @@ export function trialsOfKinds(rs, kinds) {
   return rs.trials.filter((t) => kinds.includes(t.kind)).sort(byTrialNumber);
 }
 
+/**
+ * Trials linked to a hypothesis, in ledger order: those whose hypothesis_id
+ * names it, plus those whose trial_number the hypothesis declares in
+ * trial_numbers (the same union the Hypotheses view uses). Declared numbers
+ * with no trial record present are returned separately as `missing`.
+ */
+export function trialsOfHypothesis(rs, h) {
+  const nums = new Set(h.trial_numbers ?? []);
+  const trials = (rs?.trials ?? []).filter((t) => t.hypothesis_id === h.hypothesis_id || (!isNil(t.trial_number) && nums.has(t.trial_number))).sort(byTrialNumber);
+  const present = new Set(trials.map((t) => t.trial_number).filter((n) => !isNil(n)));
+  return { trials, missing: (h.trial_numbers ?? []).filter((n) => !present.has(n)) };
+}
+
+/**
+ * Validation-check states reported by the given current versions for one
+ * check, as [[state, n]] in contract order (only states that occur). Versions
+ * that do not report the check are not counted. Display counting only.
+ */
+export function checkStateSplit(cv, key) {
+  if (!cv) return null;
+  const n = {};
+  for (const { v } of cv) {
+    const s = v.validation?.[key]?.state;
+    if (s) n[s] = (n[s] ?? 0) + 1;
+  }
+  return [...CHECK_STATES, ...Object.keys(n).filter((s) => !CHECK_STATES.includes(s))].filter((s) => n[s] > 0).map((s) => [s, n[s]]);
+}
+
+/** Reported-state split as compact badges ("PASS 2 · FAIL 1"); "NONE REPORTED" when empty. */
+export function checkSplitBadges(split, { none = "NONE REPORTED" } = {}) {
+  if (!split) return val(null);
+  if (!split.length) return html`<span class="rsb-faint" data-check-split="none">${none}</span>`;
+  return html`<span class="rsb-cksplit">${split.map(
+    ([s, n]) => html`<span class="rsb-cksplit__item" data-check-state="${s}" data-n="${String(n)}">${badge(s)}<b class="mono">${fmtCount(n)}</b></span>`,
+  )}</span>`;
+}
+
 export function groupBy(rows, keyFn) {
   const m = new Map();
   for (const r of rows ?? []) {

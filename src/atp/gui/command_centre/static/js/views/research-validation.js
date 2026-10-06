@@ -160,7 +160,8 @@ function multipleTesting(ctx, st, ssrc, cv) {
     { label: "Global trials at decision", render: ({ v }) => B.num(v.multiple_testing?.global_trials_at_decision), num: true },
     { label: "Adjusted threshold", render: ({ v }) => B.num(v.multiple_testing?.adjusted_threshold), num: true },
     { label: "Deflated Sharpe", render: ({ v }) => B.num(v.multiple_testing?.deflated_sharpe), num: true },
-    { label: "Detail", render: ({ v }) => (v.multiple_testing?.detail ? html`<span class="rsb-sub">${v.multiple_testing.detail}</span>` : null), cls: "rsb-w-reason" },
+    // Left-aligned text after a right-aligned numeric column: separated so header and values do not run together.
+    { label: "Detail", render: ({ v }) => (v.multiple_testing?.detail ? html`<span class="rsb-sub">${v.multiple_testing.detail}</span>` : null), cls: "rsb-w-reason rsb-colsep", hcls: "rsb-colsep" },
     { label: "Check", title: "The multiple_testing validation check reported for this version", render: ({ v }) => B.checkCell(v.validation.multiple_testing, "multiple_testing"), cls: "rsb-mx__cell" },
   ];
   const empty = !st
@@ -171,7 +172,7 @@ function multipleTesting(ctx, st, ssrc, cv) {
         declared.as_of ? html` (as of ${fmtDateTime(declared.as_of)})` : ""
       } — counts are shown side by side, never recomputed or adjusted here.`
     : html`The ledger's global trial count appears here for reference once research.json declares trial_accounting.`;
-  return html`${B.regTable({ columns, rows: cv, empty, rowAttrs: ({ s }) => html`data-strategy="${s.strategy_id}"` })}<p class="rsb-note">${foot}</p>`;
+  return html`${B.regTable({ columns, rows: cv, empty, cls: "rsb-mt", rowAttrs: ({ s }) => html`data-strategy="${s.strategy_id}"` })}<p class="rsb-note">${foot}</p>`;
 }
 
 /* ---------------------------------------------------------------- check detail */

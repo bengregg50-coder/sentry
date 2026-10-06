@@ -24,12 +24,25 @@ export function parseHash(hash = location.hash) {
   return { path: path || "/", query: Object.fromEntries(new URLSearchParams(qs || "")) };
 }
 
+function decode(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null; // malformed percent-escape (hand-edited / corrupted link)
+  }
+}
+
+/** Route match, or null. A segment that cannot be decoded is not-found, never an exception. */
 export function match(path) {
   for (const r of COMPILED) {
     const m = r.re.exec(path);
     if (m) {
       const params = {};
-      r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
+      for (let i = 0; i < r.keys.length; i++) {
+        const v = decode(m[i + 1]);
+        if (v === null) return null;
+        params[r.keys[i]] = v;
+      }
       return { route: r, params };
     }
   }

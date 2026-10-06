@@ -96,7 +96,8 @@ function sourcePanel(ctx, m) {
   const s = m.source;
   const rs = doc(ctx, "research");
   const prog = s.programme_id && rs ? rs.programmes.find((p) => p.programme_id === s.programme_id) : null;
-  return kv(
+  // One column in the narrow side column; a row of five when the panel is full width (v-memory.css).
+  return html`<div class="mem-src-kv">${kv(
     [
       ["Actor", html`<span class="mem-k mem-k--strong">${humanize(s.actor)}</span>`],
       ["Agent", isNil(s.agent_slot) ? null : html`<a class="ref" href="${agentHref(s.agent_slot)}">${agentLabel(s.agent_slot)}</a>`],
@@ -105,7 +106,7 @@ function sourcePanel(ctx, m) {
       ["Trials", s.trial_ids.length ? html`<span class="cluster">${s.trial_ids.map((t) => html`<a class="ref" href="${trialHref(t)}">${t}</a>`)}</span>` : null],
     ],
     { cols: 1 },
-  );
+  )}</div>`;
 }
 
 function checksPanel(m) {
@@ -323,7 +324,7 @@ export default {
           code: "MEM-D01",
           title: "Memory record",
           sub: "As declared in memory.json",
-          cls: "lg-span-12",
+          cls: "lg-span-12 mem-record-panel",
           body: html`
             ${verdictStrip(m)}
             <div class="mem-gap">${sectionLabel("Declared checks", "on the memory itself")}${checksPanel(m)}</div>
@@ -342,7 +343,7 @@ export default {
             </div>`,
         })}
         <div class="span-4 lg-span-12 stack">
-          ${panel({ code: "MEM-D02", title: "Source", sub: "Who recorded it, from what", body: sourcePanel(ctx, m) })}
+          ${panel({ code: "MEM-D02", title: "Source", sub: "Who recorded it, from what", body: sourcePanel(ctx, m), cls: "mem-src-panel" })}
           ${panel({ code: "MEM-D03", title: "Related", sub: "Declared on this memory", body: relatedPanel(ctx, m, idx), cls: "mem-grow" })}
         </div>
       </div>

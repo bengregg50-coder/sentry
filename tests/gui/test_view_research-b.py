@@ -36,6 +36,17 @@ def _module(route: str) -> str:
     return MODULES[route.split("?")[0]]
 
 
+def _split(page, sel: str) -> list[list[str]]:
+    """[[state, n], ...] of a reported-check-state split, with the badge tone checked against the state."""
+    items = page.eval_on_selector_all(
+        f"{sel} [data-check-state]",
+        "els => els.map(e => [e.dataset.checkState, e.dataset.n, e.querySelector('.badge').className])",
+    )
+    for state, _, cls in items:
+        assert ("tone-ok" in cls) == (state == "PASS"), (state, cls)
+    return [[state, n] for state, n, _ in items]
+
+
 def _cell(page, strategy: str, check: str) -> tuple[str | None, str]:
     sel = f'.rsb-mx--val tr[data-strategy="{strategy}"] .rsb-cell[data-check="{check}"]'
     return page.get_attribute(sel, "data-state"), page.get_attribute(sel, "class") or ""
@@ -211,6 +222,46 @@ def test_history_terminated_hypotheses_with_reasons(browser, fixture_url):
     page.close()
 
 
+def _linked(page, hyp: str) -> list[str]:
+    return page.eval_on_selector_all(f'tr[data-hypothesis="{hyp}"] [data-linked-trial]', "els => els.map(e => e.dataset.linkedTrial)")
+
+
+def test_history_terminated_trials_include_those_linked_by_hypothesis_id(browser, fixture_url, state_factory):
+    """Trials linked only through trial.hypothesis_id are listed; an empty link set never claims 'none run'."""
+    page = new_page(browser, fixture_url)
+    visit(page, "/research/history")
+    assert _linked(page, "FX-H001") == ["FX-T001", "FX-T002", "FX-T003"]
+    assert _linked(page, "FX-H002") == ["FX-T004"]
+    none = page.locator('tr[data-hypothesis="FX-H003"] [data-trials-linked="0"]')
+    assert none.inner_text().strip() == "NO TRIALS LINKED"
+    assert "NONE RUN" not in view_text(page).upper()
+    page.close()
+
+    def unlink(doc):
+        for h in doc["data"]["hypotheses"]:
+            if h["hypothesis_id"] == "FX-H001":
+                h["trial_numbers"] = []  # trials still carry hypothesis_id FX-H001
+            if h["hypothesis_id"] == "FX-H002":
+                h["trial_numbers"] = [4, 99]  # 99 has no trial record
+
+    url, server = start_server(state_factory({"research": unlink}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/research/history")
+        assert v.clean, v.describe()
+        row = page.locator('tr[data-hypothesis="FX-H001"]')
+        assert _linked(page, "FX-H001") == ["FX-T001", "FX-T002", "FX-T003"]
+        assert row.locator('[data-trials-linked="0"]').count() == 0
+        assert "NONE RUN" not in row.inner_text().upper() and "NO TRIALS LINKED" not in row.inner_text().upper()
+        # a declared number without a record stays visible, unlinked
+        assert _linked(page, "FX-H002") == ["FX-T004"]
+        missing = page.locator('tr[data-hypothesis="FX-H002"] [data-missing-trial]')
+        assert missing.count() == 1 and missing.get_attribute("data-missing-trial") == "99"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
 # ---------------------------------------------------------------- validation
 
 
@@ -235,6 +286,32 @@ def test_validation_matrix_shows_checks_as_reported(browser, fixture_url):
     assert page.get_attribute('.rsb-mx--val tr[data-strategy="FX-S002"] [data-validation-status]', "data-validation-status") == "IN_PROGRESS"
     mt = page.locator('tr[data-strategy="FX-S003"]').filter(has_text="FIXTURE deflated Sharpe").inner_text()
     assert "0.35" in mt and "14" in mt
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1280, 1440, 1920])
+def test_validation_not_reported_cells_and_mt_columns_are_legible(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width, height=900)
+    visit(page, "/research/validation")
+    muted = page.evaluate("() => { const e = document.createElement('i'); e.style.color = 'var(--muted)'; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c; }")
+    styles = page.eval_on_selector_all(
+        '.rsb-mx--val .rsb-cell[data-state="NOT_REPORTED"]',
+        "els => els.map(e => [parseFloat(getComputedStyle(e).fontSize), getComputedStyle(e).color, e.textContent.trim()])",
+    )
+    assert styles
+    for size, color, text in styles:
+        assert text.upper() == "NOT REPORTED"
+        assert size >= 9 and color == muted, (size, color)
+    # VAL-06: the left-aligned Detail column is separated from the right-aligned Deflated Sharpe column
+    gap = page.evaluate(
+        """() => { const t = document.querySelector('.rsb-mt table'); const ths = [...t.querySelectorAll('thead th')];
+           const i = ths.findIndex(th => th.textContent.trim().toUpperCase() === 'DETAIL');
+           const text = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
+           const out = [[ths[i - 1], ths[i]]];
+           for (const tr of t.querySelectorAll('tbody tr')) out.push([tr.children[i - 1], tr.children[i]]);
+           return Math.min(...out.map(([a, b]) => text(b).left - text(a).right)); }"""
+    )
+    assert gap >= 16, f"Deflated Sharpe and Detail run together ({gap:.1f}px)"
     page.close()
 
 
@@ -305,6 +382,14 @@ def test_robustness_battery_matrix_and_kind_filter(browser, fixture_url):
     ids = page.eval_on_selector_all("tr[data-trial][data-kind]", "els => els.map(e => e.dataset.trial)")
     assert ids == ["FX-T002", "FX-T006"]
     assert "NO REGIME RESULTS REPORTED" in view_text(page).upper()
+    # battery tiles: the matching check is counted as REPORTED (any state), never as a bare
+    # n/m that reads as passes, and each reported state is shown beside it
+    cost = page.locator('.rsb-bat[data-kind="COST_SENSITIVITY"]')
+    assert " ".join(cost.locator('[data-check-reported="cost_sensitivity"]').inner_text().split()) == "REPORTED 3/5"
+    assert _split(page, '.rsb-bat[data-kind="COST_SENSITIVITY"] [data-check-split]') == [["PASS", "2"], ["FAIL", "1"]]
+    assert _split(page, '.rsb-bat[data-kind="MONTE_CARLO"] [data-check-split]') == [["NOT_RUN", "2"]]
+    assert _split(page, '.rsb-bat[data-kind="REGIME"] [data-check-split]') == [["INCONCLUSIVE", "2"]]
+    assert "CHECK 3/5" not in view_text(page).upper()
     visit(page, "/research/robustness?kind=COST_SENSITIVITY")
     ids = page.eval_on_selector_all("tr[data-trial][data-kind]", "els => els.map(e => e.dataset.trial)")
     assert ids == ["FX-T002"]
@@ -323,6 +408,40 @@ def test_oos_timeline_drawn_from_declared_windows(browser, fixture_url):
     assert page.get_attribute('tr[data-trial="FX-T003"]', "data-oos-state") == "FAIL"
     s5 = page.locator('.rsb-reg tr[data-strategy="FX-S005"] .rsb-cell[data-check="out_of_sample"]')
     assert s5.get_attribute("data-state") == "FAIL"
+    page.close()
+
+
+def test_oos_strategy_checks_split_by_reported_state(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/research/oos")
+    stat = page.locator(".stat").filter(has=page.locator('[data-check-reported="out_of_sample"]'))
+    assert "OOS CHECKS REPORTED" in stat.inner_text().upper()
+    assert " ".join(stat.locator('[data-check-reported="out_of_sample"]').inner_text().split()) == "4/ 5"
+    # 4 of 5 report it, and only 2 of those passed: the split says so plainly
+    assert _split(page, '[data-check-split="out_of_sample"]') == [["PASS", "2"], ["FAIL", "1"], ["PENDING", "1"]]
+    page.close()
+
+
+@pytest.mark.parametrize("nav", ["expanded", "collapsed"])
+@pytest.mark.parametrize("width", [1024, 1280, 1376, 1440, 1480, 1600, 2560])
+def test_robustness_battery_rows_have_no_empty_track(browser, fixture_url, width, nav):
+    """Five cards in five columns, or 3 + 2 when narrow: never a trailing empty column."""
+    page = new_page(browser, fixture_url, width=width, height=900)
+    page.evaluate("v => localStorage.setItem('sentry-cc:navCollapsed', v)", "true" if nav == "collapsed" else "false")
+    page.reload()
+    page.wait_for_selector(".view[data-module]")
+    visit(page, "/research/robustness")
+    g = page.evaluate(
+        """() => { const g = document.querySelector('.rsb-bats'); const gr = g.getBoundingClientRect();
+           const cards = [...g.children].map(c => c.getBoundingClientRect());
+           const row1 = cards.filter(r => Math.abs(r.top - cards[0].top) < 1);
+           return { tracks: getComputedStyle(g).gridTemplateColumns.split(' ').length, n: cards.length,
+                    row1: row1.length, gap: gr.right - row1[row1.length - 1].right,
+                    overflow: [...g.children].some(c => c.scrollWidth > c.clientWidth + 1) }; }"""
+    )
+    assert g["n"] == 5 and g["tracks"] in (3, 5) and g["row1"] == g["tracks"], g
+    assert g["gap"] <= 1, f"empty space at the end of the battery row: {g}"
+    assert not g["overflow"], g
     page.close()
 
 

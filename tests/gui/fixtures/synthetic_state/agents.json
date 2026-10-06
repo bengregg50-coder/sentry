@@ -29,7 +29,7 @@
           "package_id": "FX-PKG-003-2"
         },
         "market": "FIXTURE multi-asset",
-        "timeframe": "1D",
+        "timeframe": "15m",
         "signal": {
           "state": "LONG",
           "as_of": "2026-01-20T12:00:00+00:00",
@@ -242,6 +242,7 @@
             "limit": 2000,
             "used": 0,
             "unit": "currency",
+            "currency": "USD",
             "state": "OK"
           }
         ],

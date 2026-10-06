@@ -73,6 +73,38 @@ def test_live_empty_says_not_connected_never_disabled(browser, empty_url):
     for key in ("ENABLE_LIVE", "TRIP_KILL_SWITCH", "HALT_AGENT"):
         assert _attr(page, f'.control[data-control="{key}"]', "data-enabled") == "0"
     assert page.locator(".ops-path .step").count() == 6
+    # The approval step is never labelled LIVE scope (it completes on any scope); its LIVE-scope
+    # subset claims nothing without strategies.json.
+    assert "LIVE" not in _text(page, '.ops-path .step[data-step="APPROVAL"] .step__label').upper()
+    assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == ""
+    # Live cross-checks: one NOT CONNECTED tile, no duplicate empty state underneath.
+    assert _attr(page, '[data-interlock="live_findings"]', "data-state") == "NOT_CONNECTED"
+    assert page.locator('[data-empty-state="no-live-findings"]').count() == 0
+    assert page.locator("[data-live-findings]").count() == 0
+    page.close()
+
+
+def _interlock_rows(page) -> list[int]:
+    """Number of interlock tiles on each visual row of the LIV-02 grid."""
+    return page.evaluate(
+        """() => {
+            const rows = new Map();
+            for (const el of document.querySelectorAll('.ops-locks > .ops-lock')) {
+                const top = Math.round(el.getBoundingClientRect().top);
+                rows.set(top, (rows.get(top) || 0) + 1);
+            }
+            return [...rows.keys()].sort((a, b) => a - b).map((k) => rows.get(k));
+        }"""
+    )
+
+
+@pytest.mark.parametrize("width", [1024, 1440, 1920, 2560])
+def test_live_interlocks_form_a_balanced_grid(browser, empty_url, width):
+    # Six interlocks never leave one card stranded on its own row (5 + 1 / 4 + 2).
+    page = new_page(browser, empty_url, width=width)
+    v = visit(page, "/live")
+    assert v.clean, v.describe()
+    assert _interlock_rows(page) == [3, 3], width
     page.close()
 
 
@@ -127,11 +159,25 @@ def test_live_fixture_sim_mode_and_live_trading_disabled(browser, fixture_url):
     assert _attr(page, '[data-interlock="kill_switch"]', "data-state") == "ARMED"
     # Fixture approvals are SIM-scope only: no LIVE-scope approval is on record.
     assert "NONE ON RECORD" in _text(page, '[data-interlock="live_scope_approvals"]').upper()
-    # Deployment path: FX-S003 v2 has completed simulation and has not reached live.
+    # Deployment path: FX-S003 v2 is running in SIM (an ongoing simulation is RUNNING, never
+    # COMPLETE) and has not reached live.
     assert page.locator('[data-path-strategy="FX-S003"]').count() == 1
     row = page.locator('tr:has([data-path-strategy="FX-S003"])')
     states = row.locator("[data-step-state]").evaluate_all("els => els.map(e => e.dataset.stepState)")
-    assert states == ["COMPLETE", "COMPLETE", "COMPLETE", "COMPLETE", "COMPLETE", "NOT_REACHED"]
+    assert states == ["COMPLETE", "COMPLETE", "COMPLETE", "COMPLETE", "RUNNING", "NOT_REACHED"]
+    # Stepper: both fixture approvals are SIM scope. The approval step counts any scope and says
+    # so; its LIVE-scope subset is 0, agreeing with the LIVE-scope approvals interlock.
+    approval = '.ops-path .step[data-step="APPROVAL"]'
+    assert "LIVE" not in _text(page, f"{approval} .step__label").upper()
+    assert "ANY SCOPE" in _text(page, f"{approval} .step__detail").upper()
+    assert _text(page, f"{approval} .step__count") == "2"
+    assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == "0"
+    assert _text(page, "[data-live-scope-approvals] .v") == "0"
+    # No live findings: the tile says so once; no second full-width empty state repeats it.
+    assert _attr(page, '[data-interlock="live_findings"]', "data-state") == ""
+    assert "NO FINDINGS" in _text(page, '[data-interlock="live_findings"] .badge').upper()
+    assert page.locator('[data-empty-state="no-live-findings"]').count() == 0
+    assert page.locator("[data-live-findings]").count() == 0
     # Connections and heartbeat from live.json.
     assert page.locator('.ops-conn[data-connection="FIXTURE sim broker"]').count() == 1
     page.close()
@@ -216,6 +262,30 @@ def test_live_enabled_in_live_mode_is_flagged(browser, state_factory):
         # The server-side cross-check (no LIVE-scope approval exists) is surfaced, not hidden.
         assert page.locator('.finding[data-finding="LIVE_ENABLED_WITHOUT_APPROVED_STRATEGY"]').count() == 1
         assert _attr(page, '[data-interlock="live_findings"]', "data-state") == "CRITICAL"
+        # The findings themselves are listed under the interlock grid.
+        assert page.locator('[data-live-findings] .finding[data-finding="LIVE_ENABLED_WITHOUT_APPROVED_STRATEGY"]').count() == 1
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_live_scope_approval_is_counted_apart_from_any_scope(browser, state_factory):
+    def live_small(doc):
+        for s in doc["data"]["strategies"]:
+            if s["strategy_id"] == "FX-S003":
+                cur = next(v for v in s["versions"] if v["version"] == s["current_version"])
+                cur["approval"]["scope"] = "LIVE_SMALL"
+
+    url, server = start_server(state_factory({"strategies": live_small}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/live")
+        assert v.clean, v.describe()
+        approval = '.ops-path .step[data-step="APPROVAL"]'
+        # Any-scope approvals stay 2 (FX-S003 LIVE SMALL + FX-S004 SIM); only one is LIVE scope.
+        assert _text(page, f"{approval} .step__count") == "2"
+        assert _attr(page, "[data-live-scope-approvals]", "data-live-scope-approvals") == "1"
+        assert _attr(page, '[data-interlock="live_scope_approvals"]', "data-state") == "APPROVED"
         page.close()
     finally:
         server.should_exit = True

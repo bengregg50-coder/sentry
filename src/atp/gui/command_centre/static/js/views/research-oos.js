@@ -46,16 +46,18 @@ function summary(rs, trials, cv) {
   const nc = "NOT CONNECTED";
   const pick = (fn) => (trials ? B.originSplit(trials.filter(fn)) : null);
   const progs = rs ? rs.programmes.filter((p) => p.evaluation_windows.length) : null;
-  const oosReported = cv ? cv.filter(({ v }) => v.validation.out_of_sample).length : null;
+  const oosSplit = B.checkStateSplit(cv, "out_of_sample");
+  const oosReported = oosSplit ? oosSplit.reduce((a, [, n]) => a + n, 0) : null;
   return html`<div class="rsb-stats4">${statRow(
     [
       stat({ label: "OOS trials", value: B.splitVal(pick((t) => t.kind === "OOS")), hint: "Kind OOS", emptyLabel: nc }),
       stat({ label: "Walk-forward trials", value: B.splitVal(pick((t) => t.kind === "WALK_FORWARD")), hint: "Kind WALK_FORWARD", emptyLabel: nc }),
       stat({ label: "With windows", value: progs ? B.splitVal(B.originSplit(progs)) : null, hint: "Programmes declaring them", emptyLabel: nc }),
       stat({
-        label: "Strategy OOS checks",
-        value: cv ? html`${val(fmtCount(oosReported))}<span class="unit">/ ${fmtCount(cv.length)}</span>` : null,
-        hint: "Current versions reporting it",
+        label: "OOS checks reported",
+        title: "Current strategy versions reporting the out_of_sample check, in any state — not a pass count",
+        value: cv ? html`<span data-check-reported="out_of_sample">${val(fmtCount(oosReported))}<span class="unit">/ ${fmtCount(cv.length)}</span></span>` : null,
+        hint: html`<span class="rsb-stat-split" data-check-split="out_of_sample">${B.checkSplitBadges(oosSplit, { none: "NONE REPORTED" })}</span>`,
         emptyLabel: nc,
       }),
     ],

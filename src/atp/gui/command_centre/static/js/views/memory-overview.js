@@ -67,52 +67,100 @@ function storeTotals(ctx, st) {
     </div>`;
 }
 
-/* ------------------------------------------------------------ MEM-02 self-improvement loop */
+/* ------------------------------------------------------------ MEM-03 self-improvement loop */
 
+// Strategy statuses excluded from the validated count — the same definition as
+// derive_research_summary().validated, so this figure matches the home hero
+// and /strategies/validated. Display counting of declared fields only.
+const NOT_CURRENT = ["RETIRED", "REJECTED"];
+
+// The ring shows which stages have a connected source. Only the first three
+// stages carry a record count. The four "better" stages are not scored by the
+// Command Centre (as on the System Map): nothing in state records that a
+// hypothesis, trial or strategy was improved by memory.
 function loopStages(ctx, st) {
   const rs = doc(ctx, "research");
-  const sg = doc(ctx, "strategies");
   const ok = (k) => source(ctx, k)?.status === "OK";
   const evRows = flattenEvidence(st.mems);
-  const validated = sg ? sg.strategies.filter((s) => currentVersion(s)?.validation_status === "VALIDATED") : null;
   return [
-    { key: "RESEARCH", label: "RESEARCH", src: "research", connected: ok("research"), records: rs?.programmes ?? null, what: "programmes" },
-    { key: "EVIDENCE", label: "EVIDENCE", src: "memory", connected: ok("memory"), records: evRows, origin: (e) => e.memory.origin, what: "evidence items" },
-    { key: "MEMORY", label: "MEMORY", src: "memory", connected: ok("memory"), records: st.mems, what: "memories" },
-    { key: "HYPOTHESES", top: "BETTER", label: "HYPOTHESES", src: "research", connected: ok("research"), records: rs?.hypotheses ?? null, what: "hypotheses" },
-    { key: "EXPERIMENTS", top: "BETTER", label: "EXPERIMENTS", src: "research", connected: ok("research"), records: rs?.trials ?? null, what: "trial records" },
-    { key: "VALIDATION", top: "BETTER", label: "VALIDATION", src: "strategies", connected: ok("strategies"), records: validated, what: "current versions VALIDATED" },
-    { key: "STRATEGIES", top: "BETTER", label: "STRATEGIES", src: "strategies", connected: ok("strategies"), records: sg?.strategies ?? null, what: "strategies" },
+    { key: "RESEARCH", label: "RESEARCH", src: "research", connected: ok("research"), scored: true, records: rs?.programmes ?? null, what: "programmes" },
+    { key: "EVIDENCE", label: "EVIDENCE", src: "memory", connected: ok("memory"), scored: true, records: evRows, origin: (e) => e.memory.origin, what: "evidence items" },
+    { key: "MEMORY", label: "MEMORY", src: "memory", connected: ok("memory"), scored: true, records: st.mems, what: "memories" },
+    { key: "HYPOTHESES", top: "BETTER", label: "HYPOTHESES", src: "research", connected: ok("research"), scored: false },
+    { key: "EXPERIMENTS", top: "BETTER", label: "EXPERIMENTS", src: "research", connected: ok("research"), scored: false },
+    { key: "VALIDATION", top: "BETTER", label: "VALIDATION", src: "strategies", connected: ok("strategies"), scored: false },
+    { key: "STRATEGIES", top: "BETTER", label: "STRATEGIES", src: "strategies", connected: ok("strategies"), scored: false },
+  ];
+}
+
+/** Plain record counts behind the loop — what is on file, never "better". */
+function loopRecords(ctx) {
+  const rs = doc(ctx, "research");
+  const sg = doc(ctx, "strategies");
+  const validated = sg
+    ? sg.strategies.filter((s) => currentVersion(s)?.validation_status === "VALIDATED" && !NOT_CURRENT.includes(s.status))
+    : null;
+  return [
+    { key: "HYPOTHESES", label: "Hypotheses on record", src: "research", records: rs?.hypotheses ?? null, what: "all statuses" },
+    { key: "TRIALS", label: "Trial records", src: "research", records: rs?.trials ?? null, what: "all outcomes" },
+    { key: "VALIDATED", label: "Validated strategies", src: "strategies", records: validated, what: "current version VALIDATED · excl. retired, rejected" },
+    { key: "STRATEGIES", label: "Registered strategies", src: "strategies", records: sg?.strategies ?? null, what: "all statuses" },
   ];
 }
 
 function loopPanel(ctx, st) {
   const stages = loopStages(ctx, st);
   const linked = stages.filter((s) => s.connected).length;
+  const counted = stages.filter((s) => s.scored);
+  const better = stages.filter((s) => !s.scored);
+  const recCell = (r) => (r.records ? originSplit(r.records, r.origin) : html`<span class="mem-nr">${sourceShort(source(ctx, r.src))}</span>`);
+  const fileOf = (k) => source(ctx, k)?.file ?? k;
   return panel({
-    code: "MEM-02",
+    code: "MEM-03",
     title: "Self-improvement loop",
     sub: linked ? `${linked} of ${stages.length} stages connected` : "No stage connected",
     cls: "mem-loop-panel",
     body: html`
       ${memLoop(stages)}
       <div class="mem-loop-caption">RESEARCH → EVIDENCE → MEMORY → BETTER HYPOTHESES → BETTER EXPERIMENTS → BETTER VALIDATION → BETTER STRATEGIES</div>
-      <div class="mem-stage-list">
-        ${stages.map(
-          (s, i) => html`<div class="mem-stage" data-stage="${s.key}" data-connected="${s.connected ? "1" : "0"}">
-            <span class="mem-stage__n">${String(i + 1).padStart(2, "0")}</span>
+      <div class="mem-loop-side">
+        <div class="mem-stage-list">
+          ${counted.map(
+            (s) => html`<div class="mem-stage" data-stage="${s.key}" data-connected="${s.connected ? "1" : "0"}">
+              <span class="mem-stage__n">${String(stages.indexOf(s) + 1).padStart(2, "0")}</span>
+              <span class="mem-stage__main">
+                <span class="mem-stage__name">${s.label}</span>
+                <span class="mem-stage__sub">${fileOf(s.src)} · ${s.what}</span>
+              </span>
+              <span class="mem-stage__rec">${recCell(s)}</span>
+            </div>`,
+          )}
+          <div class="mem-stage mem-stage--better" data-stage="BETTER" data-scored="0">
+            <span class="mem-stage__n">${String(stages.indexOf(better[0]) + 1).padStart(2, "0")}–${String(stages.length).padStart(2, "0")}</span>
             <span class="mem-stage__main">
-              <span class="mem-stage__name">${s.top ? `${s.top} ` : ""}${s.label}</span>
-              <span class="mem-stage__sub">${source(ctx, s.src)?.file ?? s.src} · ${s.what}</span>
+              <span class="mem-stage__name">BETTER ${better.map((s) => s.label).join(" · ")}</span>
+              <span class="mem-stage__sub">Not scored by the Command Centre — no state records that memory improved them</span>
             </span>
-            <span class="mem-stage__rec">${s.records ? originSplit(s.records, s.origin) : html`<span class="mem-nr">${sourceShort(source(ctx, s.src))}</span>`}</span>
-          </div>`,
-        )}
+            <span class="mem-stage__rec"><span class="mem-nr" data-not-scored>NOT SCORED</span></span>
+          </div>
+        </div>
+        ${sectionLabel("Records on file", "per origin · not a measure of improvement")}
+        <div class="mem-stage-list mem-stage-list--records">
+          ${loopRecords(ctx).map(
+            (r) => html`<div class="mem-stage mem-stage--record" data-record="${r.key}" data-connected="${source(ctx, r.src)?.status === "OK" ? "1" : "0"}">
+              <span class="mem-stage__main">
+                <span class="mem-stage__name">${r.label}</span>
+                <span class="mem-stage__sub">${fileOf(r.src)} · ${r.what}</span>
+              </span>
+              <span class="mem-stage__rec">${recCell(r)}</span>
+            </div>`,
+          )}
+        </div>
       </div>`,
   });
 }
 
-/* ------------------------------------------------------------ MEM-03 composition */
+/* ------------------------------------------------------------ MEM-02 composition */
 
 function composition(st) {
   const { stats, src } = st;
@@ -237,7 +285,9 @@ function integrity(ctx, st) {
         ? html`<ul class="mem-untrace">${untraceable.map(
             (m) => html`<li><a class="ref" href="${memHref(m.memory_id)}">${m.memory_id}</a><span class="mem-untrace__title">${m.title}</span>${untraceableBadge()}</li>`,
           )}</ul>`
-        : emptyState({ title: "All traceable", reason: mems.length ? "Every memory carries at least one evidence item." : "No memories recorded.", compact: true, iconName: "evidence" })}
+        : mems.length
+          ? emptyState({ title: "All traceable", reason: "Every memory carries at least one evidence item.", compact: true, iconName: "evidence", code: "memory-all-traceable" })
+          : emptyState({ title: "No memories recorded", reason: "memory.json is connected and holds no memories, so there is nothing to trace.", compact: true, code: "memory-trace-none" })}
     </div>
   </div>`;
 }
@@ -258,7 +308,7 @@ export default {
       <div class="grid">
         <div class="span-8 xl-span-12 stack">
           ${panel({ code: "MEM-01", title: "Memory store", sub: st.mems ? "Declared totals" : sourceReason(st.src), body: storeTotals(ctx, st) })}
-          ${panel({ code: "MEM-03", title: "Composition", sub: "Distribution of recorded memories", body: composition(st), cls: "mem-grow" })}
+          ${panel({ code: "MEM-02", title: "Composition", sub: "Distribution of recorded memories", body: composition(st), cls: "mem-grow" })}
         </div>
         <div class="span-4 xl-span-12 mem-loop-col">${loopPanel(ctx, st)}</div>
       </div>

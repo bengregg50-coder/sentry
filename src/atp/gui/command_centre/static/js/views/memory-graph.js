@@ -24,6 +24,16 @@ function graphSources(ctx) {
   return ["research", "strategies", "memory"].map((k) => source(ctx, k));
 }
 
+/**
+ * Title for a panel whose graph is unavailable: names the source state
+ * ("Graph sources not connected", "… not produced"), never a zero such as
+ * "No nodes" — not connected is not none recorded.
+ */
+function unavailableTitle(ctx) {
+  const states = [...new Set(graphSources(ctx).map((s) => sourceShort(s)))];
+  return states.length === 1 ? `Graph sources ${states[0].toLowerCase()}` : "No graph source connected";
+}
+
 function summary(graph, why) {
   const avail = !!graph?.available;
   const n = (v) => (avail ? fmtCount(v) : null);
@@ -60,7 +70,7 @@ function graphBody(ctx, graph, shown, type) {
     return html`<div class="mem-graph" data-graph-mode="schematic">
       ${graphSchematic()}
       <div class="mem-graph__note">${sourceEmpty(memSrc, {
-        title: "No relationships to draw",
+        title: unavailableTitle(ctx),
         compact: true,
         hint: "Relationships are only drawn from explicit references — none are inferred. Programmes, hypotheses, trials, memories, strategies and proposals appear in these columns once research.json, strategies.json or memory.json is connected.",
       })}</div>
@@ -78,16 +88,19 @@ function graphBody(ctx, graph, shown, type) {
   return html`<div class="mem-graph" data-graph-mode="${type ? "filtered" : "full"}" data-graph-type="${type ?? ""}">${knowledgeGraph(shown, { focus: ctx.query.focus })}</div>`;
 }
 
-function legendPanel(graph) {
+function legendPanel(graph, { wide = false } = {}) {
   const avail = !!graph?.available;
   const relCount = (r) => (avail ? graph.edges.filter((e) => baseRelation(e.relation) === r).length : null);
-  return html`
+  return html`<div class="mem-legend ${wide ? "mem-legend--wide" : ""}">
+    <div class="mem-legend__states">
     ${sectionLabel("Node state", "colour follows the tone system")}
     ${avail
       ? legend(NODE_TONES)
       : html`<p class="mem-legend-prose">Each node is outlined in the tone of its declared state — passed or validated, pending or provisional, failed, rejected or contradicted, active, sealed — and muted when the state is unknown. The key is shown once a graph is connected.</p>`}
     <div class="mem-legend-unres"><i></i>Dashed outline — referenced but not found in any connected source</div>
+    </div>
     <div class="divider"></div>
+    <div class="mem-legend__rels">
     ${sectionLabel("Edge relations", "declared by")}
     <div class="mem-rels">
       ${RELATIONS.map(
@@ -99,11 +112,13 @@ function legendPanel(graph) {
           <span class="mem-rel__by">${by}</span>
         </div>`,
       )}
-    </div>`;
+    </div>
+    </div>
+  </div>`;
 }
 
 function unresolvedPanel(ctx, graph) {
-  if (!graph?.available) return sourceEmpty(source(ctx, "memory"), { compact: true, title: "Nothing to resolve", hint: "References whose target is not present in any connected source are listed here — never dropped." });
+  if (!graph?.available) return sourceEmpty(source(ctx, "memory"), { compact: true, title: unavailableTitle(ctx), hint: "References whose target is not present in any connected source are listed here — never dropped." });
   const unresolved = graph.nodes.filter((n) => n.state === "UNRESOLVED");
   if (!unresolved.length) return emptyState({ title: "All references resolve", reason: "Every declared reference points at a record present in connected state.", compact: true, iconName: "link" });
   return html`<ul class="mem-unres-list">${unresolved.map((n) => {
@@ -139,7 +154,7 @@ function nodeTable(ctx, graph, shown) {
     ],
     empty: graph?.available
       ? emptyState({ title: "No nodes", reason: "No declared record matches this filter.", compact: true })
-      : sourceEmpty(source(ctx, "memory"), { compact: true, title: "No nodes", hint: "Each programme, hypothesis, trial, memory, strategy and proposal is listed here with its state, origin and degree." }),
+      : sourceEmpty(source(ctx, "memory"), { compact: true, title: unavailableTitle(ctx), hint: "Each programme, hypothesis, trial, memory, strategy and proposal is listed here with its state, origin and degree." }),
   });
 }
 
@@ -152,6 +167,33 @@ export default {
     const memSrc = source(ctx, "memory");
     const why = graph?.available ? null : sourceShort(memSrc);
     const memMissing = graph?.available && memSrc?.status !== "OK";
+    const whySub = why ? why.charAt(0) + why.slice(1).toLowerCase() : null;
+    const g03 = (opts = {}) => panel({ ...opts, code: "MEM-G03", title: "Unresolved references", sub: graph?.available ? `${fmtCount(graph.unresolved)} target(s) not found` : whySub, body: unresolvedPanel(ctx, graph) });
+    const g04 = (cls) => panel({
+      span: 8,
+      code: "MEM-G04",
+      title: "Nodes",
+      sub: shown?.available ? `${fmtCount(shown.nodes.length)} shown${type ? ` · filter ${TYPE_LABEL[type]} + neighbours` : ""}` : whySub,
+      body: nodeTable(ctx, graph, shown),
+      cls,
+    });
+    // With nothing to list, the node table is a compact empty state: the legend
+    // takes its own full-width row so no panel is stretched around blank space.
+    const noNodes = !shown?.available || shown.nodes.length === 0;
+    const fullLower = html`<div class="grid">
+        <div class="span-4 lg-span-12 stack">
+          ${panel({ code: "MEM-G02", title: "Legend", sub: "Node states · edge relations", body: legendPanel(graph) })}
+          ${g03()}
+        </div>
+        ${g04("lg-span-12")}
+      </div>`;
+    const compactLower = html`<div class="grid">
+        ${panel({ span: 12, code: "MEM-G02", title: "Legend", sub: "Node states · edge relations", body: legendPanel(graph, { wide: true }) })}
+      </div>
+      <div class="grid mem-graph-lower" data-graph-lower="compact">
+        ${g03({ span: 4, cls: "lg-span-12" })}
+        ${g04("lg-span-12")}
+      </div>`;
     return html`
       ${pageHeader({
         kicker: "MEMORY",
@@ -181,20 +223,7 @@ export default {
         })}
       </div>
 
-      <div class="grid">
-        <div class="span-4 lg-span-12 stack">
-          ${panel({ code: "MEM-G02", title: "Legend", sub: "Node states · edge relations", body: legendPanel(graph) })}
-          ${panel({ code: "MEM-G03", title: "Unresolved references", sub: graph?.available ? `${fmtCount(graph.unresolved)} target(s) not found` : "Not connected", body: unresolvedPanel(ctx, graph) })}
-        </div>
-        ${panel({
-          span: 8,
-          code: "MEM-G04",
-          title: "Nodes",
-          sub: shown?.available ? `${fmtCount(shown.nodes.length)} shown${type ? ` · filter ${TYPE_LABEL[type]} + neighbours` : ""}` : "Not connected",
-          body: nodeTable(ctx, graph, shown),
-          cls: "lg-span-12",
-        })}
-      </div>
+      ${noNodes ? compactLower : fullLower}
     `;
   },
 };

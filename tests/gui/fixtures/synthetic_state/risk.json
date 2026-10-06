@@ -31,6 +31,7 @@
         "limit": 2000,
         "used": 1700,
         "unit": "currency",
+        "currency": "USD",
         "state": "WARN"
       }
     ],

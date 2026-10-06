@@ -51,6 +51,19 @@ function filterStrip(F, listed, rows, ssrc) {
 
 /* ---------------------------------------------------------------- verdict (validated strategies) */
 
+/** Rows whose current version is declared VALIDATED but whose strategy is RETIRED or REJECTED — excluded from "validated". */
+function endedValidated(rows) {
+  return rows.filter((r) => r.v?.validation_status === "VALIDATED" && S.ENDED.includes(r.s.status));
+}
+
+/** Names the strategies the validated filter excludes, so "none validated" is never read as "no version ever passed". */
+function excludedNote(excl) {
+  if (!excl.length) return "";
+  return html` <span class="st-excluded" data-excluded-validated="${excl.map((r) => r.s.strategy_id).join(",")}">Excluded although their current version is VALIDATED: ${excl.map(
+    ({ s, v }, i) => html`${i ? ", " : ""}<a class="ref" href="${S.strategyHref(s.strategy_id)}">${s.strategy_id}</a> <span class="mono small">v${v.version}</span> (${S.STATUS_LABEL[s.status] ?? s.status})`,
+  )}.</span>`;
+}
+
 function verdict(ctx, st, ssrc, rows) {
   if (!st) {
     return html`<div class="st-verdict is-nc" data-validated-state="not-connected">
@@ -66,7 +79,7 @@ function verdict(ctx, st, ssrc, rows) {
       <div class="st-verdict__word" data-validated-count>NO VALIDATED STRATEGIES</div>
       <div class="st-verdict__why">${
         rows.length
-          ? `The registry is connected and lists ${fmtCount(rows.length)} ${S.plural(rows.length, "strategy", "strategies")}; the research engine has declared none of their current versions VALIDATED.`
+          ? html`The registry is connected and lists ${fmtCount(rows.length)} ${S.plural(rows.length, "strategy", "strategies")}; none is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
           : "The registry is connected and lists no strategies."
       } No-trade is a valid outcome — no edge found is better than a fake edge found.</div>
     </div>`;
@@ -109,41 +122,61 @@ function eligibility(ctx, st) {
 
 /* ---------------------------------------------------------------- registry table */
 
+/** Two-line column header: main label over a faint sub-label. */
+const th2 = (main, sub) => html`<span class="st-th2">${main}<span class="st-th2__sub">${sub}</span></span>`;
+
+function updatedText(s) {
+  return s.last_update ? html`<span class="mono small st-nowrap" title="${fmtDateTime(s.last_update)}">${fmtDate(s.last_update)}</span>` : null;
+}
+
 function registryTable(ctx, F, st, ssrc, listed, rows) {
+  // Identity, provenance and mechanism share the first cell, Status stacks version and
+  // validation, and Agent stacks the record's last update, so the evidence-basis figures
+  // (net return, Sharpe, max drawdown) fit without horizontal scroll down to 1024px. A
+  // non-ORIGINAL record carries its origin badge next to its id on every width.
   const columns = [
     {
-      label: "Strategy",
-      render: ({ s }) => html`<div class="st-cell-id"><a class="ref" href="${S.strategyHref(s.strategy_id)}" data-strategy-link="${s.strategy_id}">${s.strategy_id}</a><span class="st-cell-name">${s.name}</span></div>`,
+      label: th2("Strategy", "Name · mechanism"),
+      title: "Strategy id and record origin, name and mechanism",
+      render: ({ s }) => html`<div class="st-cell-id">
+        <div class="st-cell-id__top"><a class="ref" href="${S.strategyHref(s.strategy_id)}" data-strategy-link="${s.strategy_id}">${s.strategy_id}</a>${
+          s.origin === "ORIGINAL" ? "" : html`<span class="st-cell-origin" data-origin="${s.origin}">${S.originCell(s.origin)}</span>`
+        }</div>
+        <span class="st-cell-name" title="${s.name}">${s.name}</span>
+        ${s.mechanism ? html`<span class="st-cell-mech" title="${s.mechanism}">${s.mechanism}</span>` : html`<span class="st-cell-mech st-nodata">MECHANISM NOT REPORTED</span>`}
+      </div>`,
       cls: "st-col-id",
     },
-    { label: "Mechanism", render: ({ s }) => (s.mechanism ? html`<span class="text-2">${s.mechanism}</span>` : null), cls: "st-col-mech" },
     {
-      label: "Market · inst · TF",
+      label: th2("Market", "Inst · TF"),
       title: "Market, instrument and timeframe",
       render: ({ s }) =>
-        html`<div class="st-cell-mkt"><span class="st-cell-mkt__m">${s.market ?? val(null)}</span><span class="st-cell-mkt__i"><span class="st-cell-mkt__k">INST</span>${s.instrument ?? val(null)}<span class="st-cell-mkt__k">TF</span>${s.timeframe ?? val(null)}</span></div>`,
+        html`<div class="st-cell-mkt"><span class="st-cell-mkt__m" title="${s.market ?? ""}">${s.market ?? val(null)}</span><span class="st-cell-mkt__i"><span class="st-cell-mkt__k">INST</span>${s.instrument ?? val(null)}<span class="st-cell-mkt__k">TF</span>${s.timeframe ?? val(null)}</span></div>`,
       cls: "st-col-mkt",
     },
-    { label: "Status", render: ({ s }) => badge(s.status) },
     {
-      label: "Version",
-      title: "Current version / versions on record",
-      render: ({ s }) => html`<span class="mono">v${s.current_version}</span><span class="st-faint"> / ${fmtCount(s.versions.length)}</span>`,
+      label: th2("Status", "Version · validation"),
+      title: "Registry status; current version / versions on record, and the current version's validation status",
+      render: ({ s, v }) =>
+        html`<div class="st-cell-stv">${badge(s.status)}<span class="st-cell-stv__v"><span class="mono" title="Current version / versions on record">v${s.current_version}<span class="st-faint">/${fmtCount(s.versions.length)}</span></span>${badge(v?.validation_status)}</span></div>`,
+      cls: "st-col-stv",
     },
-    { label: "Validation", title: "Current version's validation status", render: ({ v }) => badge(v?.validation_status) },
     { label: "Net return", render: ({ v }) => metric(v?.metrics?.net_return), num: true, cls: "st-col-metric" },
     { label: "Sharpe", render: ({ v }) => metric(v?.metrics?.sharpe), num: true, cls: "st-col-metric" },
     { label: "Max DD", title: "Maximum drawdown", render: ({ v }) => metric(v?.metrics?.max_drawdown), num: true, cls: "st-col-metric" },
-    { label: "Agent", render: ({ s }) => (isNil(s.assigned_agent) ? null : S.agentLink(s.assigned_agent)) },
-    { label: "Updated", title: "Last update (UTC)", render: ({ s }) => (s.last_update ? html`<span class="mono small st-nowrap" title="${fmtDateTime(s.last_update)}">${fmtDate(s.last_update)}</span>` : null) },
-    { label: "Origin", render: ({ s }) => S.originCell(s.origin) },
+    {
+      label: th2("Agent", "Updated"),
+      title: "Agent slot the registry names; last update of the registry record (UTC)",
+      render: ({ s }) => html`<div class="st-cell-agt"><span>${isNil(s.assigned_agent) ? val(null) : S.agentLink(s.assigned_agent)}</span><span class="st-cell-agt__u">${updatedText(s) ?? val(null)}</span></div>`,
+      cls: "st-col-agt",
+    },
   ];
 
   let empty;
   if (!st) {
     empty = sourceEmpty(ssrc, {
       title: F.key === "validated" ? "Validated strategies — not connected" : "Strategy registry not connected",
-      hint: "Each strategy will be listed with its mechanism, market, status, current version, validation status, headline net return, Sharpe and max drawdown (each tagged with its evidence basis), assigned agent, last update and origin.",
+      hint: "Each strategy will be listed with its record origin, name, mechanism, market, status, current version, validation status, headline net return, Sharpe and max drawdown (each tagged with its evidence basis), assigned agent and last update.",
     });
   } else if (F.key === "validated") {
     empty = html`<div class="st-novalid" data-empty-state="no-validated-strategies">
@@ -151,9 +184,9 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
       <div class="st-novalid__title">NO VALIDATED STRATEGIES</div>
       <div class="st-novalid__reason">${
         rows.length
-          ? `None of the ${fmtCount(rows.length)} registered ${S.plural(rows.length, "strategy", "strategies")} has a current version the research engine declares VALIDATED.`
+          ? html`None of the ${fmtCount(rows.length)} registered ${S.plural(rows.length, "strategy", "strategies")} is an active strategy whose current version the research engine declares VALIDATED (RETIRED and REJECTED excluded).${excludedNote(endedValidated(rows))}`
           : "The strategy registry is connected and lists no strategies."
-      } Nothing here can be approved, packaged or assigned to an agent.</div>
+      } Under SENTRY policy only a validated version may proceed to approval, packaging and an agent.</div>
       <div class="st-novalid__doctrine"><span>NO-TRADE &gt; WEAK TRADE</span><span>NO EDGE FOUND &gt; FAKE EDGE FOUND</span></div>
       <div class="st-novalid__hint">When a version passes validation it appears here with its out-of-sample figures, then moves through governance approval and a deployment package before any agent may run it.</div>
     </div>`;
@@ -161,8 +194,8 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
     const msg = {
       all: ["No strategies registered", "strategies.json is connected and lists no strategies."],
       candidates: ["No candidate strategies", "No registered strategy is CANDIDATE or IN VALIDATION."],
-      deployed: ["No strategy deployed", "No strategy is running in simulation or live. Nothing is trading."],
-      retired: ["No retired strategies", "No strategy has been withdrawn from deployment."],
+      deployed: ["No deployed strategies", "No registered strategy has status DEPLOYED_SIM, DEPLOYED_LIVE or SCALED."],
+      retired: ["No retired strategies", "No registered strategy has status RETIRED."],
     }[F.key];
     empty = emptyState({ title: msg[0], reason: msg[1], compact: true, code: `none-${F.key}` });
   }
@@ -172,7 +205,7 @@ function registryTable(ctx, F, st, ssrc, listed, rows) {
     rows: listed,
     empty,
     rowHref: ({ s }) => S.strategyHref(s.strategy_id),
-    rowAttrs: ({ s, v }) => html`data-strategy="${s.strategy_id}" data-status="${s.status}" data-validation="${v?.validation_status ?? ""}"`,
+    rowAttrs: ({ s, v }) => html`data-strategy="${s.strategy_id}" data-status="${s.status}" data-validation="${v?.validation_status ?? ""}" data-origin="${s.origin}"`,
     cls: "st-reg",
   });
 }
@@ -353,7 +386,7 @@ export default {
           span: 12,
           code: "STR-04",
           title: "From library to live",
-          sub: "How a validated strategy will travel — every hand-off gated and recorded",
+          sub: "The path a validated strategy must take — every hand-off gated and recorded",
           body: deliveryFlow(flowStages(ctx, st, rows)),
         })}
       </div>
@@ -364,8 +397,8 @@ export default {
           cls: "lg-span-12",
           code: "STR-05",
           title: "Improvement proposals",
-          sub: "A proposal can only ever become a new version — never an edit",
-          body: html`${S.label("PROPOSALS BY STATE", "each step is gated; agents cannot release a version")}${proposalFlow(st)}${S.label("RECORDED PROPOSALS", st ? `${fmtCount(st.proposals.length)} on record · newest first` : null)}${proposalsTable(st, ssrc)}`,
+          sub: "A proposal may only become a new version — never an edit",
+          body: html`${S.label("PROPOSALS BY STATE", "each step is gated; agents may not release a version")}${proposalFlow(st)}${S.label("RECORDED PROPOSALS", st ? `${fmtCount(st.proposals.length)} on record · newest first` : null)}${proposalsTable(st, ssrc)}`,
         })}
         <div class="span-5 lg-span-12 stack st-pair">
           ${panel({
@@ -374,7 +407,7 @@ export default {
             sub: "Cross-checks of declared strategy state — not verdicts",
             body: findingsList(findings, {
               empty: emptyState({
-                title: "No strategy findings",
+                title: st ? "No strategy findings" : "Strategy findings — not connected",
                 reason: st
                   ? "Declared strategy state passes the Command Centre's cross-checks."
                   : anyConnected
@@ -396,5 +429,8 @@ export default {
         </div>
       </div>
     `;
+  },
+  mount(root) {
+    return S.mountOverflowEdges(root);
   },
 };

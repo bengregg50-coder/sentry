@@ -5,7 +5,7 @@ import { store } from "./core/store.js";
 import { refreshSnapshot, startPolling } from "./core/api.js";
 import { parseHash, match } from "./core/router.js";
 import { fmtTime, humanize, fmtAge } from "./core/format.js";
-import { toneOf } from "./core/tones.js";
+import { toneOf, severityTone } from "./core/tones.js";
 import { NAV } from "./nav.js";
 import { icon, BRAND_MARK } from "./components/icons.js";
 import { dot } from "./components/ui.js";
@@ -53,6 +53,10 @@ function renderSidebar() {
     <nav class="nav" id="nav">
       ${NAV.map(
         (g) => html`<div class="nav__group" data-group="${g.key}" data-open="${collapsedGroups[g.key] ? "false" : "true"}">
+          <div class="nav__flyout" role="group" aria-label="${g.label}">
+            <div class="nav__flyout-head">${g.label}</div>
+            ${g.items.map((it) => html`<a class="${cx("nav__fly-link", it.sub && "nav__fly-link--sub")}" href="#${it.href}" data-fly-href="${it.href}" tabindex="-1">${it.label}</a>`)}
+          </div>
           <button class="nav__heading" type="button" data-toggle-group="${g.key}"><span>${g.label}</span>${icon("chevron", "chev")}</button>
           <ul class="nav__items">
             ${g.items.map(
@@ -79,12 +83,24 @@ function renderSidebar() {
       prefs.set("navClosed", closed);
     }
     if (ev.target.closest("#nav-toggle")) {
-      const collapsed = els.app.dataset.nav === "collapsed";
-      els.app.dataset.nav = collapsed ? "expanded" : "collapsed";
-      prefs.set("navCollapsed", !collapsed);
+      if (narrowNav.matches) {
+        // narrow screens: the toggle opens the full sidebar as an overlay (routes never hidden)
+        els.app.dataset.nav = els.app.dataset.nav === "open" ? restingNav() : "open";
+      } else {
+        const collapsed = els.app.dataset.nav === "collapsed";
+        els.app.dataset.nav = collapsed ? "expanded" : "collapsed";
+        prefs.set("navCollapsed", !collapsed);
+      }
     }
+    if (ev.target.closest("a[href^='#']") && els.app.dataset.nav === "open") els.app.dataset.nav = restingNav();
   });
-  if (prefs.get("navCollapsed", false)) els.app.dataset.nav = "collapsed";
+  els.app.dataset.nav = restingNav();
+}
+
+const narrowNav = window.matchMedia("(max-width: 1279px)");
+
+function restingNav() {
+  return prefs.get("navCollapsed", false) ? "collapsed" : "expanded";
 }
 
 function renderTopbar() {
@@ -93,7 +109,7 @@ function renderTopbar() {
     <div class="topbar__status" id="sys-pills"></div>
     <div class="topbar__right">
       <span id="alert-chip"></span>
-      <span class="ro-chip" title="The Command Centre has no write, order or deployment capability">${icon("lock", "icon")}READ-ONLY</span>
+      <span class="ro-chip" title="The Command Centre has no write, order or deployment capability">${icon("lock", "icon")}<span class="ro-chip__text">READ-ONLY</span></span>
       <span class="clock" id="clock"></span>
     </div>`);
 }
@@ -127,17 +143,15 @@ function updateShell(state) {
   const pills = d?.system ?? [];
   $("sys-pills").innerHTML = String(
     html`${pills.map(
-      (s) => html`<a class="sys-pill" href="${pillHref(s.key)}" title="${s.label}: ${humanize(s.state)}" data-subsystem="${s.key}" data-state="${s.state}">${dot(s.state, { pulse: toneOf(s.state) === "info" })}<span class="pill-label">${s.label}</span></a>`,
+      (s) => html`<a class="sys-pill" href="${pillHref(s.key)}" title="${s.label}: ${humanize(s.state)}${s.source_problem ? ` — ${s.source_problem}` : ""}" data-subsystem="${s.key}" data-state="${s.state}">${dot(s.state, { pulse: toneOf(s.state) === "info" })}<span class="pill-label">${s.label}</span><span class="pill-abbr" aria-hidden="true">${PILL_ABBR[s.key] ?? ""}</span></a>`,
     )}`,
   );
 
-  // alerts
-  const counts = d?.alert_counts ?? {};
-  const crit = counts.CRITICAL ?? 0;
-  const warn = counts.WARNING ?? 0;
-  $("alert-chip").innerHTML = snap
+  // alerts — "not connected" is never presented as "no findings"
+  const chip = snap ? alertChip(snap) : null;
+  $("alert-chip").innerHTML = chip
     ? String(
-        html`<a class="${cx("alert-chip", crit ? "tone-bad" : warn ? "tone-warn" : "")}" href="#/governance" title="Consistency findings">${icon("shield", "icon")}${crit ? `${crit} CRITICAL` : warn ? `${warn} WARNING` : "NO FINDINGS"}</a>`,
+        html`<a class="${cx("alert-chip", chip.tone && `tone-${chip.tone}`)}" href="#/governance" title="${chip.title}" data-alert-state="${chip.state}">${icon("shield", "icon")}${chip.label}</a>`,
       )
     : "";
 
@@ -152,24 +166,56 @@ function updateShell(state) {
     const el = document.querySelector('[data-nav-meta="/data/sources"]');
     if (el) el.textContent = `${ok}/${srcs.length}`;
     const gov = document.querySelector('[data-nav-meta="/governance"]');
-    if (gov) gov.innerHTML = crit ? String(dot("CRITICAL")) : warn ? String(dot("WARNING")) : "";
+    if (gov) gov.innerHTML = chip?.dot ? String(dot(chip.dot)) : "";
   }
 
-  // status bar
+  // status bar — the STATE path shrinks with an ellipsis and low-priority segments drop first,
+  // so the right-hand group (POLL, API state) is never cut mid-token.
   const srcs = snap ? Object.values(snap.sources) : [];
   const ok = srcs.filter((s) => s.status === "OK").length;
+  const loc = snap?.provider.location ?? "not configured";
   els.statusbar.innerHTML = String(html`
     <span class="seg">${dot(state.error ? "ERROR" : snap ? "CONNECTED" : "PENDING", { pulse: !state.error && !!snap })}<b>${state.error ? "API ERROR" : snap ? "API LINKED" : "CONNECTING"}</b></span>
-    <span class="seg">CONTRACT <b>v${snap?.contract_version ?? "?"}</b></span>
-    <span class="seg">PROVIDER <b>${snap?.provider.kind ?? "—"}</b></span>
-    <span class="seg">STATE <b>${snap?.provider.location ?? "not configured"}</b></span>
+    <span class="seg seg--opt">CONTRACT <b>v${snap?.contract_version ?? "?"}</b></span>
+    <span class="seg seg--opt">PROVIDER <b>${snap?.provider.kind ?? "—"}</b></span>
+    <span class="seg seg--path" title="${loc}">STATE <b>${loc}</b></span>
     <span class="seg">SOURCES <b>${snap ? `${ok}/${srcs.length} OK` : "—"}</b></span>
     <span class="seg">EVENTS <b>${snap ? humanize(snap.events_source.status) : "—"}</b></span>
-    <span class="seg push">REV <b>${snap?.revision ?? "—"}</b></span>
-    <span class="seg">POLL <b>${state.lastFetchAt ? fmtTime(state.lastFetchAt) : "—"}</b></span>
-    <span class="seg">LAT <b>${state.latencyMs ?? "—"}ms</b></span>
-    <span class="seg">APP <b>${snap?.app_version ?? "—"}</b></span>`);
+    <span class="seg push seg--opt">REV <b>${snap?.revision ?? "—"}</b></span>
+    <span class="seg seg--keep">POLL <b>${state.lastFetchAt ? fmtTime(state.lastFetchAt) : "—"}</b></span>
+    <span class="seg seg--opt">LAT <b>${state.latencyMs ?? "—"}ms</b></span>
+    <span class="seg seg--opt">APP <b>${snap?.app_version ?? "—"}</b></span>`);
 }
+
+/**
+ * Global findings chip. Order of truth:
+ *   no source connected            -> CHECKS · NOT CONNECTED (muted): nothing could be cross-checked
+ *   CRITICAL / WARNING findings    -> count, red / amber
+ *   only INFO findings             -> count, info tone (never hidden behind "no findings")
+ *   connected and zero findings    -> NO FINDINGS (muted, never green: only the checks that ran)
+ */
+function alertChip(snap) {
+  const d = snap?.derived;
+  const counts = d?.alert_counts ?? {};
+  const crit = counts.CRITICAL ?? 0;
+  const warn = counts.WARNING ?? 0;
+  const info = counts.INFO ?? 0;
+  const anyOk = Object.values(snap?.sources ?? {}).some((s) => s.status === "OK") || snap?.events_source?.status === "OK";
+  if (crit) return { state: "CRITICAL", label: `${crit} CRITICAL`, tone: severityTone("CRITICAL"), dot: "CRITICAL", title: "Consistency findings" };
+  if (warn) return { state: "WARNING", label: `${warn} WARNING`, tone: severityTone("WARNING"), dot: "WARNING", title: "Consistency findings" };
+  if (!anyOk) return { state: "NOT_CONNECTED", label: "CHECKS · NOT CONNECTED", tone: null, dot: null, title: "No state connected — nothing to cross-check" };
+  if (info) return { state: "INFO", label: `${info} INFO`, tone: severityTone("INFO"), dot: "RUNNING", title: "Informational consistency findings" };
+  const skipped = (d?.check_coverage ?? []).filter((c) => !c.ran).length;
+  return {
+    state: "NO_FINDINGS",
+    label: "NO FINDINGS",
+    tone: null,
+    dot: null,
+    title: skipped ? `No findings from the checks that ran (${skipped} check families could not run)` : "No findings from the checks that ran",
+  };
+}
+
+const PILL_ABBR = { research_engine: "RES", trading_engine: "TRD", agent_network: "AGT", data: "DAT", governance: "GOV", memory: "MEM" };
 
 function pillHref(key) {
   return (
@@ -197,15 +243,36 @@ async function loadModule(name) {
 }
 
 function setActiveNav(navPath) {
-  document.querySelectorAll(".nav__link").forEach((a) => {
-    if (a.dataset.navHref === navPath) a.setAttribute("aria-current", "page");
+  document.querySelectorAll(".nav__link, .nav__fly-link").forEach((a) => {
+    if ((a.dataset.navHref ?? a.dataset.flyHref) === navPath) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
 }
 
+function runCleanup() {
+  if (cleanup) {
+    try {
+      cleanup();
+    } catch {
+      /* ignore */
+    }
+    cleanup = null;
+  }
+}
+
+function swapView(view) {
+  els.view.replaceWith(view);
+  els.view = view;
+}
+
 async function renderView({ force = false } = {}) {
   const { path, query } = parseHash();
-  const m = match(path);
+  let m = null;
+  try {
+    m = match(path);
+  } catch {
+    m = null; // a malformed route renders the not-found view, never the previous page
+  }
   const state = store.get();
   const key = location.hash || "#/";
   if (!force && lastRendered.key === key && lastRendered.revision === state.snapshot?.revision) return;
@@ -215,7 +282,16 @@ async function renderView({ force = false } = {}) {
 
   if (!m) {
     setActiveNav(null);
-    els.view.innerHTML = String(html`<div class="empty" data-empty-state="not-found"><div class="empty__title">Unknown route</div><div class="empty__reason">${path}</div></div>`);
+    runCleanup();
+    const view = document.createElement("div");
+    view.className = "view";
+    view.id = "view";
+    view.dataset.route = path;
+    view.dataset.module = "not-found";
+    view.innerHTML = String(html`<div class="empty" data-empty-state="not-found"><div class="empty__title">Unknown route</div><div class="empty__reason">${path}</div></div>`);
+    swapView(view);
+    $("crumbs").innerHTML = String(html`<span>SENTRY</span><span class="sep">/</span><b>Unknown route</b>`);
+    document.title = "Unknown route · SENTRY Command Centre";
     lastRendered = { key, revision: state.snapshot?.revision };
     return;
   }
@@ -243,14 +319,7 @@ async function renderView({ force = false } = {}) {
   try {
     if (mod.load) ctx.extra = await mod.load(ctx);
     if (seq !== renderSeq) return;
-    if (cleanup) {
-      try {
-        cleanup();
-      } catch {
-        /* ignore */
-      }
-      cleanup = null;
-    }
+    runCleanup();
     const title = typeof mod.title === "function" ? mod.title(ctx) : mod.title;
     $("crumbs").innerHTML = String(html`<span>SENTRY</span><span class="sep">/</span><span>${m.route.group}</span><span class="sep">/</span><b>${title ?? ""}</b>`);
     document.title = `${title ?? "SENTRY"} · SENTRY Command Centre`;
@@ -264,8 +333,7 @@ async function renderView({ force = false } = {}) {
     } else {
       view.innerHTML = String(mod.render(ctx));
     }
-    els.view.replaceWith(view);
-    els.view = view;
+    swapView(view);
     // Restore/reset scroll before mount() so a view may scroll a focused element into view.
     els.main.scrollTop = sameRoute ? scrollTop : 0;
     const cleanups = [];

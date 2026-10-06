@@ -2,6 +2,9 @@
 // Counts come only from derived.pipeline. Unavailable => "—"; zero => "0".
 // Stages nobody has reached are drawn dormant (dashed); flow animation only
 // runs on connections that items have actually traversed.
+// Items whose stage nobody declared (pipeline.undeclared) are never counted as
+// having reached any stage: they are disclosed separately, and their tracks are
+// drawn as "not declared", never as traversed.
 
 import { html, raw, esc } from "../core/html.js";
 import { humanize, isNil, EMPTY } from "../core/format.js";
@@ -40,7 +43,10 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
   const yMain = 92;
   const laneTop = 176;
   const laneGap = 22;
-  const H = compact ? 150 : laneTop + laneGap * TERMINALS.length + 6;
+  const und = available ? pipeline?.undeclared ?? null : null;
+  const undCount = und?.count ?? 0;
+  const baseH = compact ? 150 : laneTop + laneGap * TERMINALS.length + 6;
+  const H = baseH + (undCount ? 20 : 0);
 
   const parts = [];
 
@@ -109,8 +115,17 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
         if (isNil(n)) return;
         if (n > 0) {
           const col = TONE_VAR[TERMINAL_TONE[t]];
+          const recon = st.terminals_by_origin?.RECONSTRUCTED?.[t] ?? 0;
+          parts.push(`<g class="pl-lane-chip" data-lane-terminal="${t}" ${recon ? `data-recon="${recon}"` : ""}>`);
+          if (recon) {
+            // Reconstructed outcomes are marked, never merged silently into a plain count.
+            parts.push(`<title>${esc(`${recon} of ${n} ${humanize(t)} at ${label(st.stage)} RECONSTRUCTED`)}</title>`);
+            parts.push(`<rect x="${x - 18}" y="${y - 10}" width="36" height="20" rx="3" fill="none" stroke="var(--warn)" stroke-dasharray="2 2" stroke-opacity=".9"/>`);
+          }
           parts.push(`<rect x="${x - 15}" y="${y - 8}" width="30" height="16" rx="2" fill="${col}" fill-opacity=".14" stroke="${col}" stroke-opacity=".6"/>`);
           parts.push(`<text x="${x}" y="${y + 3.5}" text-anchor="middle" class="svg-label" style="fill:${col};font-weight:700" data-v>${n}</text>`);
+          if (recon) parts.push(`<text x="${x + 21}" y="${y - 4}" class="svg-label" style="font-size:8px;fill:var(--warn);font-weight:700" data-origin-disclosure="RECONSTRUCTED">R${recon < n ? recon : ""}</text>`);
+          parts.push(`</g>`);
         } else {
           parts.push(`<circle cx="${x}" cy="${y}" r="1.6" fill="var(--faint)"/>`);
         }
@@ -118,8 +133,19 @@ export function pipelineDiagram(pipeline, { compact = false } = {}) {
     }
   });
 
+  if (undCount) {
+    const ids = und.ids ?? [];
+    const shown = ids.slice(0, 4).join(", ") + (ids.length > 4 ? ` +${ids.length - 4}` : "");
+    const terms = Object.entries(und.terminals ?? {}).map(([t, n]) => `${n} ${humanize(t)}`).join(" · ");
+    parts.push(
+      `<text x="${xs[0] - nodeW / 2}" y="${baseH + 12}" class="svg-label" style="font-size:9px;fill:var(--warn)" data-undeclared="${undCount}"><title>${esc(
+        "Stage not declared by any producer — these items are not counted as having reached any stage",
+      )}</title>+${undCount} NOT PLACED · STAGE NOT DECLARED (${esc(shown)})${terms ? ` · ${esc(terms)}` : ""}</text>`,
+    );
+  }
+
   const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Research to deployment pipeline" preserveAspectRatio="xMidYMid meet">${parts.join("")}</svg>`;
-  return html`<div class="diagram pipeline" data-pipeline-available="${available ? "1" : "0"}" style="--diagram-min:${raw(compact ? "720px" : "940px")}">${raw(svg)}</div>`;
+  return html`<div class="diagram pipeline" data-pipeline-available="${available ? "1" : "0"}" style="--diagram-min:${raw(compact ? "680px" : "820px")}">${raw(svg)}</div>`;
 }
 
 /**
@@ -133,15 +159,18 @@ export function pipelineTracks(items, { limit = 24, hrefFor } = {}) {
   return html`<div class="tracks">
     <div class="tracks__head"><span></span>${STAGES.map((s) => html`<span class="tracks__stage">${label(s)}</span>`)}<span class="tracks__stage">OUTCOME</span></div>
     ${shown.map((it) => {
-      const reachedIdx = STAGES.indexOf(it.stage_reached);
+      const declared = !isNil(it.stage_reached);
+      const reachedIdx = declared ? STAGES.indexOf(it.stage_reached) : -1;
       const href = hrefFor ? hrefFor(it) : null;
       const tone = it.terminal ? toneOf(it.terminal) : "info";
-      return html`<div class="tracks__row" data-item="${it.id}">
+      return html`<div class="tracks__row ${declared ? "" : "tracks__row--undeclared"}" data-item="${it.id}" data-stage-basis="${it.stage_basis ?? ""}" title="${declared ? "" : "Stage not declared by any producer — no stage is shown as traversed"}">
         <span class="tracks__label">${href ? html`<a href="${href}">${it.id}</a>` : it.id}<span class="tracks__title">${it.label}</span>${originBadge(it.origin)}</span>
-        ${STAGES.map((s, i) => {
-          const cls = i < reachedIdx ? "on" : i === reachedIdx ? `end tone-${tone}` : "off";
-          return html`<span class="tracks__cell ${cls}"><i></i></span>`;
-        })}
+        ${declared
+          ? STAGES.map((s, i) => {
+              const cls = i < reachedIdx ? "on" : i === reachedIdx ? `end tone-${tone}` : "off";
+              return html`<span class="tracks__cell ${cls}"><i></i></span>`;
+            })
+          : html`<span class="tracks__cell tracks__cell--span unknown"><i></i><span class="tracks__nodecl">STAGE NOT DECLARED · NOT PLACED</span></span>`}
         <span class="tracks__outcome">${it.terminal ? badge(it.terminal) : badge("ACTIVE", { label: "ACTIVE · " + humanize(it.status) })}</span>
       </div>`;
     })}

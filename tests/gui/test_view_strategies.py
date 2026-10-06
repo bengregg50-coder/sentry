@@ -10,12 +10,14 @@ not-found state; counts of different record origins are never merged.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 
 import pytest
 
 from .browser_helpers import fake_value_hits, new_page, present_values, view_text, visit
-from .conftest import start_server
+from .conftest import FIXTURE_DIR, start_server
 
 pytestmark = pytest.mark.browser
 
@@ -72,7 +74,11 @@ def test_empty_library_keeps_full_structure(browser, empty_url, route):
     # tabs carry no counts; the registry table keeps its columns
     assert page.locator(".tabs .tab").count() == 5
     assert page.locator(".tabs .count").count() == 0
-    assert page.locator(".st-reg thead th").count() == 12
+    heads = page.eval_on_selector_all(".st-reg thead th", "els => els.map(e => e.innerText.replace(/\\s+/g, ' ').trim().toUpperCase())")
+    assert heads == [
+        "STRATEGY NAME · MECHANISM", "MARKET INST · TF", "STATUS VERSION · VALIDATION",
+        "NET RETURN", "SHARPE", "MAX DD", "AGENT UPDATED",
+    ], heads
     # the delivery flow shows all six stages; deployment controls are locked
     assert page.locator("[data-flow-stage]").count() == 6
     locked = page.eval_on_selector_all("[data-control]", "els => els.map(e => e.dataset.enabled)")
@@ -157,8 +163,11 @@ def test_fixture_library_counts_tabs_lifecycle_and_origin(browser, fixture_url):
     }
     # rejected strategies stay visible with their status
     assert page.get_attribute('.st-reg tr[data-strategy="FX-S005"]', "data-status") == "REJECTED"
-    # synthetic records are flagged in the table
+    # synthetic records are flagged in the table — in the Strategy cell, with the same label as the source tag
     assert page.locator('.st-reg [data-state="SYNTHETIC_FIXTURE"]').count() == 5
+    assert page.locator('.st-reg td.st-col-id [data-state="SYNTHETIC_FIXTURE"]').count() == 5
+    labels = set(page.eval_on_selector_all('.st-reg [data-state="SYNTHETIC_FIXTURE"]', "els => els.map(e => e.textContent.trim())"))
+    assert labels == {"SYNTHETIC FIXTURE"}, labels
     # headline metrics carry their basis
     s3 = page.inner_text('.st-reg tr[data-strategy="FX-S003"]')
     assert "OOS" in s3 and "AGENT 02" in s3
@@ -178,9 +187,10 @@ def test_fixture_s003_versions_handoff_and_basis(browser, fixture_url):
     assert cards == [["1", "0", "0"], ["2", "1", "1"]]
     assert page.get_attribute("[data-viewing]", "data-viewing") == "2"
     assert "VERSIONS ARE IMMUTABLE" in view_text(page).upper()
-    # hand-off: five COMPLETE steps, LIVE not reached
+    # hand-off: four COMPLETE steps, an ongoing simulation is RUNNING (never COMPLETE), LIVE not reached
     steps = dict(page.eval_on_selector_all(".st-handoff .step", "els => els.map(e => [e.dataset.step, e.dataset.state])"))
-    assert [k for k, s in steps.items() if s == "COMPLETE"] == ["VALIDATION", "APPROVAL", "DEPLOYMENT_PACKAGE", "AGENT_ASSIGNMENT", "SIMULATION"]
+    assert [k for k, s in steps.items() if s == "COMPLETE"] == ["VALIDATION", "APPROVAL", "DEPLOYMENT_PACKAGE", "AGENT_ASSIGNMENT"]
+    assert steps["SIMULATION"] == "RUNNING"
     assert steps["LIVE"] == "NOT_REACHED"
     assert page.get_attribute("[data-eligible]", "data-eligible") == "1"
     # Sharpe with an out-of-sample basis chip
@@ -238,9 +248,11 @@ def test_fixture_s002_in_sample_basis_and_failed_check(browser, fixture_url):
     wf = page.locator('.st-chkgroups .st-chk[data-check="walk_forward"]')
     assert wf.get_attribute("data-state") == "NOT_REPORTED"
     assert "tone-ok" not in wf.locator(".badge").get_attribute("class")
-    # pending multiple-testing treatment, hand-off blocked at validation
+    # pending multiple-testing treatment; the hand-off shows the declared validation status verbatim
+    # (IN PROGRESS) and stops there
     steps = dict(page.eval_on_selector_all(".st-handoff .step", "els => els.map(e => [e.dataset.step, e.dataset.state])"))
-    assert steps["VALIDATION"] == "BLOCKED"
+    assert steps["VALIDATION"] == "IN_PROGRESS"
+    assert [k for k, s in steps.items() if s == "COMPLETE"] == []
     assert page.get_attribute("[data-eligible]", "data-eligible") == "0"
     page.close()
 
@@ -312,14 +324,148 @@ def test_origins_never_merged(browser, state_factory):
         registered = page.locator(".stat", has_text="Registered").locator(".st-split__n")
         parts = [t.strip() for t in registered.all_text_contents()]
         assert parts == ["1", "1RECON", "3SYNTH"], parts
-        # a reconstructed record is badged in the table
-        assert page.locator('.st-reg tr[data-strategy="FX-S002"] [data-state="RECONSTRUCTED"]').count() == 1
+        # a reconstructed record is badged in the table, in its Strategy cell (visible at every width)
+        assert page.locator('.st-reg tr[data-strategy="FX-S002"] td.st-col-id [data-state="RECONSTRUCTED"]').count() == 1
+        # an ORIGINAL record carries no origin badge
+        assert page.locator('.st-reg tr[data-strategy="FX-S001"] .st-cell-origin').count() == 0
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_detail_identity_not_repeated_and_one_origin_label(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/strategy/FX-S003")
+    # STR-D01 carries identity only; status, version, agent, last update and origin live in the header strip
+    keys = page.eval_on_selector_all("[data-identity] .kv__k", "els => els.map(e => e.textContent.trim().toUpperCase())")
+    assert keys == ["STRATEGY ID", "NAME", "MECHANISM", "MARKET", "INSTRUMENT", "TIMEFRAME", "VERSIONS ON RECORD"], keys
+    hero = page.eval_on_selector_all(".st-hero__k", "els => els.map(e => e.textContent.trim().toUpperCase())")
+    for k in ("STATUS", "CURRENT VERSION", "ASSIGNED AGENT", "LAST UPDATE", "ORIGIN"):
+        assert k in hero, hero
+    # one origin label everywhere: the header strip says what the page-head source tag says
+    hero_origin = page.inner_text("[data-hero-origin] .st-hero__v").strip()
+    src_origin = page.inner_text('.page-head [data-source="strategies"] [data-state="SYNTHETIC_FIXTURE"]').strip()
+    assert hero_origin == src_origin == "SYNTHETIC FIXTURE"
+    # STR-D10: one proposer reference — the agent link, with the raw producer ref as its tooltip
+    cell = page.locator('tr[data-proposal="FX-PR1"] td').nth(4)
+    assert cell.inner_text().strip() == "AGENT 02"
+    assert cell.locator("a.ref").get_attribute("title") == "agent:02"
+    page.close()
+
+
+def _registry_only_state(tmp_path, strategies=None, proposals=None):
+    """A state dir holding strategies.json alone — no agent, live or execution source connected."""
+    d = tmp_path / "registry_only"
+    d.mkdir()
+    shutil.copy(FIXTURE_DIR / "strategies.json", d / "strategies.json")
+    doc = json.loads((d / "strategies.json").read_text())
+    if strategies is not None:
+        doc["data"]["strategies"] = [s for s in doc["data"]["strategies"] if s["strategy_id"] in strategies]
+    if proposals is not None:
+        doc["data"]["proposals"] = [p for p in doc["data"]["proposals"] if p["proposal_id"] in proposals]
+    (d / "strategies.json").write_text(json.dumps(doc))
+    return d
+
+
+def test_deployed_empty_claims_only_what_the_registry_says(browser, tmp_path):
+    """With only strategies.json connected, the deployed list may not claim anything about trading or agents."""
+    url, server = start_server(_registry_only_state(tmp_path, strategies=[], proposals=[]))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/strategies/deployed")
+        assert v.clean, v.describe()
+        empty = page.locator('[data-empty-state="none-deployed"]')
+        assert empty.count() == 1
+        assert "No registered strategy has status DEPLOYED_SIM, DEPLOYED_LIVE or SCALED." in empty.inner_text()
+        text = view_text(page)
+        assert not re.search(r"nothing is trading|no strategy is running|asleep", text, re.I), text
+        visit(page, "/strategies/retired")
+        assert "No registered strategy has status RETIRED." in page.inner_text('[data-empty-state="none-retired"]')
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_none_validated_sentence_matches_filter_and_names_exclusions(browser, tmp_path):
+    """FX-S004 is RETIRED with a VALIDATED current version: "none VALIDATED" would be false; say what was excluded."""
+    url, server = start_server(_registry_only_state(tmp_path, strategies=["FX-S004", "FX-S005"], proposals=[]))
+    try:
+        page = new_page(browser, url)
+        for route in ("/strategies", "/strategies/validated"):
+            v = visit(page, route)
+            assert v.clean, v.describe()
+            assert page.get_attribute(".st-verdict", "data-validated-state") == "none"
+            text = view_text(page)
+            assert "none of their current versions VALIDATED" not in text
+            assert "has a current version the research engine declares VALIDATED." not in text
+            assert "RETIRED and REJECTED excluded" in text
+            excl = page.eval_on_selector_all("[data-excluded-validated]", "els => els.map(e => e.dataset.excludedValidated)")
+            assert excl and set(excl) == {"FX-S004"}, excl
+            assert page.locator('[data-excluded-validated] a[href="#/strategy/FX-S004"]').count() >= 1
+        assert page.locator('[data-empty-state="no-validated-strategies"] [data-excluded-validated="FX-S004"]').count() == 1
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_no_exclusion_note_when_nothing_is_excluded(browser, tmp_path):
+    url, server = start_server(_registry_only_state(tmp_path, strategies=["FX-S001", "FX-S005"], proposals=[]))
+    try:
+        page = new_page(browser, url)
+        visit(page, "/strategies")
+        assert page.get_attribute(".st-verdict", "data-validated-state") == "none"
+        assert page.locator("[data-excluded-validated]").count() == 0
         page.close()
     finally:
         server.should_exit = True
 
 
 # ---------------------------------------------------------------- layout
+
+
+@pytest.mark.parametrize("width", [1024, 1280, 1440])
+@pytest.mark.parametrize("route", LIBRARY)
+def test_registry_columns_fit_without_horizontal_scroll(browser, fixture_url, route, width):
+    """Evidence-basis figures and per-row provenance stay on screen across the supported widths."""
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, route)
+    m = page.evaluate(
+        """() => { const tw = document.querySelector('.st-reg'); const r = tw.getBoundingClientRect();
+          return { sw: tw.scrollWidth, cw: tw.clientWidth, overflow: tw.dataset.overflow ?? null,
+                   offscreen: [...tw.querySelectorAll('thead th')].filter(th => th.getBoundingClientRect().right > r.right + 1).map(th => th.innerText) }; }"""
+    )
+    assert m["sw"] <= m["cw"] + 1, f"{route} registry scrolls at {width}px: {m}"
+    assert m["offscreen"] == [] and m["overflow"] is None, m
+    # every listed row shows its origin badge inside the visible Strategy cell
+    rows = page.locator(".st-reg tbody tr[data-strategy]")
+    for i in range(rows.count()):
+        badge_box = rows.nth(i).locator(".st-cell-origin .badge").bounding_box()
+        assert badge_box and badge_box["width"] > 0
+    page.close()
+
+
+def test_registry_overflow_is_marked_with_an_edge(browser, state_factory):
+    """If producer strings still force overflow, the scroller says so (faded edge), never a silent cut."""
+
+    def long_instrument(d):
+        s = next(x for x in d["data"]["strategies"] if x["strategy_id"] == "FX-S003")
+        s["instrument"] = "FXA/FXB/FXC/FXD/FXE/FXF/FXG/FXH/FXI/FXJ/FXK/FXL/FXM/FXN/FXO/FXP/FXQ"
+
+    url, server = start_server(state_factory({"strategies": long_instrument}))
+    try:
+        page = new_page(browser, url, width=1024)
+        visit(page, "/strategies")
+        tw = page.locator(".st-reg")
+        assert page.evaluate("() => { const t = document.querySelector('.st-reg'); return t.scrollWidth > t.clientWidth; }")
+        assert tw.get_attribute("data-overflow") == "right"
+        assert page.evaluate("() => getComputedStyle(document.querySelector('.st-reg')).maskImage") not in ("", "none")
+        page.evaluate("() => { const t = document.querySelector('.st-reg'); t.scrollLeft = t.scrollWidth; }")
+        page.wait_for_timeout(100)
+        assert tw.get_attribute("data-overflow") == "left"
+        page.close()
+    finally:
+        server.should_exit = True
+
 
 
 @pytest.mark.parametrize("width", [1024, 1280, 2200])

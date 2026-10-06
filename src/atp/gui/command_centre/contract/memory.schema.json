@@ -21,6 +21,19 @@
           "title": "Generated At",
           "type": "string"
         },
+        "heartbeat_max_age_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heartbeat Max Age S"
+        },
         "notes": {
           "items": {
             "type": "string"

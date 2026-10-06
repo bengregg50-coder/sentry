@@ -35,7 +35,25 @@ import { sparkline } from "../components/chart.js";
 import { agentMini } from "../components/agent.js";
 import { icon } from "../components/icons.js";
 import { ccRing } from "./_command-ring.js";
-import { ACTIVE_AGENT, DOC_KEYS, isOk, srcState, statusLine, countWhere, fc, go, subhead, emptyLine } from "./_command-common.js";
+import {
+  ACTIVE_AGENT,
+  DOC_KEYS,
+  isOk,
+  srcState,
+  statusLine,
+  countWhere,
+  fc,
+  go,
+  subhead,
+  emptyLine,
+  originSplit,
+  splitFrom,
+  originalOf,
+  hasOtherOrigins,
+  originTone,
+  splitVal,
+  splitText,
+} from "./_command-common.js";
 
 const ACTIVE_PROGRAMME = new Set(["RUNNING", "SPEC_FROZEN"]);
 const SEVERITIES = ["CRITICAL", "WARNING", "INFO"];
@@ -86,17 +104,69 @@ function systemStatus(ctx) {
 
 /* ------------------------------------------------------------ research status */
 
-function heroValidated(rs, sSrc) {
+// Every record count below is split by record origin (ORIGINAL untagged,
+// RECONSTRUCTED / SYNTHETIC tagged) — never one merged total. Status groupings
+// mirror the stat hints; validation and eligibility come from derived state.
+const CANDIDATE_STATUSES = new Set(["CANDIDATE", "IN_VALIDATION"]);
+const DEPLOYED_STATUSES = new Set(["DEPLOYED_SIM", "DEPLOYED_LIVE", "SCALED"]);
+const isHighConfidence = (m) => m.confidence === "HIGH" && m.validation_state === "VALIDATED";
+const isUnresolved = (m) => m.validation_state === "UNVERIFIED" || m.validation_state === "PROVISIONAL" || m.status === "REVIEW";
+
+/** Memory split for a derived class: the server's per-origin map when it provides one, else rows counted by the same declared fields. */
+function memSplit(ms, mems, derivedKey, pred) {
+  if (!ms.available) return null;
+  return ms[derivedKey] ? splitFrom(ms[derivedKey]) : originSplit(mems, pred);
+}
+
+/** Small inline split for stat hints. */
+function hintSplit(split) {
+  return splitVal(split, { cls: "cc-split--sm" }) ?? val(null);
+}
+
+/** Strategy ids whose current version derive_handoff marks VALIDATION complete and not withdrawn. */
+function validatedIds(ctx) {
+  const hs = derived(ctx, "handoffs") ?? [];
+  return new Set(hs.filter((h) => !h.withdrawn && h.steps?.find((s) => s.step === "VALIDATION")?.state === "COMPLETE").map((h) => h.strategy_id));
+}
+
+function heroValidated(ctx, rs, sSrc) {
   const available = !!rs.strategies_available;
-  const n = available ? rs.validated : null;
+  const strategies = available ? doc(ctx, "strategies")?.strategies ?? null : null;
+  const ids = available ? validatedIds(ctx) : null;
+  const split = strategies ? originSplit(strategies, (s) => ids.has(s.strategy_id)) : null;
   let note;
-  if (!available) note = html`<b>${sourceShort(sSrc)}</b> Strategy registry unavailable — this is not a zero.`;
-  else if (n === 0) note = html`<b>NONE VALIDATED</b> No-trade &gt; weak trade. No edge found &gt; fake edge found.`;
+  if (!split) note = html`<b>${sourceShort(sSrc)}</b> Strategy registry unavailable — this is not a zero.`;
+  else if (!Object.values(split).some((n) => n > 0)) note = html`<b>NONE VALIDATED</b> No-trade &gt; weak trade. No edge found &gt; fake edge found.`;
+  else if (hasOtherOrigins(split)) note = html`<b>CURRENT VERSIONS · PER ORIGIN</b> Validation status VALIDATED, excluding retired and rejected. Origins counted separately.`;
   else note = html`<b>CURRENT VERSIONS</b> Validation status VALIDATED, excluding retired and rejected.`;
-  return html`<a class="cc-hero-kpi" href="#/strategies/validated" data-kpi="validated" data-available="${available ? "1" : "0"}">
+  return html`<a class="cc-hero-kpi" href="#/strategies/validated" data-kpi="validated" data-available="${split ? "1" : "0"}">
     <div class="cc-hero-kpi__label">${icon("validated")}Validated strategies</div>
-    <div class="${cx("cc-hero-kpi__value", isNil(n) && "is-empty")}" data-v ${isNil(n) ? html`data-empty="1"` : ""}>${isNil(n) ? EMPTY : fmtNum(n, 0)}</div>
+    ${split
+      ? html`<div class="cc-hero-kpi__value">${splitVal(split, { cls: "cc-split--hero" })}</div>`
+      : html`<div class="cc-hero-kpi__value is-empty" data-v data-empty="1">${EMPTY}</div>`}
     <div class="cc-hero-kpi__note">${note}</div>
+  </a>`;
+}
+
+/** Ledger-declared trial accounting: three separate figures, never summed by the UI. */
+function trialAccounting(ctx, ta, rSrc) {
+  const connected = !!ta?.available;
+  const d = connected ? ta.declared ?? null : null;
+  // Per-figure reason only when the block exists but omits a figure; otherwise the note says why.
+  const fig = (key, label, v, tag, title) => html`<div class="cc-acct__fig" data-acct="${key}" title="${title}">
+    <span class="cc-acct__k">${label}</span>
+    <span class="cc-acct__v">${val(fc(v))}${isNil(v) ? (d ? html`<span class="cc-acct__why">NOT DECLARED</span>` : "") : tag}</span>
+  </div>`;
+  let note;
+  if (!connected) note = html`<b>${sourceShort(rSrc)}</b> — the research ledger's declared trial counts appear here.`;
+  else if (!d) note = "Trial accounting not declared — research.json carries no trial_accounting block.";
+  else note = html`Ledger-declared · never summed here${d.as_of ? html` · ${fmtDate(d.as_of)}` : ""}`;
+  return html`<a class="cc-acct" href="#/research" data-trial-accounting="${!connected ? "NOT_CONNECTED" : d ? "DECLARED" : "NOT_DECLARED"}">
+    <span class="cc-acct__head">${icon("history")}Trial accounting</span>
+    ${fig("reconstructed_baseline", "Reconstructed baseline", d?.reconstructed_baseline, html`<span class="${cx("cc-split__tag", originTone("RECONSTRUCTED"))}">RECON</span>`, "Rebuilt after source loss — declared by the ledger")}
+    ${fig("live_recorded", "Live-recorded", d?.live_recorded, "", "Recorded at the time by the live ledger")}
+    ${fig("global_count", "Global (declared)", d?.global_count, "", "Global trial count as declared by the ledger — the multiple-testing basis")}
+    <span class="cc-acct__note">${note}</span>
   </a>`;
 }
 
@@ -111,17 +181,16 @@ function researchStatus(ctx) {
   const controls = derived(ctx, "controls");
   const slots = derived(ctx, "agent_slots") ?? [];
 
-  const progs = research?.programmes ?? null;
-  const running = countWhere(progs, (p) => p.status === "RUNNING");
-  const frozen = countWhere(progs, (p) => p.status === "SPEC_FROZEN");
-  const hyps = research?.hypotheses ?? null;
-  const rejected = countWhere(hyps, (h) => h.terminal === "REJECTED");
-  const blocked = countWhere(hyps, (h) => h.terminal === "BLOCKED_BY_DATA");
-  const byOrigin = ta?.records_by_origin;
+  const progs = rs.research_available ? research?.programmes ?? null : null;
+  const hyps = rs.research_available ? research?.hypotheses ?? null : null;
+  const trials = rs.research_available ? research?.trials ?? null : null;
+  const strategies = rs.strategies_available ? doc(ctx, "strategies")?.strategies ?? null : null;
+  const memories = ms.available ? doc(ctx, "memory")?.memories ?? null : null;
+  const eligibleIds = rs.strategies_available && controls?.deployment_eligible ? new Set(controls.deployment_eligible) : null;
+
   const agentsOk = isOk(aSrc);
   const reporting = agentsOk ? countWhere(slots, (s) => s.reported) : null;
   const activeAgents = agentsOk ? countWhere(slots, (s) => ACTIVE_AGENT.has(s.status)) : null;
-  const eligible = rs.strategies_available ? controls?.deployment_eligible ?? null : null;
 
   const rEmpty = sourceShort(rSrc);
   const sEmpty = sourceShort(sSrc);
@@ -130,46 +199,48 @@ function researchStatus(ctx) {
     span: 12,
     code: "CMD-02",
     title: "Research status",
-    sub: "Declared by the research ledger and strategy registry — counted, never estimated",
+    sub: "Declared by the research ledger and strategy registry — counted per record origin, never merged or estimated",
     actions: go("RESEARCH OVERVIEW", "#/research"),
     cls: "cc-panel-kpi",
     body: html`<div class="cc-cq"><div class="cc-kpis">
-      ${heroValidated(rs, sSrc)}
-      <div class="cc-kpis__grid">${statRow([
+      ${heroValidated(ctx, rs, sSrc)}
+      <div class="cc-kpis__main">
+      <div class="cc-kpis__grid" data-origin-counts>${statRow([
         stat({
           label: "Active programmes",
-          value: isNil(progs) ? null : fc(running + frozen),
-          hint: html`${running} running · ${frozen} spec frozen`,
+          value: splitVal(originSplit(progs, (p) => ACTIVE_PROGRAMME.has(p.status))),
+          hint: html`${hintSplit(originSplit(progs, (p) => p.status === "RUNNING"))} running · ${hintSplit(originSplit(progs, (p) => p.status === "SPEC_FROZEN"))} spec frozen`,
           emptyLabel: rEmpty,
         }),
         stat({
           label: "Hypotheses",
-          value: rs.research_available ? fc(rs.hypotheses_total) : null,
-          hint: html`${rejected} rejected · ${blocked} blocked by data`,
+          value: splitVal(originSplit(hyps)),
+          hint: html`${hintSplit(originSplit(hyps, (h) => h.terminal === "REJECTED"))} rejected · ${hintSplit(originSplit(hyps, (h) => h.terminal === "BLOCKED_BY_DATA"))} blocked by data`,
           emptyLabel: rEmpty,
+          title: "Hypotheses per record origin. Origins are counted separately and never merged.",
         }),
         stat({
           label: "Trial records",
-          value: rs.research_available ? fc(rs.trials_total) : null,
-          hint: html`${rs.trials_running} running${byOrigin ? html` · ${byOrigin.ORIGINAL} original / ${byOrigin.RECONSTRUCTED} reconstructed` : ""}`,
+          value: splitVal(originSplit(trials)),
+          hint: html`${hintSplit(originSplit(trials, (t) => t.outcome === "RUNNING"))} running · individual records present`,
           emptyLabel: rEmpty,
-          title: "Individual trial records present. Origins are listed separately and never merged.",
+          title: "Individual trial records present, per origin. The ledger's declared accounting is listed separately below.",
         }),
         stat({
           label: "Candidates",
-          value: rs.strategies_available ? fc(rs.candidates) : null,
+          value: splitVal(originSplit(strategies, (s) => CANDIDATE_STATUSES.has(s.status))),
           hint: "Candidate or in validation",
           emptyLabel: sEmpty,
         }),
         stat({
           label: "Deployment-eligible",
-          value: isNil(eligible) ? null : fc(eligible.length),
+          value: eligibleIds ? splitVal(originSplit(strategies, (s) => eligibleIds.has(s.strategy_id))) : null,
           hint: "Validated · approved · packaged",
           emptyLabel: sEmpty,
         }),
         stat({
           label: "Deployed",
-          value: rs.strategies_available ? fc(rs.deployed) : null,
+          value: splitVal(originSplit(strategies, (s) => DEPLOYED_STATUSES.has(s.status))),
           hint: "Sim · live · scaled",
           emptyLabel: sEmpty,
         }),
@@ -181,11 +252,13 @@ function researchStatus(ctx) {
         }),
         stat({
           label: "Memories",
-          value: ms.available ? fc(ms.total) : null,
-          hint: html`${ms.high_confidence_findings} high-confidence validated`,
+          value: splitVal(originSplit(memories)),
+          hint: html`${hintSplit(memSplit(ms, memories, "high_confidence_by_origin", isHighConfidence))} high-confidence validated`,
           emptyLabel: sourceShort(source(ctx, "memory")),
         }),
       ])}</div>
+      ${trialAccounting(ctx, ta, rSrc)}
+      </div>
     </div></div>`,
   });
 }
@@ -201,11 +274,15 @@ function pipelineHero(ctx) {
   const eligible = rs.strategies_available ? controls?.deployment_eligible ?? [] : null;
   const recon = items ? countWhere(items, (i) => i.origin === "RECONSTRUCTED") : 0;
 
+  const outcome = (key, label, split, cls) =>
+    html`<span class="${cx("cc-outcome", cls, !hasOtherOrigins(split) && !originalOf(split) && "is-zero")}" data-terminal="${key}"><i></i>${label}<b>${splitVal(split, { cls: "cc-split--sm" })}</b></span>`;
   const outcomes = items
-    ? html`<div class="cc-outcomes">${TERMINALS.map((t) => {
-        const n = countWhere(items, (i) => i.terminal === t);
-        return html`<span class="${cx("cc-outcome", toneClass(t), n === 0 && "is-zero")}" data-terminal="${t}"><i></i>${humanize(t)}<b>${n}</b></span>`;
-      })}<span class="cc-outcome cc-outcome--active" data-terminal="ACTIVE"><i></i>Still active<b>${countWhere(items, (i) => !i.terminal)}</b></span></div>`
+    ? html`<div class="cc-outcomes">${TERMINALS.map((t) => outcome(t, humanize(t), originSplit(items, (i) => i.terminal === t), toneClass(t)))}${outcome(
+        "ACTIVE",
+        "Still active",
+        originSplit(items, (i) => !i.terminal),
+        "cc-outcome--active",
+      )}</div>`
     : html`<span class="muted small">Outcome counts appear when research.json or strategies.json is connected.</span>`;
 
   let gate;
@@ -242,7 +319,7 @@ function pipelineHero(ctx) {
           ])}
           <span class="muted small">${
             items
-              ? html`${countWhere(items, (i) => i.kind === "HYPOTHESIS")} hypotheses · ${countWhere(items, (i) => i.kind === "STRATEGY")} strategies tracked (never double counted)${
+              ? html`Tracked once each — hypotheses: ${splitText(originSplit(items, (i) => i.kind === "HYPOTHESIS"))} / strategies: ${splitText(originSplit(items, (i) => i.kind === "STRATEGY"))}${
                   recon ? html` · <span class="${cx("cc-tonetext", toneClass("RECONSTRUCTED"))}" data-recon-items="${recon}">${recon} reconstructed item(s) included</span>` : ""
                 }`
               : sourceReason(source(ctx, "research"))
@@ -260,18 +337,27 @@ function systemLoop(ctx) {
   const slots = derived(ctx, "agent_slots") ?? [];
   const ev = source(ctx, "agent_events");
   const conn = (k) => isOk(source(ctx, k));
+  // Record-bearing nodes are split by origin: the ring shows the ORIGINAL count
+  // (labelled "orig"); every origin is listed beside it, never summed.
+  const hyps = rs.research_available ? doc(ctx, "research")?.hypotheses ?? null : null;
+  const mems = ms.available ? doc(ctx, "memory")?.memories ?? null : null;
+  const strategies = rs.strategies_available ? doc(ctx, "strategies")?.strategies ?? null : null;
+  const hypSplit = originSplit(hyps);
+  const knowSplit = originSplit(mems);
+  const stratSplit = originSplit(strategies);
   const nodes = [
-    { key: "RESEARCH", label: "RESEARCH", src: "research", value: rs.research_available ? rs.hypotheses_total : null, sub: "hypotheses" },
-    { key: "KNOWLEDGE", label: "KNOWLEDGE", src: "memory", value: ms.available ? ms.total : null, sub: "memories" },
-    { key: "STRATEGIES", label: "STRATEGIES", src: "strategies", value: rs.strategies_available ? rs.strategies_total : null, sub: "in registry" },
+    { key: "RESEARCH", label: "RESEARCH", src: "research", value: originalOf(hypSplit), split: hypSplit, sub: "orig hypotheses" },
+    { key: "KNOWLEDGE", label: "KNOWLEDGE", src: "memory", value: originalOf(knowSplit), split: knowSplit, sub: "orig memories" },
+    { key: "STRATEGIES", label: "STRATEGIES", src: "strategies", value: originalOf(stratSplit), split: stratSplit, sub: "orig in registry" },
     { key: "AGENTS", label: "AGENTS", src: "agents", value: conn("agents") ? countWhere(slots, (s) => ACTIVE_AGENT.has(s.status)) : null, sub: "active of 5" },
     { key: "OBSERVATIONS", label: "OBSERVATIONS", src: "agent_events", value: isOk(ev) ? ev.valid_events : null, sub: "agent events" },
   ].map((n) => ({ ...n, connected: conn(n.src) }));
   const connected = nodes.filter((n) => n.connected).length;
+  const otherOrigins = nodes.some((n) => hasOtherOrigins(n.split));
 
   return panel({
     span: 4,
-    code: "CMD-04",
+    code: "CMD-10",
     title: "System loop",
     sub: `${connected} of ${nodes.length} nodes connected`,
     cls: "lg-span-6 cc-panel-loop",
@@ -284,11 +370,14 @@ function systemLoop(ctx) {
             return html`<li data-loop-node="${n.key}" data-connected="${n.connected ? "1" : "0"}">
               ${dot(srcState(src))}<span class="cc-loop__name">${n.label}</span>
               <span class="cc-loop__file">${src?.file ?? n.src}</span>
+              <span class="cc-loop__count">${n.split !== undefined ? splitVal(n.split, { cls: "cc-split--sm" }) ?? val(null) : val(fc(n.value))}</span>
               <span class="${cx("cc-loop__state cc-tonetext", toneClass(srcState(src)))}">${sourceShort(src)}</span>
             </li>`;
           })}
         </ul>
-        <div class="cc-loop__return">${icon("history")}<span>Observations flow back into <b>knowledge</b> → <b>better research</b>. Arcs animate only where both ends are connected; counts are declared, never estimated.</span></div>
+        <div class="cc-loop__return">${icon("history")}<span>Observations flow back into <b>knowledge</b> → <b>better research</b>. Arcs animate only where both ends are connected; counts are declared, never estimated. Ring values for research, knowledge and strategies count ORIGINAL records${
+          otherOrigins ? html`; <span data-loop-other-origins>other origins are listed above, never merged</span>` : ""
+        }.</span></div>
       </div>
     </div></div>`,
   });
@@ -327,7 +416,7 @@ function tradingFloor(ctx) {
   const assigned = countWhere(slots, (s) => s.has_strategy);
   return panel({
     span: 12,
-    code: "CMD-05",
+    code: "CMD-04",
     title: "Trading floor",
     sub: isOk(aSrc)
       ? `${reporting} of 5 slots reporting · ${active} active · ${assigned} with an assigned strategy`
@@ -389,21 +478,21 @@ function researchFocus(ctx) {
     const order = ["TESTING", "PREREGISTERED", "PROPOSED", "PENDING", "VALIDATED", "REJECTED", "BLOCKED_BY_DATA", "ABANDONED"];
     const present = order.filter((s) => hyps.some((h) => h.status === s));
     hypBody = html`<div class="cc-hypstat">${present.map(
-      (s) => html`<span class="${cx("cc-hypstat__item", toneClass(s))}" data-hyp-status="${s}"><b>${countWhere(hyps, (h) => h.status === s)}</b>${humanize(s)}</span>`,
+      (s) => html`<span class="${cx("cc-hypstat__item", toneClass(s))}" data-hyp-status="${s}"><b>${splitVal(originSplit(hyps, (h) => h.status === s), { cls: "cc-split--chip" })}</b><span class="cc-hypstat__k">${humanize(s)}</span></span>`,
     )}</div>`;
   }
 
   return panel({
     span: 4,
-    code: "CMD-06",
+    code: "CMD-05",
     title: "Research focus",
     sub: "Current focus, active programmes, outcomes",
     actions: go("HYPOTHESES", "#/research/hypotheses"),
     cls: "lg-span-12",
     body: html`<div class="cc-focus">${focusBody}</div>
-      ${subhead("Active programmes", progs ? `${progs.length} running / frozen` : "")}
+      ${subhead("Active programmes", progs ? splitText(originSplit(progs), "running / frozen") : "")}
       ${progBody}
-      ${subhead("Hypothesis outcomes", hyps ? `${hyps.length} total · failures stay visible` : "")}
+      ${subhead("Hypothesis outcomes", hyps ? `${splitText(originSplit(hyps))} · failures stay visible` : "")}
       ${hypBody}`,
   });
 }
@@ -417,6 +506,8 @@ function memoryPanel(ctx) {
   const byId = new Map((memDoc?.memories ?? []).map((m) => [m.memory_id, m]));
   const growth = ms.available ? ms.growth : null;
   const empty = sourceShort(mSrc);
+  const mems = ms.available ? memDoc?.memories ?? null : null;
+  const rejectedAssumption = (m) => m.type === "REJECTED_ASSUMPTION" || m.status === "REJECTED";
 
   let recent;
   if (!ms.available) recent = emptyLine(empty, "Recent evidence-backed findings, lessons and failed mechanisms appear here.");
@@ -434,26 +525,37 @@ function memoryPanel(ctx) {
   const last = growth?.[growth.length - 1];
   return panel({
     span: 4,
-    code: "CMD-07",
+    code: "CMD-06",
     title: "Memory",
     sub: "Evidence-backed knowledge SENTRY has accumulated",
     actions: go("MEMORY", "#/memory"),
     cls: "lg-span-6 cc-panel-mem",
     body: html`${statRow(
       [
-        stat({ label: "Memories", value: ms.available ? fc(ms.total) : null, emptyLabel: empty, hint: "All types" }),
-        stat({ label: "High-confidence", value: ms.available ? fc(ms.high_confidence_findings) : null, emptyLabel: empty, hint: "HIGH · validated" }),
-        stat({ label: "Unresolved", value: ms.available ? fc(ms.unresolved) : null, emptyLabel: empty, hint: "Pending review" }),
+        stat({ label: "Memories", value: splitVal(originSplit(mems)), emptyLabel: empty, hint: "All types · per origin" }),
+        stat({ label: "High-confidence", value: splitVal(memSplit(ms, mems, "high_confidence_by_origin", isHighConfidence)), emptyLabel: empty, hint: "HIGH · validated" }),
+        stat({ label: "Unresolved", value: splitVal(memSplit(ms, mems, "unresolved_by_origin", isUnresolved)), emptyLabel: empty, hint: "Pending review" }),
       ],
       { min: 96 },
     )}
       <div class="cc-growth">
         <div class="cc-growth__head"><span class="label">Knowledge growth</span><span class="small muted">${
-          growth && growth.length ? html`cumulative · ${fmtDate(first.date)} → ${fmtDate(last.date)}` : ms.available ? "No memories recorded" : empty
+          growth && growth.length
+            ? html`cumulative, all origins (${splitText(originSplit(mems))}) · ${fmtDate(first.date)} → ${fmtDate(last.date)}`
+            : ms.available
+              ? "No memories recorded"
+              : empty
         }</span></div>
         <div class="cc-growth__chart">${sparkline(growth ? growth.map((g) => g.cumulative) : null, { width: 320, height: 34 })}</div>
       </div>
-      ${subhead("Recently recorded", ms.available ? `${ms.contradicted} contradicted · ${ms.rejected_assumptions} rejected assumptions` : "")}
+      ${subhead(
+        "Recently recorded",
+        mems
+          ? html`${splitVal(originSplit(mems, (m) => m.validation_state === "CONTRADICTED"), { cls: "cc-split--sm" })} contradicted · ${splitVal(originSplit(mems, rejectedAssumption), {
+              cls: "cc-split--sm",
+            })} rejected assumptions`
+          : "",
+      )}
       ${recent}`,
   });
 }
@@ -607,7 +709,7 @@ function alertsPanel(ctx) {
   const notices = research?.integrity_notices ?? null;
   return panel({
     span: 4,
-    code: "CMD-10",
+    code: "CMD-07",
     title: "Alerts",
     sub: "Consistency findings and integrity notices",
     actions: go("GOVERNANCE", "#/governance"),

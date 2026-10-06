@@ -14,7 +14,6 @@ Regenerate with:  python tests/gui/fixtures/make_synthetic_state.py
 from __future__ import annotations
 
 import json
-import math
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -303,7 +302,9 @@ def build() -> dict[str, dict]:
         },
         {
             "strategy_id": "FX-S005", "name": "FIXTURE rejected E", "mechanism": "FIXTURE session effect", "market": "FIXTURE-MKT", "instrument": "FXA", "timeframe": "5m",
-            "status": "REJECTED", "current_version": 1, "versions": [version(1, "REJECTED", "FAILED", checks={"out_of_sample": check("FAIL", "FIXTURE: OOS failed")})], "origin": FX,
+            "status": "REJECTED", "current_version": 1, "versions": [version(1, "REJECTED", "FAILED", checks={"out_of_sample": check("FAIL", "FIXTURE: OOS failed")})],
+            # declared by the research engine: stopped at OOS (its OOS check failed)
+            "stage_reached": "OOS", "terminal": "REJECTED", "origin": FX,
         },
     ]
     proposals = [
@@ -321,7 +322,7 @@ def build() -> dict[str, dict]:
                 {
                     "slot": 2, "status": "SIMULATING", "codename": "FIXTURE-TREND", "specialisation": "FIXTURE daily trend",
                     "assignment": {"strategy_id": "FX-S003", "version": 2, "mode": "SIM", "assigned_at": iso(T0 + timedelta(days=6)), "approval_ref": "fixture/approval.md", "package_id": "FX-PKG-003-2"},
-                    "market": "FIXTURE multi-asset", "timeframe": "1D",
+                    "market": "FIXTURE multi-asset", "timeframe": "15m",  # matches its 15-minute bars
                     "signal": {"state": "LONG", "as_of": iso(GEN), "detail": "FIXTURE signal"},
                     "positions": [{"instrument": "FXA", "side": "LONG", "quantity": 2, "avg_price": 101.25, "unrealized_pnl": m(310.0, "currency", "SIMULATION", currency="USD"), "mode": "SIM", "as_of": iso(GEN)}],
                     "orders": [{"order_id": "FX-O1", "instrument": "FXB", "side": "SELL", "quantity": 1, "order_type": "LIMIT", "limit_price": 99.5, "status": "WORKING", "mode": "SIM", "submitted_at": iso(GEN), "agent_slot": 2}],
@@ -331,7 +332,7 @@ def build() -> dict[str, dict]:
                     "drawdown": m(-3.1, "pct", "SIMULATION"),
                     "risk_limits": [
                         {"key": "max_contracts", "label": "Max contracts", "limit": 6, "used": 2, "unit": "contracts", "state": "OK"},
-                        {"key": "daily_loss", "label": "Daily loss limit", "limit": 2000, "used": 0, "unit": "currency", "state": "OK"},
+                        {"key": "daily_loss", "label": "Daily loss limit", "limit": 2000, "used": 0, "unit": "currency", "currency": "USD", "state": "OK"},
                     ],
                     "execution": {"as_of": iso(GEN), "latency_ms_p50": 42.0, "latency_ms_p95": 120.0, "slippage_bps_mean": 1.2, "slippage_model_bps": 1.5, "fills": 14, "rejects": 0},
                     "connections": [{"name": "FIXTURE sim feed", "kind": "MARKET_DATA", "state": "CONNECTED", "last_heartbeat": iso(GEN)}, {"name": "FIXTURE sim broker", "kind": "BROKER", "state": "CONNECTED", "last_heartbeat": iso(GEN)}],
@@ -459,7 +460,7 @@ def build() -> dict[str, dict]:
             "as_of": iso(GEN),
             "kill_switch": {"state": "ARMED", "detail": "FIXTURE kill switch"},
             "portfolio_limits": [{"key": "gross", "label": "Gross exposure", "limit": 150, "used": 60, "unit": "pct", "state": "OK"}],
-            "daily_limits": [{"key": "daily_loss", "label": "Daily loss", "limit": 2000, "used": 1700, "unit": "currency", "state": "WARN"}],
+            "daily_limits": [{"key": "daily_loss", "label": "Daily loss", "limit": 2000, "used": 1700, "unit": "currency", "currency": "USD", "state": "WARN"}],
             "execution_limits": [{"key": "slippage", "label": "Slippage vs model", "limit": 3, "used": 1.2, "unit": "bps", "state": "OK"}],
             "breaches": [{"breach_id": "FX-B1", "at": iso(GEN), "limit_key": "daily_loss", "severity": "WARNING", "detail": "FIXTURE: 85% of daily loss limit", "agent_slot": 2}],
         },

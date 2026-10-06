@@ -169,6 +169,13 @@ export default {
     const off = sourceShort(src);
     const latest = list?.length ? list[0].at : null;
 
+    // "None produced" is a claim about a configured state directory: true when insights.json is
+    // connected and empty, or MISSING inside a configured directory. Not connected / no snapshot
+    // says exactly that, and a contract or read error names the file.
+    const absentTitle = () =>
+      src?.status === "MISSING"
+        ? "No insights produced yet"
+        : offTitle(src, src?.status === "INVALID" || src?.status === "UNREADABLE" ? "insights.json" : "Insights");
     const noneYet = (scope) =>
       data
         ? emptyState({
@@ -178,7 +185,7 @@ export default {
             compact: true,
             iconName: "insights",
           })
-        : sourceEmpty(src, { title: src?.status === "INVALID" || src?.status === "UNREADABLE" ? offTitle(src, "insights.json") : "No insights produced yet", hint: "Research digests and null results appear here when a producer writes insights.json.", compact: true, iconName: "insights" });
+        : sourceEmpty(src, { title: absentTitle(), hint: "Research digests and null results appear here when a producer writes insights.json.", compact: true, iconName: "insights" });
 
     return html`
       ${pageHeader({

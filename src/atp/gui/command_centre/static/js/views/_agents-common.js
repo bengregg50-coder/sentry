@@ -44,10 +44,16 @@ export const LOOP_STAGES = [
   ["PROPOSE", "Propose improvement", "PROPOSAL"],
 ];
 
-/** Stages owned by research / governance, keyed to the proposal states derive.learning uses. */
+/**
+ * Stages owned by research / governance, with the proposal states that have
+ * reached each gate (derive.GATED_PROPOSAL_STAGES). Counts are cumulative by
+ * state membership: a RELEASED_AS_VERSION proposal is counted at validation,
+ * approval and release, so the stepper never reads as a release that skipped
+ * governance. REJECTED proposals are counted separately.
+ */
 export const GATED_STAGES = [
-  ["RESEARCH_VALIDATION", "Research validation", "RESEARCH", ["IN_RESEARCH", "VALIDATED"]],
-  ["GOVERNANCE_APPROVAL", "Governance approval", "GOVERNANCE", ["APPROVED"]],
+  ["RESEARCH_VALIDATION", "Research validation", "RESEARCH", ["IN_RESEARCH", "VALIDATED", "APPROVED", "RELEASED_AS_VERSION"]],
+  ["GOVERNANCE_APPROVAL", "Governance approval", "GOVERNANCE", ["APPROVED", "RELEASED_AS_VERSION"]],
   ["NEW_VERSION", "New strategy version", "GOVERNANCE", ["RELEASED_AS_VERSION"]],
 ];
 

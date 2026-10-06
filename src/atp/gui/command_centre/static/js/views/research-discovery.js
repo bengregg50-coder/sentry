@@ -8,7 +8,7 @@ import { html } from "../core/html.js";
 import { fmtCount, fmtDate, humanize } from "../core/format.js";
 import { sourceReason } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
-import { pageHeader, panel, badge, chip, stat, statRow, sourceTag, sourceEmpty, emptyState, val } from "../components/ui.js";
+import { pageHeader, panel, badge, chip, stat, statRow, sourceTag, emptyState, val } from "../components/ui.js";
 import { steps } from "../components/flow.js";
 import { TERMINALS } from "../components/pipeline.js";
 import * as R from "./_research-a-common.js";
@@ -24,12 +24,12 @@ const AREA_DESC = {
 
 /* ---------------------------------------------------------------- hero */
 
-function heroBody(rs) {
+function heroBody(rs, src) {
   const areas = rs?.research_areas ?? null;
   const byStatus = areas ? R.groupBy(areas, (a) => a.status) : null;
   const queue = rs ? rs.hypotheses.filter((h) => QUEUE_STAGES.has(h.stage_reached) && !h.terminal) : null;
   const families = rs ? new Set([...rs.hypotheses, ...rs.trials].map((r) => r.family).filter(Boolean)) : null;
-  const nc = rs ? undefined : "NOT CONNECTED";
+  const nc = rs ? undefined : R.offLabel(src);
   return html`<div class="rsa-hero">
     <div class="rsa-hero__main">
       ${statRow(
@@ -85,7 +85,7 @@ function areaCard(a, rs) {
   </article>`;
 }
 
-function areasBody(rs) {
+function areasBody(rs, src) {
   const by = rs ? R.groupBy(rs.research_areas, (a) => a.status) : null;
   return html`<div class="rsa-board">${R.AREA_STATUSES.map((s) => {
     const list = by ? by.get(s) ?? [] : null;
@@ -96,7 +96,7 @@ function areasBody(rs) {
       </header>
       <div class="rsa-board__body">
         ${list === null
-          ? html`<div class="rsa-board__none">NOT CONNECTED</div>`
+          ? html`<div class="rsa-board__none">${R.offLabel(src)}</div>`
           : list.length
             ? list.map((a) => areaCard(a, rs))
             : html`<div class="rsa-board__none">NONE DECLARED</div>`}
@@ -133,7 +133,7 @@ function queueBody(rs, src) {
     ],
     empty: rs
       ? emptyState({ title: "Discovery queue empty", reason: "No hypothesis is at DISCOVERY or HYPOTHESIS stage without a terminal outcome.", compact: true })
-      : sourceEmpty(src, { title: "Discovery queue not connected", compact: true, hint: "Hypotheses registered but not yet tested appear here, with their preregistration status." }),
+      : R.srcEmpty(src, "Discovery queue", { compact: true, hint: "Hypotheses registered but not yet tested appear here, with their preregistration status." }),
   });
 }
 
@@ -160,7 +160,7 @@ function stoppedBody(rs, src) {
     ],
     empty: rs
       ? emptyState({ title: "None stopped before testing", reason: "No hypothesis ended at DISCOVERY or HYPOTHESIS stage.", compact: true })
-      : sourceEmpty(src, { title: "Not connected", compact: true, hint: "Ideas blocked by data or abandoned before any test appear here — they remain part of the record." }),
+      : R.srcEmpty(src, "Stopped hypotheses", { compact: true, hint: "Ideas blocked by data or abandoned before any test appear here — they remain part of the record." }),
   });
 }
 
@@ -243,8 +243,7 @@ function familiesBody(rs, src) {
     rowCls: (r) => (r.first ? "rsa-fam-row" : `rsa-fam-row rsa-fam-row--sub ${toneClass(r.origin)}`),
     empty: rs
       ? emptyState({ title: "No families explored", reason: "No hypothesis or trial in research.json declares a family.", compact: true })
-      : sourceEmpty(src, {
-          title: "Families not connected",
+      : R.srcEmpty(src, "Families", {
           compact: true,
           hint: "Every family ever explored appears here with its open and terminal outcomes — including the ones that failed.",
         }),
@@ -268,7 +267,7 @@ export default {
       })}
 
       <div class="grid">
-        ${panel({ span: 12, code: "DSC-01", title: "Mechanism-first discovery", sub: rs ? "Declared areas and the untested queue" : sourceReason(src), body: heroBody(rs), cls: "rsa-wraplabels" })}
+        ${panel({ span: 12, code: "DSC-01", title: "Mechanism-first discovery", sub: rs ? "Declared areas and the untested queue" : sourceReason(src), body: heroBody(rs, src), cls: "rsa-wraplabels" })}
       </div>
 
       <div class="grid">
@@ -277,7 +276,7 @@ export default {
           code: "DSC-02",
           title: "Research areas",
           sub: rs ? `${areaCount} declared by the research engine · only declared areas are listed` : sourceReason(src),
-          body: areasBody(rs),
+          body: areasBody(rs, src),
         })}
       </div>
 

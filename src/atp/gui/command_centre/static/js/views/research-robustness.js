@@ -33,7 +33,9 @@ function latest(rows) {
 function batteryTile(b, rows, cv, kindFilter) {
   const connected = !!rows;
   const outs = connected ? B.TRIAL_OUTCOMES.filter((o) => rows.some((t) => t.outcome === o)) : [];
-  const reported = cv ? cv.filter(({ v }) => v.validation[b.check]).length : null;
+  const split = B.checkStateSplit(cv, b.check);
+  const reported = split ? split.reduce((a, [, n]) => a + n, 0) : null;
+  const checkLabel = B.CHECK_BY_KEY[b.check].label;
   return html`<a class="rsb-bat ${kindFilter === b.kind ? "is-active" : ""}" href="${B.qhref(PATH, { kind: b.kind })}" data-kind="${b.kind}">
     <div class="rsb-bat__head"><span class="rsb-bat__title">${b.title}</span><span class="rsb-bat__kind">${humanize(b.kind)}</span></div>
     <div class="rsb-bat__ask">${b.ask}</div>
@@ -47,10 +49,13 @@ function batteryTile(b, rows, cv, kindFilter) {
     }</div>
     <div class="rsb-bat__foot">
       <span>LAST ${val(connected && latest(rows) ? fmtDate(latest(rows)) : null)}</span>
-      <span title="Strategies whose current version reports the ${B.CHECK_BY_KEY[b.check].label} check">CHECK ${
+      <span data-check-reported="${b.check}" title="Strategies whose current version reports the ${checkLabel} check, in any state — not a pass count. The split below gives each reported state.">REPORTED ${
         cv ? html`<b>${fmtCount(reported)}</b>/${fmtCount(cv.length)}` : val(null)
       }</span>
     </div>
+    <div class="rsb-bat__checks" data-check-split="${b.check}" title="${checkLabel} check as reported by strategies' current versions">${
+      cv ? B.checkSplitBadges(split, { none: "CHECK NOT REPORTED" }) : html`<span class="rsb-faint">REGISTRY NOT CONNECTED</span>`
+    }</div>
   </a>`;
 }
 
@@ -194,7 +199,7 @@ export default {
           variant: "hero",
           body: html`
             <div class="rsb-doctrine-line" data-doctrine="robustness"><span class="rsb-doctrine-line__k">DOCTRINE</span>A result that holds at one parameter setting, in one regime, or at zero cost is not an edge.</div>
-            <div class="rsb-bats">${BATTERY.map((b) => batteryTile(b, all ? all.filter((t) => t.kind === b.kind) : null, cv, kindFilter))}</div>
+            <div class="rsb-batswrap"><div class="rsb-bats">${BATTERY.map((b) => batteryTile(b, all ? all.filter((t) => t.kind === b.kind) : null, cv, kindFilter))}</div></div>
             <div class="rsb-gap">${B.gateChain("ROBUSTNESS")}</div>`,
         })}
       </div>

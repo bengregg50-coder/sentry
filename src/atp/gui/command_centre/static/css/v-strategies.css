@@ -410,11 +410,37 @@
 
 /* ---------------------------------------------------------------- library: registry table */
 
+/* Identity, provenance and mechanism share the first cell; Status stacks version and
+   validation; Agent stacks the record's last update. Together these keep the
+   evidence-basis figures on screen without horizontal scroll from 1024px up. */
+
+.st-th2 {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.st-th2__sub {
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
 .st-cell-id {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 150px;
+  max-width: 230px;
+}
+
+.st-cell-id__top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
 }
 
 .st-cell-id .ref {
@@ -423,34 +449,105 @@
   letter-spacing: 0.04em;
 }
 
-.st-cell-name {
-  font-size: var(--fs-xs);
-  color: var(--text-2);
+.st-cell-origin .badge {
+  height: 16px;
+  padding: 0 5px;
+}
+
+.st-cell-name,
+.st-cell-mech,
+.st-cell-mkt__m {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 210px;
 }
 
-.st-table tbody tr:not(.st-table__empty) td:not(.st-col-mech):not(.st-wrap) {
-  white-space: nowrap;
-}
-
-.st-table td.st-col-mech {
-  min-width: 120px;
-  max-width: 170px;
-  white-space: normal;
+.st-cell-name {
   font-size: var(--fs-xs);
+  color: var(--text-2);
+  max-width: 230px;
+}
+
+.st-cell-mech {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  max-width: 230px;
+}
+
+.st-cell-mech.st-nodata {
+  font-size: var(--fs-2xs);
+}
+
+.st-cell-agt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.st-cell-agt__u .mono {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+}
+
+.st-cell-stv {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.st-cell-stv__v {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.st-cell-stv__v .st-faint {
+  margin-left: 1px;
+}
+
+.st-table tbody tr:not(.st-table__empty) td:not(.st-wrap) {
+  white-space: nowrap;
 }
 
 .st-table td.st-col-mkt {
   font-size: var(--fs-xs);
-  min-width: 90px;
+}
+
+.st-table td.st-col-mkt .st-cell-mkt__m {
+  max-width: 170px;
 }
 
 .st-reg .st-table tbody tr:not(.st-table__empty) td {
   padding-top: 8px;
   padding-bottom: 8px;
+}
+
+/* narrow registry: tighter cell padding */
+@container (max-width: 1099px) {
+  .st-reg .st-table th,
+  .st-reg .st-table tbody tr:not(.st-table__empty) td {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+}
+
+/* any horizontally overflowing table: a faded edge marks the columns that are off-screen */
+.st-tw[data-overflow~="right"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+
+.st-tw[data-overflow~="left"] {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+}
+
+.st-tw[data-overflow="left right"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
 }
 
 /* honest "no validated strategies" — neutral, never green, never alarming */

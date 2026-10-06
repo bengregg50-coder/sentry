@@ -15,19 +15,38 @@ from . import __version__
 from .contract import json_schemas
 from .derive import derive_all
 from .provider import StateProvider, load_all
-from .schemas import AGENT_EVENTS_FILE, CONTRACT_VERSION, DOCUMENTS
+from .schemas import AGENT_EVENTS_FILE, CONTRACT_VERSION, DOCUMENTS, AgentEventKind
+
+
+def provider_revisions(provider: StateProvider) -> dict[str, str]:
+    """{revision, documents, events}. Providers without split revisions report the combined one for both."""
+    split = getattr(provider, "revisions", None)
+    if callable(split):
+        return dict(split())
+    rev = provider.revision()
+    return {"revision": rev, "documents": rev, "events": rev}
 
 
 def build_snapshot(provider: StateProvider) -> dict[str, Any]:
+    # The revision is taken BEFORE reading: a producer write that lands while the snapshot is
+    # being built then changes the next /revision, so the client refetches instead of keeping
+    # old data stamped with the new revision.
+    revs = provider_revisions(provider)
     sources = load_all(provider)
     events = provider.load_events()
     documents = {
         key: (src.data.model_dump(mode="json") if src.ok and src.data is not None else None)
         for key, src in sources.items()
     }
+    now = datetime.now(timezone.utc)
+    derived = derive_all(sources, events, now=now)
+    # The per-slot agent payload duplicates documents.agents; the client re-joins it by slot.
+    for slot in derived.get("agent_slots") or []:
+        slot.pop("agent", None)
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "revision": provider.revision(),
+        "generated_at": now.isoformat(),
+        "revision": revs["revision"],
+        "revisions": revs,
         "contract_version": CONTRACT_VERSION,
         "app_version": __version__,
         "read_only": True,
@@ -35,7 +54,7 @@ def build_snapshot(provider: StateProvider) -> dict[str, Any]:
         "sources": {key: src.describe() for key, src in sources.items()},
         "events_source": events.describe(),
         "documents": documents,
-        "derived": derive_all(sources, events),
+        "derived": derived,
     }
 
 
@@ -54,7 +73,8 @@ def create_router(provider: StateProvider) -> APIRouter:
 
     @router.get("/revision")
     def revision() -> dict[str, str]:
-        return {"revision": provider.revision()}
+        revs = provider_revisions(provider)
+        return {"revision": revs["revision"], "documents": revs["documents"], "events": revs["events"]}
 
     @router.get("/snapshot")
     def snapshot() -> dict[str, Any]:
@@ -71,14 +91,14 @@ def create_router(provider: StateProvider) -> APIRouter:
     def events(
         slot: int | None = Query(default=None, ge=1, le=5),
         limit: int = Query(default=200, ge=1, le=5000),
-        kind: str | None = None,
+        kind: AgentEventKind | None = None,
     ) -> dict[str, Any]:
         res = provider.load_events()
         items = list(res.events)
         if slot is not None:
             items = [e for e in items if e.agent_slot == slot]
         if kind is not None:
-            items = [e for e in items if e.kind.value == kind]
+            items = [e for e in items if e.kind is kind]
         items = items[-limit:]
         return {
             "source": res.describe(),

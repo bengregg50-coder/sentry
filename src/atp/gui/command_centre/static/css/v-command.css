@@ -311,6 +311,9 @@
 .cc-sys__hb .v {
   font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
+}
+
+.cc-sys__hb .v:not(.is-empty) {
   color: var(--text-2);
 }
 
@@ -318,6 +321,80 @@
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--muted);
+}
+
+/* ---------- per-origin counts (never merged) ---------- */
+
+.cc-split {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.cc-split__n {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.cc-split__n + .cc-split__n {
+  padding-left: 8px;
+  border-left: 1px solid var(--line-2);
+}
+
+.cc-split__tag {
+  align-self: center;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--tone, var(--muted)) 40%, transparent);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--tone, var(--muted)) 82%, white);
+}
+
+.cc-split--sm {
+  gap: 1px 5px;
+}
+
+.cc-split--sm .cc-split__n + .cc-split__n {
+  padding-left: 5px;
+}
+
+.cc-split--sm .cc-split__tag,
+.cc-split--chip .cc-split__tag {
+  padding: 0 3px;
+  font-size: 7.5px;
+}
+
+.cc-split--chip {
+  gap: 1px 6px;
+}
+
+.cc-split--chip .cc-split__n + .cc-split__n {
+  padding-left: 6px;
+}
+
+.cc-split--hero {
+  gap: 4px 14px;
+}
+
+.cc-split--hero .cc-split__n {
+  gap: 7px;
+}
+
+.cc-split--hero .cc-split__n + .cc-split__n {
+  padding-left: 14px;
+}
+
+.cc-split--hero .cc-split__tag {
+  font-size: 10px;
+  padding: 2px 6px;
 }
 
 /* ---------- CMD-02 research KPIs ---------- */
@@ -329,7 +406,15 @@
   align-items: stretch;
 }
 
+.cc-kpis__main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
 .cc-kpis__grid {
+  flex: 1;
   display: flex;
   min-width: 0;
 }
@@ -366,6 +451,94 @@
 .cc-kpis .stat__hint {
   white-space: normal;
   line-height: 1.35;
+}
+
+/* ledger-declared trial accounting: separate figures, never summed */
+
+.cc-acct {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(7, 10, 15, 0.35);
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.cc-acct:hover {
+  border-color: var(--line-accent);
+  color: var(--text-2);
+}
+
+.cc-acct__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.cc-acct__head .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--cyan-2);
+}
+
+.cc-acct__fig {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cc-acct__k {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cc-acct__v {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: var(--fs-md);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.cc-acct__v .cc-split__tag {
+  align-self: center;
+}
+
+.cc-acct__why {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
+.cc-acct__note {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.cc-acct__note b {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--faint);
 }
 
 .cc-hero-kpi {
@@ -561,7 +734,7 @@
   --tone: var(--cyan-2);
 }
 
-/* ---------- CMD-04 system loop ---------- */
+/* ---------- CMD-10 system loop ---------- */
 
 .cc-loop {
   display: flex;
@@ -619,8 +792,14 @@
   min-width: 0;
 }
 
-.cc-loop__state {
+.cc-loop__count {
   margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.cc-loop__state {
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.1em;
@@ -667,7 +846,7 @@
   }
 }
 
-/* ---------- CMD-05 trading floor ---------- */
+/* ---------- CMD-04 trading floor ---------- */
 
 .cc-floor__feed {
   margin-top: 4px;
@@ -726,7 +905,7 @@
   justify-content: flex-end;
 }
 
-/* ---------- CMD-06 research focus ---------- */
+/* ---------- CMD-05 research focus ---------- */
 
 .cc-focus .kv {
   margin-top: -6px;
@@ -791,12 +970,15 @@
 }
 
 .cc-hypstat {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
+/* items grow to fill a row but never shrink below their per-origin counts */
 .cc-hypstat__item {
+  flex: 1 0 auto;
+  min-width: 118px;
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -816,13 +998,20 @@
 }
 
 .cc-hypstat__item b {
+  flex: none;
   font-size: var(--fs-md);
   font-weight: 500;
   color: var(--text);
   letter-spacing: 0;
 }
 
-/* ---------- CMD-07 memory ---------- */
+.cc-hypstat__k {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- CMD-06 memory ---------- */
 
 .cc-growth {
   margin-top: 12px;
@@ -1014,6 +1203,7 @@
 .cc-live-head__item {
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* badges keep their content width */
   gap: 5px;
   min-width: 0;
 }
@@ -1062,7 +1252,7 @@
   container-type: inline-size;
 }
 
-/* ---------- CMD-10 alerts ---------- */
+/* ---------- CMD-07 alerts ---------- */
 
 .cc-sev {
   display: grid;
@@ -1094,6 +1284,9 @@
 
 .cc-sev__item .v {
   font-size: var(--fs-lg);
+}
+
+.cc-sev__item .v:not(.is-empty) {
   color: var(--text);
 }
 
@@ -1582,6 +1775,9 @@
 
 .cc-fact__v .v {
   font-size: var(--fs-xl);
+}
+
+.cc-fact__v .v:not(.is-empty) {
   color: var(--text);
 }
 

@@ -107,7 +107,9 @@ function traceability(ctx, mems, src) {
               ${untraceableBadge()}
             </li>`,
           )}</ul>`
-        : emptyState({ title: "All memories traceable", reason: mems.length ? "Every memory carries at least one evidence item." : "No memories recorded.", compact: true, iconName: "evidence" })}
+        : mems.length
+          ? emptyState({ title: "All memories traceable", reason: "Every memory carries at least one evidence item.", compact: true, iconName: "evidence", code: "evidence-all-traceable" })
+          : emptyState({ title: "No memories recorded", reason: "memory.json is connected and holds no memories, so there is nothing to trace.", compact: true, code: "evidence-trace-none" })}
     </div>
     ${findings.length ? html`<div class="mem-gap">${sectionLabel("Evidence cross-checks")}${findingsList(findings)}</div>` : ""}`;
 }

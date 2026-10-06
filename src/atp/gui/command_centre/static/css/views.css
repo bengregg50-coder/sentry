@@ -126,6 +126,31 @@
     linear-gradient(180deg, rgba(13, 20, 30, 0.92), rgba(9, 13, 19, 0.95));
 }
 
+.agent-mini.is-error {
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+}
+
+.agent-mini__none--error {
+  color: var(--bad);
+}
+
+.agent-mini__head .badge {
+  flex: none;
+}
+
+.agent-mini__strategy .badge {
+  vertical-align: middle;
+}
+
+/* P&L always carries its basis: a compact chip so it fits the narrow tile. */
+.agent-mini__pnl .chip--basis {
+  height: 13px;
+  padding: 0 3px;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
+
 /* ---------- pipeline tracks ---------- */
 
 .tracks {
@@ -211,6 +236,30 @@
   border-radius: 50%;
   background: var(--tone, var(--cyan-2));
   box-shadow: 0 0 6px var(--tone, var(--cyan-2));
+}
+
+.tracks__cell.unknown i {
+  background: repeating-linear-gradient(90deg, rgba(245, 158, 11, 0.28) 0 1px, transparent 1px 6px);
+}
+
+.tracks__cell--span {
+  grid-column: span 10;
+}
+
+.tracks__nodecl {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  line-height: 13px;
+  white-space: nowrap;
+  color: var(--warn);
+  background: var(--panel);
+  border: 1px dashed rgba(245, 158, 11, 0.4);
+  border-radius: 2px;
+  padding: 0 6px;
 }
 
 .tracks__outcome {
@@ -324,14 +373,10 @@
   min-width: 0;
 }
 
-.gov-check[data-state="FAIL"] {
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-.gov-check[data-state="DIFFERS"],
-.gov-check[data-state="WARN"],
-.gov-check[data-state="RECONSTRUCTED"] {
-  border-color: rgba(245, 158, 11, 0.35);
+/* Border tone comes from core/tones.js via toneClass(state) — never from raw state values. */
+.gov-check.tone-bad,
+.gov-check.tone-warn {
+  border-color: color-mix(in srgb, var(--tone) 38%, transparent);
 }
 
 .gov-check__label {
@@ -342,10 +387,52 @@
   color: var(--text);
 }
 
-.gov-check__desc {
+/* the producer's declared detail: the only text that states a result */
+.gov-check__detail {
   font-size: var(--fs-xs);
   color: var(--text-2);
-  min-height: 30px;
+}
+
+.gov-check__detail.is-empty {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* the check's definition: what is examined, visibly static */
+.gov-check__def {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  line-height: 1.4;
+  margin-top: auto;
+}
+
+.gov-check__def-k {
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-right: 2px;
+}
+
+.gov-skipped {
+  margin: 10px 0 0;
+  padding: 8px 10px 8px 24px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.gov-skipped li + li {
+  margin-top: 3px;
+}
+
+.gov-skipped b {
+  font-weight: 500;
+  color: var(--text);
 }
 
 .gov-check__meta {

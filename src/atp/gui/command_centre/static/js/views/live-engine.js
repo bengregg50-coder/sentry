@@ -21,7 +21,9 @@ const LADDER = [
 // [step key (derived.handoffs), flow label, matrix column, description, owner, governance boundary before]
 const PATH = [
   ["VALIDATION", "Validation", "Validation", "Research engine validation status VALIDATED", "RESEARCH", false],
-  ["APPROVAL", "Approval · LIVE scope", "Approval", "Governance decision; live requires LIVE scope", "GOVERNANCE", true],
+  // The APPROVAL step completes on a governance approval of ANY scope (derive_handoff); its count is
+  // therefore never labelled LIVE scope. The LIVE-scope subset is shown separately (h.live_scope).
+  ["APPROVAL", "Approval", "Approval", "Governance decision, any scope", "GOVERNANCE", true],
   ["DEPLOYMENT_PACKAGE", "Deployment package", "Package", "Frozen spec, data, executor and cost model", "GOVERNANCE", false],
   ["AGENT_ASSIGNMENT", "Agent assignment", "Assignment", "Package assigned to one of five slots", "DEPLOYMENT", false],
   ["SIMULATION", "Simulation", "Simulation", "Agent runs the version in SIM or PAPER", "AGENT", false],
@@ -124,8 +126,13 @@ function interlocks(ctx) {
   const slots = derived(ctx, "agent_slots") ?? [];
   const liveAgents = agentsSrc?.status === "OK" ? slots.filter((s) => s.strategy?.mode === "LIVE") : null;
 
+  // Section "live" findings can come from execution.json heartbeats too, so a finding is shown
+  // even when live.json itself is not connected; "NO FINDINGS" only with live.json connected.
   const findings = findingsFor(ctx, "live");
   const liveSrc = source(ctx, "live");
+  const liveOk = liveSrc?.status === "OK";
+  const findState = findings.length ? findings[0].severity : liveOk ? null : "NOT_CONNECTED";
+  const findLabel = !findings.length && liveOk ? "NO FINDINGS" : undefined;
 
   return html`<div class="ops-locks">
     ${tile(
@@ -175,21 +182,17 @@ function interlocks(ctx) {
     ${tile(
       "live_findings",
       "Live cross-checks",
-      liveSrc?.status === "OK" ? (findings.length ? findings[0].severity : null) : "NOT_CONNECTED",
-      liveSrc?.status === "OK" ? (findings.length ? undefined : "NO FINDINGS") : undefined,
-      "Command Centre consistency checks on declared live state",
-      liveSrc?.status === "OK" ? "derived.consistency · section live" : sourceShort(liveSrc),
+      findState,
+      findLabel,
+      findings.length
+        ? html`<b class="ops-fact">${fmtCount(findings.length)} ${findings.length === 1 ? "finding" : "findings"}</b> on declared live state — listed below`
+        : liveOk
+          ? "None from the Command Centre checks on declared live state"
+          : "Consistency checks need live.json — nothing to cross-check yet",
+      findings.length || liveOk ? "derived.consistency · section live" : sourceShort(liveSrc),
     )}
   </div>
-  <div class="ops-gap">${findingsList(findings, {
-    empty: emptyState({
-      title: "No live findings",
-      reason: liveSrc?.status === "OK" ? "Declared live state raises no cross-check findings." : "live.json is not connected, so there is nothing to cross-check.",
-      compact: true,
-      iconName: "shield",
-      code: "no-live-findings",
-    }),
-  })}</div>`;
+  ${findings.length ? html`<div class="ops-gap" data-live-findings>${findingsList(findings)}</div>` : ""}`;
 }
 
 /* ---------------------------------------------------------------- LIV-04 deployment path */
@@ -199,9 +202,16 @@ function deploymentPath(ctx) {
   const connected = stratSrc?.status === "OK";
   const handoffs = derived(ctx, "handoffs") ?? [];
   const strategies = doc(ctx, "strategies");
-  const count = (key) => (connected ? handoffs.filter((h) => h.steps.find((s) => s.step === key)?.state === "COMPLETE").length : null);
+  const completed = (key) => handoffs.filter((h) => h.steps.find((s) => s.step === key)?.state === "COMPLETE");
+  const count = (key) => (connected ? completed(key).length : null);
+  // Of the completed approvals, those whose scope the server flags as LIVE-capable (derived live_scope).
+  const liveScope = connected ? completed("APPROVAL").filter((h) => h.live_scope === true).length : null;
+  const detailFor = (key, detail) =>
+    key === "APPROVAL"
+      ? html`${detail}<span class="ops-path-scope" data-live-scope-approvals="${isNil(liveScope) ? "" : liveScope}">of which <span class="ops-path-scope__n">LIVE scope ${val(liveScope)}</span></span>`
+      : detail;
   const flow = steps(
-    PATH.map(([key, label, , detail, owner, boundary]) => ({ key, label, detail, owner, boundary, count: count(key) })),
+    PATH.map(([key, label, , detail, owner, boundary]) => ({ key, label, detail: detailFor(key, detail), owner, boundary, count: count(key) })),
     { cls: "ops-path" },
   );
   const cell = (h, key) => {
@@ -244,7 +254,7 @@ function deploymentPath(ctx) {
       empty: emptyState({ title: "No strategies registered", reason: "strategies.json is connected and lists no strategies, so nothing is on the path to live.", compact: true, code: "no-path" }),
     });
   }
-  return html`${flow}<div class="ops-path-note">${connected ? "Counts: strategies whose current version has completed each step (derived.handoffs)." : "Counts appear once strategies.json is connected."} Live requires every earlier step plus a LIVE-scope approval.</div><div class="divider"></div>${matrix}`;
+  return html`${flow}<div class="ops-path-note">${connected ? "Counts: strategies whose current version has completed each step (derived.handoffs). Approval counts a governance approval of any scope." : "Counts appear once strategies.json is connected."} Live requires every earlier step plus a LIVE-scope approval (LIVE or LIVE SMALL).</div><div class="divider"></div>${matrix}`;
 }
 
 /* ---------------------------------------------------------------- LIV-06 P&L */
@@ -303,7 +313,7 @@ export default {
           title: "Safety interlocks",
           sub: "Declared state from governance, risk, strategies and agents · Command Centre cross-checks",
           body: interlocks(ctx),
-          cls: "lg-span-12",
+          cls: "lg-span-12 ops-locks-panel",
         })}
         ${panel({
           span: 4,
@@ -324,7 +334,7 @@ export default {
           span: 12,
           code: "LIV-04",
           title: "Deployment path to live",
-          sub: "Validation → approval (LIVE scope) → package → assignment → simulation → live",
+          sub: "Validation → approval → package → assignment → simulation → live",
           actions: sourceTag(source(ctx, "strategies"), { now: ctx.now }),
           body: deploymentPath(ctx),
         })}

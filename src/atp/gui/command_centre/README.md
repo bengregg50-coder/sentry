@@ -17,6 +17,8 @@ static/  (vanilla ES modules, no build step, no network)  → the UI
 ```
 
 Run: `python -m atp.gui --state-dir <DIR>` (or `SENTRY_STATE_DIR`), served on `127.0.0.1:8765`.
+Only loopback `Host` headers are accepted (DNS-rebinding guard); add names with
+`SENTRY_ALLOWED_HOSTS=a,b` or by binding `--host` to a specific address.
 With no state dir every panel shows NOT CONNECTED — that is the correct display of what is known.
 
 Preview populated layouts with the **synthetic** fixture (a red banner marks it as not SENTRY state):
@@ -52,12 +54,29 @@ Every document is `{"meta": DocumentMeta, "data": <payload>}`; `meta.origin` is 
 `RECONSTRUCTED` or `SYNTHETIC_FIXTURE`. Records carry their own `origin` too. Counts of different
 origins are never merged.
 
+Contract rules a producer must meet (else the document is INVALID, with the error shown):
+timestamps carry a timezone; numbers are finite (no NaN / Infinity); equity series and bars are
+strictly ascending with unique timestamps. Optional declarations the UI uses when present:
+`meta.heartbeat_max_age_s` (freshness bound — staleness is never judged without it),
+`Strategy.stage_reached` / `terminal` (pipeline placement — never inferred from registry status),
+`Trial.experiment_id`, `ResearchFocus.family`, `RiskLimit.currency`, `EventRefs.hypothesis_ids` /
+`programme_id`, and the `APPLICABILITY_TEST` event kind.
+
 ## Honesty rules (enforced in code and tests)
 
 * `null` is empty, never zero. Missing source ⇒ derived counts are `null`; connected-but-empty ⇒ `0`.
+* "No findings" means only "none from the checks that ran": `derived.check_coverage` lists which
+  families of cross-checks ran and which source each skipped family is missing. With nothing
+  connected the UI says NOT CONNECTED, never NO FINDINGS.
+* An INVALID / UNREADABLE source is a source error, never a calm default (e.g. agent slots become
+  `SOURCE_ERROR`, not `SLEEPING`).
+* Handoff steps are cumulative: a step is COMPLETE only if every earlier step is COMPLETE; a step
+  declared out of order is a VIOLATION (and a consistency finding). An ongoing simulation is RUNNING.
 * Every metric carries a `basis` (IN_SAMPLE / OUT_OF_SAMPLE / WALK_FORWARD / … / LIVE); the UI shows it.
 * State colours come only from `static/js/core/tones.js`. Green = passed/validated/approved only.
   Amber = pending/blocked/DIFFERS/RECONSTRUCTED. Red = fail/reject/violation. Unknown = muted.
+  `COMPLETE` is not a pass (a programme can complete with a null result); handoff step states use
+  `stepTone()`, the only place a COMPLETE step is green.
 * No mutating endpoints. Controls render locked with server-computed blockers (`derived.controls`).
 * No external network: CSP `default-src 'self'`; fonts are system/local; charts are vendored.
 
@@ -70,6 +89,10 @@ origins are never merged.
   integrityNotices, control, controlButton, meter, refLink, refList, legend`.
 * Value helpers mark nodes with `data-v`; empty ones add `.is-empty` / `data-empty`. Tests assert that
   with no state connected, no `[data-v]` node displays a value.
+* `derived.agent_slots[i].agent` is joined client-side from `documents.agents` (sent once).
+  Polling refetches at once when documents change; event-stream-only changes refetch at most every 15 s.
+* One failing derivation never takes the snapshot down: it is reported in `derived.errors` and as a
+  `DERIVATION_ERROR` finding.
 * Diagrams: `pipeline.js` (`pipelineDiagram`, `pipelineTracks`), `flow.js` (`steps`, `cycleRing`),
   `graph.js` (`knowledgeGraph`, `graphSchematic`), `chart.js` (`chartHost`, `sparkline`),
   `agent.js` (`agentMini`).

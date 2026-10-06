@@ -11,6 +11,7 @@ import { toneOf } from "../core/tones.js";
 import { pageHeader, panel, badge, dot, chip, val, originBadge, emptyState, notice, severityBadge, kv } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 import { PAYLOAD_MODEL, SOURCE_STATUSES, ORIGINS, ORIGIN_LABEL, schemaHref, schemaFile, k, none, codeLine } from "./_data-common.js";
+import { stateOfStatus } from "./_command-common.js";
 
 const STATUS_DESC = {
   OK: "Conforms to the contract",
@@ -21,6 +22,19 @@ const STATUS_DESC = {
 };
 
 const SEVERITIES = ["CRITICAL", "WARNING", "INFO"];
+
+/*
+ * Provider statuses are shown through the shared display state (stateOfStatus):
+ * OK -> CONNECTED (cyan), never green — a document being connected and
+ * contract-valid is not a passed research or governance check, and fixture or
+ * reconstructed documents are "OK" too. data-status keeps the raw provider value.
+ */
+const shownState = (status) => stateOfStatus(status);
+const shownLabel = (status) => sourceShort({ status });
+
+function statusBadge(status) {
+  return badge(shownState(status), { label: shownLabel(status), title: `Provider status ${status}` });
+}
 
 const API = [
   ["/api/cc/health", "Liveness, versions, provider"],
@@ -72,9 +86,9 @@ function validationPanel(snap) {
     <div class="dat-vs">
       ${SOURCE_STATUSES.map((st) => {
         const n = srcs.filter((s) => s.status === st).length;
-        // A status no document is in stays muted: zero OK documents must never read as green.
-        return html`<div class="${cx("dat-vs__row", n > 0 && "is-hit")} tone-${n > 0 ? toneOf(st) : "muted"}" data-status-count="${st}">
-          <span class="dat-vs__badge">${n > 0 ? badge(st) : badge(null, { label: st.replace(/_/g, " ") })}</span>
+        // A status no document is in stays muted; a hit is toned by its display state (OK -> CONNECTED, cyan).
+        return html`<div class="${cx("dat-vs__row", n > 0 && "is-hit")} tone-${n > 0 ? toneOf(shownState(st)) : "muted"}" data-status-count="${st}">
+          <span class="dat-vs__badge">${n > 0 ? statusBadge(st) : badge(null, { label: shownLabel(st), title: `Provider status ${st}` })}</span>
           <span class="dat-vs__desc">${STATUS_DESC[st]}</span>
           <span class="dat-vs__count">${String(n)}<span>/${String(srcs.length)}</span></span>
           <span class="dat-vs__bar"><i style="width:${raw(srcs.length ? ((n / srcs.length) * 100).toFixed(1) : "0")}%"></i></span>
@@ -82,10 +96,10 @@ function validationPanel(snap) {
       })}
     </div>
     <div class="dat-vs__events">
-      ${k("Event stream")}<span class="mono text-2">${ev.file}</span>${badge(ev.status)}
+      ${k("Event stream")}<span class="mono text-2">${ev.file}</span>${statusBadge(ev.status)}
       ${ev.status === "OK" || ev.status === "INVALID"
         ? html`<span class="mono small text-2">${fmtCount(ev.total_lines)} lines · ${fmtCount(ev.valid_events)} valid · ${fmtCount(ev.invalid_lines)} invalid</span>`
-        : html`<span class="muted small">${sourceShort(ev)}</span>`}
+        : html`<span class="muted small">${STATUS_DESC[ev.status] ?? sourceShort(ev)}</span>`}
     </div>
     <div class="dat-sec dat-sec--gap">${k("Envelope provenance")}<span class="dat-sec__note">meta.origin per document · never merged</span></div>
     <div class="dat-prov-origins">
@@ -111,7 +125,7 @@ function feedsPanel(ctx) {
       (s) => html`<div class="dat-feed" data-subsystem="${s.key}">
         <div class="split"><span class="dat-feed__label">${s.label}</span>${badge(s.state)}</div>
         <div class="dat-feed__srcs">${Object.entries(s.sources).map(
-          ([key, st]) => html`<span class="dat-feed__src" title="${fileOf(key)}: ${st}">${dot(st)}<span>${fileOf(key)}</span></span>`,
+          ([key, st]) => html`<span class="dat-feed__src" data-feed-status="${st}" title="${fileOf(key)}: ${shownLabel(st)}">${dot(shownState(st))}<span>${fileOf(key)}</span></span>`,
         )}</div>
         <div class="dat-feed__meta">${s.declared ? "DECLARED BY SYSTEM.JSON" : "FROM SOURCE STATUS · NOT DECLARED"}</div>
       </div>`,
@@ -132,9 +146,9 @@ function docRow(src, i) {
   const st = src.status;
   const meta = src.meta;
   const err = st === "INVALID" || st === "UNREADABLE" ? src.error : null;
-  return html`<div class="dat-doc tone-${toneOf(st)}" data-source-row="${src.key}" data-status="${st}" data-kind="document" role="row">
+  return html`<div class="dat-doc tone-${toneOf(shownState(st))}" data-source-row="${src.key}" data-status="${st}" data-kind="document" role="row">
     <span class="dat-doc__n">${pad2(i)}</span>
-    <span class="dat-doc__status">${badge(st)}</span>
+    <span class="dat-doc__status">${statusBadge(st)}</span>
     <span class="dat-doc__name"><b>${src.file}</b><small>${src.label} · ${PAYLOAD_MODEL[src.key] ?? src.key}</small></span>
     ${locCell(src)}
     <span class="dat-doc__meta">${meta
@@ -155,9 +169,9 @@ function eventsRow(ev, i) {
   const st = ev.status;
   const read = st === "OK" || st === "INVALID";
   const err = st === "INVALID" || st === "UNREADABLE" ? ev.error : null;
-  return html`<div class="dat-doc tone-${toneOf(st)}" data-source-row="agent_events" data-status="${st}" data-kind="stream" role="row">
+  return html`<div class="dat-doc tone-${toneOf(shownState(st))}" data-source-row="agent_events" data-status="${st}" data-kind="stream" role="row">
     <span class="dat-doc__n">${pad2(i)}</span>
-    <span class="dat-doc__status">${badge(st)}</span>
+    <span class="dat-doc__status">${statusBadge(st)}</span>
     <span class="dat-doc__name"><b>${ev.file}</b><small>${ev.label} · ${PAYLOAD_MODEL.agent_events}</small></span>
     ${locCell({ ...ev, size: null })}
     <span class="dat-doc__meta">${read
@@ -224,7 +238,7 @@ function flowPanel(ctx) {
       title: "Validation",
       sub: `Contract v${snap.contract_version} · unknown fields rejected`,
       live: present.length > 0,
-      body: html`<span class="cluster">${statusHits.map(([st, n]) => badge(st, { label: `${n} ${st.replace(/_/g, " ")}` }))}</span>`,
+      body: html`<span class="cluster">${statusHits.map(([st, n]) => badge(shownState(st), { label: `${n} ${shownLabel(st)}`, title: `Provider status ${st}` }))}</span>`,
     },
     {
       key: "DERIVED",
@@ -316,13 +330,16 @@ function apiPanel(snap) {
     </div>`;
 }
 
-/** Overall header state, from source statuses only (colour via tones.js). */
+/**
+ * Overall header state, from source statuses only (colour via tones.js). Every document
+ * connected is CONNECTED (cyan), not green: connection is not a passed check.
+ */
 function headState(srcs, configured) {
-  if (!configured) return "NOT_CONFIGURED";
+  if (!configured) return "NOT_CONNECTED";
   if (srcs.some((s) => s.status === "INVALID" || s.status === "UNREADABLE")) return "SOURCE_ERROR";
   const ok = srcs.filter((s) => s.status === "OK").length;
-  if (ok === srcs.length) return "OK";
-  return ok ? "PARTIAL" : "MISSING";
+  if (ok === srcs.length) return "CONNECTED";
+  return ok ? "PARTIAL" : "NOT_PRODUCED";
 }
 
 /* ------------------------------------------------------------------ view */
@@ -342,7 +359,7 @@ export default {
         title: "State Sources",
         sub: "The integration seam. Every contract document the Command Centre reads, whether it is connected and valid, who produced it and where it is expected. Producers write state; the Command Centre only reads and validates it.",
         right: html`<span class="dat-hdr">${badge(headState(srcs, configured), {
-          label: configured ? `${okN}/${srcs.length} DOCUMENTS OK` : "NO STATE SOURCE",
+          label: configured ? `${okN}/${srcs.length} DOCUMENTS CONNECTED` : "NO STATE SOURCE",
         })}${chip(`CONTRACT v${snap.contract_version}`)}${chip("READ-ONLY")}</span>`,
       })}
 
@@ -357,7 +374,7 @@ export default {
           span: 12,
           code: "SRC-04",
           title: "Contract documents",
-          sub: configured ? `${okN} of ${srcs.length} OK · state dir ${snap.provider.location}` : "No state directory configured — every document is NOT CONFIGURED",
+          sub: configured ? `${okN} of ${srcs.length} connected · state dir ${snap.provider.location}` : "No state directory configured — every document is NOT CONNECTED",
           body: documentsPanel(snap),
         })}
       </div>

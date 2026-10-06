@@ -32,14 +32,27 @@ export function fmtSigned(v, dp = 2) {
 const UNIT_DP = { ratio: 2, pct: 2, bps: 1, count: 0, currency: 2, contracts: 0, ms: 1, days: 0, years: 1 };
 const UNIT_SUFFIX = { ratio: "", pct: "%", bps: "bps", count: "", currency: "", contracts: "ct", ms: "ms", days: "d", years: "y" };
 
-/** Format a contract Metric -> {text, suffix, basis, component}. */
+/** Format a contract Metric -> {text, suffix, basis, component}. A missing or non-finite value is EMPTY. */
 export function fmtMetric(m) {
-  if (isNil(m)) return { text: EMPTY, suffix: "", basis: null, empty: true };
+  if (isNil(m) || isNil(m.value) || !Number.isFinite(Number(m.value))) return { text: EMPTY, suffix: "", basis: m?.basis ?? null, empty: true };
   const dp = UNIT_DP[m.unit] ?? 2;
   let text = fmtNum(m.value, dp);
   let suffix = UNIT_SUFFIX[m.unit] ?? "";
   if (m.unit === "currency") suffix = m.currency || "CCY";
   return { text, suffix, basis: m.basis, component: m.component, empty: false, mult: m.cost_multiplier };
+}
+
+/**
+ * A contract RiskLimit's number with its unit — one formatter for every page.
+ * Currency limits carry their ISO code when declared, else "CCY" with currencyDeclared=false.
+ */
+export function fmtLimit(value, limit) {
+  if (isNil(value) || !Number.isFinite(Number(value))) return { text: EMPTY, suffix: "", empty: true };
+  const unit = limit?.unit;
+  const dp = UNIT_DP[unit] ?? 2;
+  let suffix = UNIT_SUFFIX[unit] ?? "";
+  if (unit === "currency") suffix = limit?.currency || "CCY";
+  return { text: fmtNum(value, dp), suffix, empty: false, currencyDeclared: unit !== "currency" || !!limit?.currency };
 }
 
 export function fmtDate(iso) {

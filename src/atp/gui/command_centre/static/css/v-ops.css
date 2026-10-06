@@ -1033,10 +1033,34 @@
 
 /* ---------------------------------------------------------------- live: interlocks */
 
+/* Six interlocks: a balanced 3 × 2 grid at every desktop width (never 4 + 2 / 5 + 1). */
 .ops-locks {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Beside the taller LIV-03 the tiles stretch to the row height instead of leaving a void below. */
+.ops-locks-panel > .panel__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-locks-panel .ops-locks {
+  flex: 1 0 auto;
+  grid-auto-rows: 1fr;
+}
+
+@media (max-width: 900px) {
+  .ops-locks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .ops-locks {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .ops-lock {
@@ -1083,6 +1107,7 @@
 }
 
 .ops-lock__meta {
+  margin-top: auto;
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   letter-spacing: 0.06em;
@@ -1099,6 +1124,46 @@
 
 .ops-path {
   grid-auto-columns: minmax(150px, 1fr);
+}
+
+/* Counts share one baseline even when a step's detail runs longer (e.g. the LIVE-scope sub-line). */
+.ops-path .step {
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-path .step__node {
+  flex: none;
+}
+
+.ops-path .step__count {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* LIVE-scope subset under the Approval step (the step itself counts approvals of any scope). */
+.ops-path-scope {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ops-path-scope__n {
+  white-space: nowrap;
+}
+
+.ops-path-scope .v {
+  margin-left: 4px;
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.ops-path-scope .v.is-empty {
+  color: var(--faint);
 }
 
 .ops-path-note {

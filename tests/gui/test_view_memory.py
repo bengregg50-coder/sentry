@@ -43,6 +43,15 @@ def _attrs(page, selector, attr):
     return page.eval_on_selector_all(selector, f"els => els.map(e => e.getAttribute({attr!r}))")
 
 
+def _fixture_snapshot():
+    from atp.gui.command_centre.api import build_snapshot
+    from atp.gui.command_centre.provider import FileStateProvider
+
+    from .conftest import FIXTURE_DIR
+
+    return build_snapshot(FileStateProvider(FIXTURE_DIR))
+
+
 def _serve(state_dir):
     from .conftest import start_server
 
@@ -85,6 +94,28 @@ def test_empty_overview_renders_full_structure(empty_page):
     text = view_text(empty_page).upper()
     assert "NOT CONNECTED" in text
     assert "PRICE / VALUE" not in text
+    # the "better" stages are never scored; the records behind the loop say NOT CONNECTED, not 0
+    assert empty_page.inner_text('[data-stage="BETTER"] .mem-stage__rec').strip().upper() == "NOT SCORED"
+    for key in ("HYPOTHESES", "TRIALS", "VALIDATED", "STRATEGIES"):
+        assert empty_page.inner_text(f'[data-record="{key}"] .mem-stage__rec').strip().upper() == "NOT CONNECTED"
+
+
+def test_empty_graph_titles_say_not_connected_and_nodes_panel_is_compact(empty_page):
+    visit(empty_page, "/memory/graph")
+    titles = empty_page.eval_on_selector_all(".view .empty__title", "els => els.map(e => e.textContent.trim().toUpperCase())")
+    assert titles and all(t == "GRAPH SOURCES NOT CONNECTED" for t in titles), titles
+    text = view_text(empty_page).upper()
+    for zero_like in ("NO NODES", "NOTHING TO RESOLVE", "NO RELATIONSHIPS TO DRAW"):
+        assert zero_like not in text
+    # nothing to list: the legend takes its own row and the node panel is not stretched around blank space
+    assert empty_page.is_visible('[data-graph-lower="compact"]')
+    heights = empty_page.evaluate(
+        """() => Object.fromEntries([...document.querySelectorAll('.panel')]
+            .filter(p => /MEM-G0[34]/.test(p.querySelector('.panel__code')?.textContent ?? ''))
+            .map(p => [p.querySelector('.panel__code').textContent, p.getBoundingClientRect().height]))"""
+    )
+    assert set(heights) == {"MEM-G03", "MEM-G04"}
+    assert max(heights.values()) < 420, heights
 
 
 def test_empty_graph_shows_schematic_not_nodes(empty_page):
@@ -165,17 +196,25 @@ def test_fixture_graph_draws_declared_nodes_and_unresolved_target(fixture_page):
     assert fixture_page.get_attribute('.kg-node[data-key="MEMORY:FX-M9999"]', "data-state") == "UNRESOLVED"
     # FX-PR1 is declared in strategies.json, so it must not be listed as unresolved
     assert fixture_page.get_attribute('.kg-node[data-key="PROPOSAL:FX-PR1"]', "data-state") == "RELEASED_AS_VERSION"
-    assert _attrs(fixture_page, "[data-unresolved]", "data-unresolved") == ["MEMORY:FX-M9999"]
+    # the unresolved list is exactly the dashed (UNRESOLVED) nodes the graph draws — nothing dropped, nothing invented
+    listed = _attrs(fixture_page, "[data-unresolved]", "data-unresolved")
+    drawn = _attrs(fixture_page, '.kg-node[data-state="UNRESOLVED"]', "data-key")
+    assert sorted(listed) == sorted(drawn)
+    assert "MEMORY:FX-M9999" in listed and "PROPOSAL:FX-PR1" not in listed
     assert fixture_page.eval_on_selector_all("tr[data-node]", "els => els.length") == fixture_page.eval_on_selector_all(".kg-node", "els => els.length")
 
 
 def test_fixture_graph_type_filter(fixture_page):
     visit(fixture_page, "/memory/graph?type=MEMORY")
     assert fixture_page.get_attribute(".mem-graph", "data-graph-mode") == "filtered"
-    types = set(_attrs(fixture_page, ".kg-node", "data-type"))
-    assert "HYPOTHESIS" not in types and "PROGRAMME" not in types
     keys = set(_attrs(fixture_page, ".kg-node", "data-key"))
     assert {f"MEMORY:FX-M000{i}" for i in range(1, 7)} | {"MEMORY:FX-M9999"} <= keys
+    # exactly the memories plus records sharing a declared edge with one — no other record is drawn
+    kg = _fixture_snapshot()["derived"]["knowledge_graph"]
+    mem = {n["key"] for n in kg["nodes"] if n["type"] == "MEMORY"}
+    expected = mem | {k for e in kg["edges"] if e["source"] in mem or e["target"] in mem for k in (e["source"], e["target"])}
+    assert keys == expected
+    assert "HYPOTHESIS" not in set(_attrs(fixture_page, ".kg-node", "data-type"))
 
 
 def test_fixture_lessons_and_findings_are_split_by_type(fixture_page):
@@ -212,6 +251,107 @@ def test_fixture_overview_values(fixture_page):
     assert fixture_page.get_attribute('.mem-flow [data-step="TEST"]', "data-state") == "NOT_REPORTED"
 
 
+def test_fixture_loop_never_counts_better_stages(fixture_page):
+    visit(fixture_page, "/memory")
+    # only RESEARCH / EVIDENCE / MEMORY carry a count; the four "better" stages are one unscored row
+    assert _attrs(fixture_page, ".mem-stage[data-stage]", "data-stage") == ["RESEARCH", "EVIDENCE", "MEMORY", "BETTER"]
+    better = fixture_page.inner_text('[data-stage="BETTER"]').upper()
+    assert "NOT SCORED" in better
+    assert fixture_page.query_selector_all('[data-stage="BETTER"] [data-v]') == []
+    for name in fixture_page.eval_on_selector_all(".mem-stage--record .mem-stage__name", "els => els.map(e => e.textContent)"):
+        assert "BETTER" not in name.upper()
+
+    def rec(key):
+        return fixture_page.eval_on_selector_all(f'[data-record="{key}"] .mem-stage__rec [data-v]', "els => els.map(e => e.textContent.trim())")
+
+    # same definition as derived.research_summary.validated: FX-S004 is RETIRED, so only FX-S003 counts
+    assert rec("VALIDATED") == ["1"]
+    assert sum(int(n) for n in rec("VALIDATED")) == _fixture_snapshot()["derived"]["research_summary"]["validated"]
+    assert rec("STRATEGIES") == ["5"]
+    assert rec("HYPOTHESES") == ["7", "1"]  # ORIGINAL and RECONSTRUCTED never merged
+    assert rec("TRIALS") == ["9", "2"]
+
+
+def test_fixture_overview_panel_codes_follow_reading_order(browser, fixture_url):
+    for width in (1024, 1440, 1920):
+        page = new_page(browser, fixture_url, width=width)
+        visit(page, "/memory")
+        codes = page.evaluate(
+            """() => [...document.querySelectorAll('.view .panel__code')]
+                .map(e => [e.textContent, e.getBoundingClientRect().top, e.getBoundingClientRect().left])"""
+        )
+        page.close()
+        by_code = {c: (top, left) for c, top, left in codes}
+        assert [c for c, _, _ in codes] == [f"MEM-0{i}" for i in range(1, 9)], codes
+        # Composition (MEM-02) sits under the store; the loop (MEM-03) is beside it or below it, never above
+        assert by_code["MEM-02"][0] > by_code["MEM-01"][0]
+        assert by_code["MEM-03"][0] >= by_code["MEM-01"][0]
+        if by_code["MEM-03"][1] <= by_code["MEM-02"][1]:
+            assert by_code["MEM-03"][0] > by_code["MEM-02"][0], (width, codes)
+
+
+def test_fixture_card_footer_never_clips_ids(browser, fixture_url):
+    page = new_page(browser, fixture_url, width=1440)
+    for route in ("/memory/findings", "/memory/lessons"):
+        visit(page, route)
+        feet = page.evaluate(
+            """() => [...document.querySelectorAll('.mem-card')].map(c => {
+                const s = c.querySelector('.mem-card__src'), d = c.querySelector('.mem-card__date');
+                const cs = getComputedStyle(s);
+                return {id: c.dataset.memoryId, display: cs.display, overflow: cs.textOverflow,
+                        title: s.title, text: s.textContent.trim(), dateH: d.getBoundingClientRect().height};
+            })"""
+        )
+        assert feet, route
+        for f in feet:
+            # a block (not a flex container), so a long source line ends in an ellipsis, never a cut glyph
+            assert f["display"] == "block" and f["overflow"] == "ellipsis", f
+            assert f["title"] == f"Source: {f['text']}", f
+            assert f["dateH"] < 20, f  # one line: the created date never wraps
+    page.close()
+
+
+def test_fixture_detail_layout_at_1440(browser, fixture_url):
+    page = new_page(browser, fixture_url, width=1440)
+    visit(page, "/memory/item/FX-M0003")
+    lay = page.evaluate(
+        """() => {
+            const t = document.querySelector('.page-head__title');
+            const lh = parseFloat(getComputedStyle(t).lineHeight);
+            const tiles = Object.fromEntries([...document.querySelectorAll('.mem-vtile')].map(e => {
+                const r = e.getBoundingClientRect(); return [e.dataset.tile, [r.left, r.right, r.top]];
+            }));
+            const kv = [...document.querySelectorAll('.mem-src-kv .kv__item')].map(e => e.getBoundingClientRect().top);
+            return {titleLines: Math.round(t.getBoundingClientRect().height / lh), tiles, kvRows: new Set(kv.map(Math.round)).size};
+        }"""
+    )
+    page.close()
+    assert lay["titleLines"] == 1, lay
+    assert lay["kvRows"] == 1, lay  # the full-width Source panel lays its five fields out in one row
+    tiles = lay["tiles"]
+    # every tile edge lines up with a column edge of the first row (no thirds-over-halves)
+    row1 = {round(tiles[k][0]) for k in ("confidence", "validation", "status")} | {round(tiles[k][1]) for k in ("confidence", "validation", "status")}
+    for k in ("evidence", "origin"):
+        if tiles[k][2] > tiles["confidence"][2]:
+            assert round(tiles[k][0]) in row1 or round(tiles[k][1]) in row1, lay
+
+
+def test_fixture_detail_strip_aligns_when_narrow(browser, fixture_url):
+    page = new_page(browser, fixture_url, width=1600)
+    visit(page, "/memory/item/FX-M0003")
+    tiles = page.evaluate(
+        """() => Object.fromEntries([...document.querySelectorAll('.mem-vtile')].map(e => {
+            const r = e.getBoundingClientRect(); return [e.dataset.tile, [Math.round(r.left), Math.round(r.right), Math.round(r.top)]];
+        }))"""
+    )
+    page.close()
+    # Confidence / Validation / Status on one row; Evidence + Origin below, with Origin under Status
+    assert tiles["confidence"][2] == tiles["validation"][2] == tiles["status"][2]
+    assert tiles["evidence"][2] == tiles["origin"][2] > tiles["status"][2]
+    assert abs(tiles["origin"][0] - tiles["status"][0]) <= 1 and abs(tiles["origin"][1] - tiles["status"][1]) <= 1
+    assert abs(tiles["evidence"][0] - tiles["confidence"][0]) <= 1
+
+
 # ---------------------------------------------------------------- mutated state
 
 
@@ -244,10 +384,15 @@ def test_connected_but_empty_store_shows_recorded_zeros(browser, state_factory):
         visit(page, "/memory")
         assert page.inner_text(".stat-row .stat .stat__value").strip() == "0"
         assert page.is_visible('[data-empty-state="memory-recent-none"]')
+        # zero memories is "none recorded", never a vacuous "all traceable"
+        assert page.is_visible('[data-empty-state="memory-trace-none"]')
+        assert "ALL TRACEABLE" not in view_text(page).upper()
         visit(page, "/memory/findings")
         assert page.is_visible('[data-empty-state="memory-findings-none"]')
         visit(page, "/memory/evidence")
         assert page.is_visible('[data-empty-state="evidence-none"]')
+        assert page.is_visible('[data-empty-state="evidence-trace-none"]')
+        assert "ALL MEMORIES TRACEABLE" not in view_text(page).upper()
         v = visit(page, "/memory/item/FX-M0003")
         assert v.clean and page.is_visible('[data-empty-state="memory-not-found"]')
         page.close()

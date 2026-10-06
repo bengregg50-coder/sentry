@@ -8,8 +8,8 @@
 import { html, cx } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, fmtDateTime, humanize } from "../core/format.js";
 import { toneOf, toneClass } from "../core/tones.js";
-import { doc, source } from "../core/state.js";
-import { table, val, badge, dot, chip, originBadge, metric } from "../components/ui.js";
+import { doc, source, sourceShort, sourceTitle } from "../core/state.js";
+import { table, val, badge, dot, chip, originBadge, metric, sourceEmpty } from "../components/ui.js";
 import { STAGES } from "../components/pipeline.js";
 
 /* ------------------------------------------------------------ vocabulary */
@@ -53,6 +53,38 @@ export const ROLES = [
 
 export function research(ctx) {
   return { rs: doc(ctx, "research"), src: source(ctx, "research") };
+}
+
+/* ------------------------------------------------------------ unavailable source */
+// Not connected ≠ not produced ≠ rejected. Every label and title shown in place of
+// research.json content is phrased from the source status; a document that is present
+// but INVALID or UNREADABLE is a failure and takes the bad tone, never the muted
+// "not connected" styling of an absent source.
+
+/** True when the source exists but was rejected by the contract or could not be read. */
+export const srcBroken = (src) => src?.status === "INVALID" || src?.status === "UNREADABLE";
+
+const offTone = (src) => toneClass(srcBroken(src) ? src.status : null);
+
+/** Short label in place of a value whose source is unavailable: NOT CONNECTED / NOT PRODUCED / CONTRACT ERROR / UNREADABLE. */
+export function offLabel(src) {
+  return html`<span class="rsa-off ${offTone(src)}" data-source-off="${src?.status ?? "NO_SNAPSHOT"}">${sourceShort(src)}</span>`;
+}
+
+/** Display state for a record slot whose source is unavailable (e.g. a research role). */
+export function offState(src) {
+  return { INVALID: "INVALID", UNREADABLE: "UNREADABLE", MISSING: "NOT_PRODUCED" }[src?.status] ?? "NOT_CONNECTED";
+}
+
+/** Badge for offState(src), labelled with the source status (CONTRACT ERROR, NOT PRODUCED…). */
+export function offBadge(src) {
+  return badge(offState(src), { label: sourceShort(src) });
+}
+
+/** sourceEmpty() titled from the source status ("<what> rejected by the contract"…); broken sources take the bad tone. */
+export function srcEmpty(src, what, opts = {}) {
+  const e = sourceEmpty(src, { ...opts, title: sourceTitle(src, what) });
+  return srcBroken(src) ? html`<div class="rsa-src-bad ${offTone(src)}" data-source-off="${src.status}">${e}</div>` : e;
 }
 
 /* ------------------------------------------------------------ links */
@@ -178,8 +210,19 @@ export function terminalCell(terminal) {
   return terminal ? badge(terminal) : chip("OPEN", { title: "No terminal outcome declared — item still active" });
 }
 
+/**
+ * Preregistration timestamp as declared. The contract carries only an optional
+ * timestamp — no explicit "not preregistered" field — so a null timestamp is
+ * "not declared", never "not preregistered" (a TESTING or PREREGISTERED
+ * hypothesis may simply not report the date).
+ */
 export function preregCell(h) {
-  if (!h.preregistered_at) return html`<span class="rsa-stack-cell">${badge("NOT_PREREGISTERED", { label: "NOT PREREGISTERED", ghost: true })}</span>`;
+  if (!h.preregistered_at) {
+    return html`<span class="rsa-stack-cell">${chip("PREREG DATE NOT DECLARED", {
+      cls: "rsa-chip-quiet",
+      title: "research.json declares no preregistration timestamp for this hypothesis; nothing is inferred either way",
+    })}${h.prereg_ref ? html`<span class="rsa-sub"><span class="ref">${h.prereg_ref}</span></span>` : ""}</span>`;
+  }
   return html`<span class="rsa-stack-cell">${badge("PREREGISTERED")}<span class="rsa-sub">${fmtDate(h.preregistered_at)}${h.prereg_ref ? html` · <span class="ref">${h.prereg_ref}</span>` : ""}</span></span>`;
 }
 
@@ -191,6 +234,18 @@ export function metricsCell(list) {
   return html`<div class="rsa-metrics">${sorted.map(
     (nm) => html`<div class="rsa-metrics__row" title="${nm.label}">${nm.metric.component ? "" : html`<span class="rsa-metrics__k">${nm.label}</span>`}${metric(nm.metric)}</div>`,
   )}</div>`;
+}
+
+/**
+ * A path-like reference with a middle ellipsis: the directory shrinks first so the
+ * distinguishing file name stays visible; the full path is in the tooltip.
+ */
+export function pathRef(path) {
+  const s = String(path);
+  const cut = s.lastIndexOf("/", s.length - 2) + 1;
+  const dir = s.slice(0, cut);
+  const base = s.slice(cut);
+  return html`<span class="ref rsa-path" title="${s}">${dir ? html`<span class="rsa-path__dir">${dir}</span>` : ""}<span class="rsa-path__base">${base}</span></span>`;
 }
 
 export function trialNumber(n) {
@@ -216,6 +271,42 @@ export function tracksFrame(empty) {
   return html`<div class="rsa-tracks"><div class="tracks rsa-tracks-frame">
     <div class="tracks__head"><span></span>${STAGES.map((s) => html`<span class="tracks__stage">${s}</span>`)}<span class="tracks__stage">OUTCOME</span></div>
   </div></div><div class="rsa-autoh">${empty}</div>`;
+}
+
+/* ------------------------------------------------------------ paging */
+// Long registers render a page of rows; ?rows=<n>|all asks for more. Paging never
+// changes a displayed count: totals and per-origin counts always come from the full
+// array, and the rows not shown are reported per origin (never one merged total).
+
+export const PAGE_ROWS = 100;
+
+/** {shown, hidden, limit} for a register; limit is the requested ?rows= (Infinity for "all"). */
+export function pageRows(rows, requested, step = PAGE_ROWS) {
+  const n = Number.parseInt(requested, 10);
+  const limit = requested === "all" ? Infinity : Number.isFinite(n) && n > 0 ? n : step;
+  if (!rows || rows.length <= limit) return { shown: rows, hidden: [], limit };
+  return { shown: rows.slice(0, limit), hidden: rows.slice(limit), limit };
+}
+
+/**
+ * "Rows 1–100 shown · not shown: 1,628 original · 283 reconstructed" with show-more links.
+ * "Show all" is offered only while the remainder is small enough to render without
+ * freezing the page (the view re-renders on every state revision); otherwise a larger step.
+ */
+export function pager(page, hrefFor, { step = PAGE_ROWS, hint } = {}) {
+  if (!page.hidden.length) return "";
+  const shown = page.shown.length;
+  const rest = page.hidden.length;
+  const big = step * 5;
+  const more = (n) => html`<a class="btn" href="${hrefFor(String(shown + n))}" data-pager="more-${String(n)}">Show ${fmtCount(Math.min(n, rest))} more</a>`;
+  return html`<div class="rsa-pager" data-rows-shown="${String(shown)}" data-rows-hidden="${String(rest)}">
+    <span class="rsa-pager__k">ROWS 1–${fmtCount(shown)} SHOWN</span>
+    <span class="rsa-pager__rest">not shown: ${splitText(page.hidden, "records")}${hint ? html` · ${hint}` : ""}</span>
+    <span class="rsa-pager__go">
+      ${more(step)}
+      ${rest <= big - step ? html`<a class="btn" href="${hrefFor("all")}" data-pager="all">Show all</a>` : more(big)}
+    </span>
+  </div>`;
 }
 
 /* ------------------------------------------------------------ distributions */

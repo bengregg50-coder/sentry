@@ -684,10 +684,11 @@
     linear-gradient(180deg, rgba(13, 20, 30, 0.94), rgba(8, 12, 18, 0.97));
 }
 
+/* slot watermark: bottom-right of the identity block, clear of the status badge */
 .ag-card__wm {
   position: absolute;
-  top: 2px;
-  right: 8px;
+  top: 36px;
+  right: 10px;
   font-family: var(--font-mono);
   font-size: 46px;
   font-weight: 700;
@@ -1408,12 +1409,13 @@
   letter-spacing: 0.2em;
 }
 
-.ag-signal.is-empty .ag-signal__state {
-  border-style: dashed;
+/* no signal: the single empty state fills the panel body (matches the shared .empty:only-child) */
+.ag-signal.is-empty {
+  height: 100%;
 }
 
-.ag-signal__state .v.is-empty {
-  font-size: var(--fs-2xl);
+.ag-signal.is-empty > .empty {
+  flex: 1;
 }
 
 .ag-signal__detail {
@@ -1789,6 +1791,11 @@
   color: var(--text-2);
 }
 
+.ag-loop__note .badge {
+  margin-right: 4px;
+  vertical-align: 1px;
+}
+
 .ag-boundary {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
@@ -1951,6 +1958,18 @@
 .ag-kinds {
   display: grid;
   gap: 10px;
+}
+
+/* partial loaded window: counts are lower bounds over the latest events only */
+.ag-kinds__window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--line-2);
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
 }
 
 .ag-kinds__label {

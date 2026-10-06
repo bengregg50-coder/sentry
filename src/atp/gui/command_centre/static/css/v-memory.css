@@ -494,12 +494,26 @@
   color: var(--faint);
 }
 
-.mem-card__src {
+/* The created date never wraps; the source line is a block so its ellipsis
+   applies (a flex container ignores text-overflow) — the full text is in its title. */
+.mem-card__foot > .mem-card__date {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.mem-card__foot > .mem-card__src {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-transform: uppercase;
+}
+
+.mem-card__foot > .badge,
+.mem-card__foot > .mem-card__open {
+  flex-shrink: 0;
 }
 
 .mem-card__open {
@@ -736,6 +750,48 @@
   height: 16px;
   padding: 0 5px;
   font-size: 8px;
+}
+
+.mem-loop-side {
+  min-width: 0;
+}
+
+.mem-loop-side > .mem-label {
+  margin: 14px 0 0;
+  padding-bottom: 6px;
+}
+
+/* The four "better" stages: one conceptual row, never a count. */
+.mem-stage--better .mem-stage__n {
+  white-space: nowrap;
+  font-size: 8.5px;
+}
+
+.mem-stage--better {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.mem-stage--better .mem-stage__name,
+.mem-stage--better .mem-stage__sub {
+  white-space: normal;
+  overflow: visible;
+}
+
+.mem-stage--better .mem-stage__name {
+  color: var(--text-2);
+}
+
+/* Plain record counts behind the loop: label + per-origin count, no stage number. */
+.mem-stage--record {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.mem-stage--record .mem-stage__name {
+  text-transform: uppercase;
+}
+
+.mem-stage--record .mem-stage__sub {
+  white-space: normal;
 }
 
 .mem-comp {
@@ -1070,6 +1126,36 @@
 .mem-rels {
   display: flex;
   flex-direction: column;
+}
+
+/* Full-width legend (shown when the node table is empty): node states beside
+   the edge relations, relations in two columns — no stretched blank panel. */
+.mem-legend > .mem-legend__states,
+.mem-legend > .mem-legend__rels {
+  min-width: 0;
+}
+
+.mem-legend--wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 0 32px;
+}
+
+.mem-legend--wide > .divider {
+  display: none;
+}
+
+.mem-legend--wide .mem-rels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 28px;
+}
+
+@media (max-width: 1279px) {
+  .mem-legend--wide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
 }
 
 .mem-rel {
@@ -1643,6 +1729,39 @@
   margin-right: 10px;
 }
 
+/* Memory detail header: the title takes the free width; the flags and the
+   source tag stack on the right instead of reserving a wide two-item row. */
+.view[data-module="memory-detail"] .page-head__main {
+  flex: 1 1 auto;
+}
+
+.view[data-module="memory-detail"] .page-head__title {
+  text-wrap: balance;
+}
+
+.view[data-module="memory-detail"] .page-head__right {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.view[data-module="memory-detail"] .page-head__right .mem-head-flags {
+  margin-right: 0;
+}
+
+/* MEM-D01 / MEM-D02 lay out by their own width, not the viewport's. */
+.mem-record-panel > .panel__body,
+.mem-src-panel > .panel__body {
+  container-type: inline-size;
+}
+
+@container (min-width: 760px) {
+  .mem-src-kv .kv {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 .mem-vstrip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1941,18 +2060,20 @@
     grid-column: 1;
     grid-row: 2;
   }
-  .mem-loop-panel .mem-stage-list {
+  .mem-loop-panel .mem-loop-side {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
+}
+
+/* A narrow record panel: Confidence / Validation / Status in thirds, then
+   Evidence (two thirds) and Origin (one third) — the dividers line up. */
+@container (max-width: 960px) {
   .mem-vstrip {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .mem-vstrip > .mem-vtile {
+  .mem-vstrip > .mem-vtile[data-tile="evidence"] {
     grid-column: span 2;
-  }
-  .mem-vstrip > .mem-vtile:nth-child(n + 4) {
-    grid-column: span 3;
   }
 }
 
@@ -1974,7 +2095,7 @@
   .mem-loop-panel .panel__body {
     grid-template-columns: 1fr;
   }
-  .mem-loop-panel .mem-stage-list,
+  .mem-loop-panel .mem-loop-side,
   .mem-loop-panel .mem-loop-caption {
     grid-column: 1;
     grid-row: auto;

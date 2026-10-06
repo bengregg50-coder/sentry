@@ -7,6 +7,8 @@ evidence and reconstructed records are labelled).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from .browser_helpers import fake_value_hits, new_page, present_values, view_text, visit
@@ -315,6 +317,205 @@ def test_invalid_research_source_is_reported(browser, served):
         assert v.clean, v.describe()
         assert page.locator('.view [data-empty-state="source-research-INVALID"]').count() >= 1, route
         assert page.locator(".rsa-area, .rsa-role[data-state='ACTIVE'], [data-rsa-detail]").count() == 0
+        # a rejected document is a failure, not an absent source: never "not connected", always the bad tone
+        assert "NOT CONNECTED" not in view_text(page).upper(), route
+        assert page.locator(".view .rsa-src-bad.tone-bad [data-empty-state='source-research-INVALID']").count() >= 1, route
+        assert "REJECTED BY THE CONTRACT" in view_text(page).upper(), route
+    visit(page, "/research")
+    off = page.locator('.view .rsa-off[data-source-off="INVALID"]')
+    assert off.count() >= 3 and all("tone-bad" in (c or "") for c in off.evaluate_all("els => els.map(e => e.className)"))
+    assert set(off.all_inner_texts()) == {"CONTRACT ERROR"}
+    roles = page.eval_on_selector_all(".rsa-role", "els => els.map(e => e.dataset.state)")
+    assert roles == ["INVALID"] * 7
+    assert page.locator('.rsa-role .badge[data-state="INVALID"].tone-bad').count() == 7
+    visit(page, "/research/discovery")
+    assert page.locator('.rsa-board__none .rsa-off[data-source-off="INVALID"]').count() == 4
+    # the status label wraps in narrow tiles instead of being cut to "CONTRACT ER…"
+    clipped = page.evaluate("[...document.querySelectorAll('.view .stat__hint')].filter(e => e.scrollWidth > e.clientWidth + 1).length")
+    assert clipped == 0
+    page.close()
+
+
+# --------------------------------------------------------------------------- honesty: nulls are not facts
+
+
+def _set_hyp(hyp_id, **fields):
+    def fn(doc):
+        for h in doc["data"]["hypotheses"]:
+            if h["hypothesis_id"] == hyp_id:
+                h.update(fields)
+
+    return fn
+
+
+def test_null_prereg_timestamp_is_not_declared_not_negative(browser, served):
+    # FX-H008 is TESTING and FX-H007 PREREGISTERED; a null timestamp says nothing about whether
+    # they were preregistered, so it must never read "NOT PREREGISTERED".
+    def mutate(doc):
+        _set_hyp("FX-H008", preregistered_at=None)(doc)
+        _set_hyp("FX-H007", preregistered_at=None)(doc)
+
+    url = served({"research": mutate})
+    page = new_page(browser, url)
+    for route in ("/research/hypotheses", "/research/discovery", "/research/hypotheses?focus=FX-H008"):
+        v = visit(page, route)
+        assert v.clean, v.describe()
+        assert "NOT PREREGISTERED" not in view_text(page).upper(), route
+        assert page.locator('.view [data-state="NOT_PREREGISTERED"]').count() == 0, route
+    visit(page, "/research/hypotheses")
+    for hid in ("FX-H007", "FX-H008"):
+        row = _row(page, "data-hyp", hid).inner_text().upper()
+        assert "PREREG DATE NOT DECLARED" in row
+    # a declared timestamp still shows as PREREGISTERED with its date
+    assert "PREREGISTERED" in _row(page, "data-hyp", "FX-H001").locator('.badge[data-state="PREREGISTERED"]').inner_text()
+    page.close()
+
+
+def _checks(page):
+    return page.eval_on_selector_all(".rsa-xc__row", "els => Object.fromEntries(els.map(e => [e.dataset.check, e.dataset.checkState]))")
+
+
+def test_accounting_crosschecks_fixture(browser, fixture_url):
+    page = new_page(browser, fixture_url)
+    visit(page, "/research")
+    assert _checks(page) == {
+        "GLOBAL_SUM": "NO_DISCREPANCY",
+        "RECONSTRUCTED_RECORDS": "FLAGGED",
+        "LIVE_RECORDS": "NO_DISCREPANCY",
+        "SEALED_SEPARATE": "NO_DISCREPANCY",
+    }
+    flagged = page.locator('.rsa-xc__row[data-check="RECONSTRUCTED_RECORDS"] .badge')
+    assert "tone-ok" not in flagged.get_attribute("class")
+    assert page.locator('[data-finding="RECONSTRUCTED_RECORDS_INCOMPLETE"]').count() == 1
+    assert page.locator('[data-empty-state="accounting-consistent"]').count() == 0
+    page.close()
+
+
+def test_no_accounting_claims_no_consistency(browser, served):
+    def drop(doc):
+        doc["data"]["trial_accounting"] = None
+
+    url = served({"research": drop})
+    page = new_page(browser, url)
+    visit(page, "/research")
+    text = view_text(page).upper()
+    assert "TRIAL ACCOUNTING NOT DECLARED" in text
+    assert "NO ACCOUNTING DISCREPANCIES" not in text and "CONSISTENT WITH" not in text
+    assert page.locator('[data-empty-state="accounting-checks-not-run"]').count() == 1
+    assert page.locator(".rsa-xc__row").count() == 0
+    page.close()
+
+
+def test_partial_accounting_is_partially_checked(browser, served):
+    def partial(doc):
+        doc["data"]["trial_accounting"]["global_count"] = None
+        doc["data"]["trial_accounting"]["sealed_evidence_separate"] = None
+
+    url = served({"research": partial})
+    page = new_page(browser, url)
+    visit(page, "/research")
+    checks = _checks(page)
+    assert checks["GLOBAL_SUM"] == "NOT_RUN" and checks["SEALED_SEPARATE"] == "NOT_RUN"
+    assert "global_count not declared" in page.locator('.rsa-xc__row[data-check="GLOBAL_SUM"]').inner_text()
+    assert page.get_attribute(".rsa-xc", "data-checks-run") == "2"
+    assert "PARTIALLY CHECKED" in view_text(page).upper()
+    assert page.locator('[data-empty-state="accounting-consistent"]').count() == 0
+    page.close()
+
+
+def test_full_accounting_without_findings_is_consistent(browser, served):
+    def consistent(doc):
+        ta = doc["data"]["trial_accounting"]
+        ta.update(reconstructed_baseline=2, live_recorded=9, global_count=11, sealed_evidence_separate=True)
+
+    url = served({"research": consistent})
+    page = new_page(browser, url)
+    visit(page, "/research")
+    assert set(_checks(page).values()) == {"NO_DISCREPANCY"}
+    assert page.locator('[data-empty-state="accounting-consistent"]').count() == 1
+    page.close()
+
+
+# --------------------------------------------------------------------------- long registers
+
+
+def _many_trials(n):
+    def fn(doc):
+        base = doc["data"]["trials"][0]
+        for i in range(n):
+            t = json.loads(json.dumps(base))
+            t.update(trial_id=f"BIG-T{i:04d}", trial_number=1000 + i, origin="RECONSTRUCTED" if i % 5 == 0 else "ORIGINAL")
+            if t["origin"] == "RECONSTRUCTED":
+                t["evidence_state"] = "RECONSTRUCTED"
+            doc["data"]["trials"].append(t)
+
+    return fn
+
+
+def test_experiment_register_is_paged_without_changing_counts(browser, served):
+    url = served({"research": _many_trials(250)})  # 261 records: 209 original + 52 reconstructed
+    page = new_page(browser, url)
+    v = visit(page, "/research/experiments")
+    assert v.clean, v.describe()
+    assert page.locator(".rsa-register tbody tr").count() == 100
+    pager = page.locator(".rsa-pager")
+    assert pager.get_attribute("data-rows-shown") == "100" and pager.get_attribute("data-rows-hidden") == "161"
+    # rows not shown are reported per origin, never as one merged total
+    rest = pager.locator(".rsa-pager__rest").inner_text()
+    assert "original" in rest and "reconstructed" in rest
+    # displayed counts come from the full ledger, not the page
+    records = _stat_value(page, "Trial records")
+    assert "209" in records and "52" in records
+    assert "rows 1–100 shown" in page.locator('.panel:has(.panel__code:text-is("EXP-05")) .panel__sub').inner_text()
+    page.locator('.rsa-pager a[data-pager="more-100"]').click()
+    page.wait_for_function("document.querySelectorAll('.rsa-register tbody tr').length === 200")
+    page.locator('.rsa-pager a[data-pager="all"]').click()
+    page.wait_for_function("document.querySelectorAll('.rsa-register tbody tr').length === 261")
+    assert page.locator(".rsa-pager").count() == 0
+    # changing the kind filter starts from the first page again
+    href = page.locator('.rsa-tabs .tab:has-text("Oos")').first.get_attribute("href")
+    assert "rows=" not in href
+    page.close()
+
+
+# --------------------------------------------------------------------------- layout
+
+
+@pytest.mark.parametrize("width", [1280, 1440, 1920])
+def test_lifecycle_lanes_share_column_edges(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, "/research/hypotheses")
+    box = "els => els.map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right)] })"
+    flow = page.eval_on_selector_all(".rsa-life__flow .rsa-life__node", box)
+    stops = page.eval_on_selector_all(".rsa-life__stops .rsa-life__node", box)
+    assert len(flow) == len(stops) == 4
+    assert flow == stops, f"lanes misaligned at {width}: {flow} vs {stops}"
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1024, 1440, 1920, 2560])
+def test_roles_grid_leaves_no_orphan(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    visit(page, "/research")
+    tops = page.eval_on_selector_all(".rsa-role", "els => els.map(e => Math.round(e.getBoundingClientRect().top))")
+    rows = [tops.count(t) for t in sorted(set(tops))]
+    assert sum(rows) == 7
+    assert rows in ([7], [4, 3], [1] * 7), f"roles laid out as {rows} at {width}px"
+    page.close()
+
+
+@pytest.mark.parametrize("width", [1440, 1920])
+def test_identifying_text_not_clipped(browser, fixture_url, width):
+    page = new_page(browser, fixture_url, width=width)
+    clipped = "sel => [...document.querySelectorAll(sel)].filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent)"
+    visit(page, "/research")
+    assert page.evaluate(clipped, ".rsa-tracks .tracks__title") == []
+    visit(page, "/research/experiments")
+    # evidence paths keep their distinguishing file name; the directory takes the ellipsis
+    bases = page.eval_on_selector_all(".rsa-path__base", "els => els.map(e => e.textContent)")
+    assert "T001.json" in bases
+    assert page.evaluate(clipped, ".rsa-path__base") == []
+    assert page.locator('.rsa-path[title="fixture/evidence/T001.json"]').count() == 1
     page.close()
 
 

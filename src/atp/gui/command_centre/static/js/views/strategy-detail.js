@@ -91,12 +91,13 @@ function hero(ctx, s, v, h, conn) {
       html`data-eligible="${h ? (h.deployment_eligible ? "1" : "0") : ""}"`,
     )}
     ${cell("LAST UPDATE", s?.last_update ? val(fmtDateTime(s.last_update)) : val(null))}
-    ${cell("ORIGIN", s ? S.originCell(s.origin) : val(null))}
+    ${cell("ORIGIN", s ? S.originCell(s.origin) : val(null), html`data-hero-origin="${s?.origin ?? ""}"`)}
   </div>`;
 }
 
+/** Identity only — status, current version, agent, last update and origin live in the header strip above. */
 function identity(s, conn, ssrc) {
-  return html`<div class="st-kvwide st-kvwide--4">${kv(
+  return html`<div class="st-kvwide st-kvwide--4" data-identity>${kv(
     [
       ["Strategy ID", s ? html`<span class="mono strong">${s.strategy_id}</span>` : null],
       ["Name", s?.name],
@@ -104,12 +105,7 @@ function identity(s, conn, ssrc) {
       ["Market", s?.market],
       ["Instrument", mono(s?.instrument)],
       ["Timeframe", mono(s?.timeframe)],
-      ["Status", s ? badge(s.status) : null],
-      ["Current version", s ? html`<span class="mono">v${s.current_version}</span>` : null],
       ["Versions on record", s ? num(s.versions.length) : null],
-      ["Assigned agent", s && !isNil(s.assigned_agent) ? S.agentLink(s.assigned_agent) : null],
-      ["Last update", dt(s?.last_update)],
-      ["Origin", s ? S.originCell(s.origin) : null],
     ],
     { cols: 2 },
   )}</div>
@@ -323,7 +319,7 @@ function nextVersion(s, st) {
   return html`<div class="st-vt__arrow st-vt__arrow--ghost" aria-hidden="true"><span>NEXT</span><i></i></div>
     <div class="st-vt__card st-vt__card--ghost" data-next-version>
       <div class="st-vt__top"><span class="st-vt__v st-vt__v--ghost">v·next</span><span class="st-flag is-hist">NOT CREATED</span></div>
-      <div class="st-vt__sum">A new version exists only after a proposal passes research validation and governance approval.</div>
+      <div class="st-vt__sum">A new version may be created only after a proposal passes research validation and governance approval.</div>
       <div class="st-vt__steps"><span>PROPOSAL</span><i></i><span>RESEARCH VALIDATION</span><i></i><span>GOVERNANCE APPROVAL</span><i></i><span>NEW VERSION</span></div>
       <dl class="st-vt__kv">
         <div><dt>OPEN PROPOSALS</dt><dd>${val(fmtCount(open.length))}</dd></div>
@@ -459,7 +455,11 @@ function proposals(ctx, s, st, ssrc, memIds) {
       render: (p) => html`<div class="st-stack"><span class="text-2">${p.summary}</span>${p.rationale ? html`<span class="st-faint-sans">${p.rationale}</span>` : ""}</div>`,
       cls: "st-wrap",
     },
-    { label: "Proposed by", render: (p) => html`<span class="st-stack">${isNil(p.agent_slot) ? "" : S.agentLink(p.agent_slot)}<span class="mono small muted">${p.proposed_by}</span></span>` },
+    {
+      label: "Proposed by",
+      // one proposer reference: the agent slot when declared (raw producer ref as its tooltip), else the raw ref
+      render: (p) => (isNil(p.agent_slot) ? html`<span class="mono small">${p.proposed_by}</span>` : S.agentLink(p.agent_slot, { title: p.proposed_by })),
+    },
     {
       label: "Evidence",
       render: (p) => (p.evidence_refs.length ? html`<span class="st-stack">${p.evidence_refs.map((r) => S.refLink(r, memIds.has(r) ? S.memoryHref(r) : null))}</span>` : null),
@@ -471,7 +471,7 @@ function proposals(ctx, s, st, ssrc, memIds) {
     rowCls: (p) => (p.proposal_id === focus ? "is-focus" : ""),
     rowAttrs: (p) => html`data-proposal="${p.proposal_id}" data-proposal-focus="${p.proposal_id === focus ? "1" : "0"}"`,
     empty: s
-      ? emptyState({ title: `No proposals recorded for ${s.strategy_id}`, reason: "Agents and researchers may propose improvements; each can only ever become a new version after research validation and governance approval.", compact: true })
+      ? emptyState({ title: `No proposals recorded for ${s.strategy_id}`, reason: "Agents and researchers may propose improvements; under SENTRY policy each may only become a new version after research validation and governance approval.", compact: true })
       : sourceEmpty(ssrc, { compact: true, title: "Proposals not connected" }),
   });
 }
@@ -585,7 +585,7 @@ function body(ctx, { s, v, st, ssrc, conn, h, id }) {
         cls: "lg-span-12",
         code: "STR-D10",
         title: "Improvement proposals",
-        sub: "Proposals can only ever become new versions",
+        sub: "Proposals may only become new versions",
         body: proposals(ctx, s, st, ssrc, memIds),
       })}
     </div>
@@ -709,5 +709,6 @@ export default {
   mount(root) {
     const el = root.querySelector('[data-proposal-focus="1"]');
     if (el) el.scrollIntoView({ block: "center" });
+    return S.mountOverflowEdges(root);
   },
 };

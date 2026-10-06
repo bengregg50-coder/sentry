@@ -227,6 +227,19 @@
           "title": "Generated At",
           "type": "string"
         },
+        "heartbeat_max_age_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heartbeat Max Age S"
+        },
         "notes": {
           "items": {
             "type": "string"
@@ -680,6 +693,23 @@
       "title": "RegimeResult",
       "type": "object"
     },
+    "Stage": {
+      "description": "The research \u2192 deployment pipeline, in order.",
+      "enum": [
+        "DISCOVERY",
+        "HYPOTHESIS",
+        "BACKTEST",
+        "ROBUSTNESS",
+        "OOS",
+        "VALIDATION",
+        "APPROVED",
+        "SIM",
+        "LIVE",
+        "SCALED"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
     "StrategiesState": {
       "additionalProperties": false,
       "properties": {
@@ -791,12 +821,34 @@
         "origin": {
           "$ref": "#/$defs/Origin"
         },
+        "stage_reached": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Stage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "status": {
           "$ref": "#/$defs/StrategyStatus"
         },
         "strategy_id": {
           "title": "Strategy Id",
           "type": "string"
+        },
+        "terminal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Terminal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "timeframe": {
           "anyOf": [
@@ -1157,6 +1209,18 @@
       ],
       "title": "StrategyVersion",
       "type": "object"
+    },
+    "Terminal": {
+      "description": "How an item stopped progressing. ``None`` on an item means still active.",
+      "enum": [
+        "REJECTED",
+        "BLOCKED_BY_DATA",
+        "PENDING",
+        "ABANDONED",
+        "RETIRED"
+      ],
+      "title": "Terminal",
+      "type": "string"
     },
     "ValidationChecks": {
       "additionalProperties": false,

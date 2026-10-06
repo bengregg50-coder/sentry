@@ -16,6 +16,11 @@ Design rules encoded here:
   in-sample number can never be displayed as validation evidence.
 * Unknown fields are rejected (``extra="forbid"``) so contract drift between
   producer and UI is visible as an INVALID source rather than silently lost.
+* Timestamps must carry a timezone and numbers must be finite. A naive
+  timestamp or a NaN/Infinity makes the document INVALID with an explicit error
+  instead of being silently served as ``null`` (or crashing a comparison).
+* Time series (equity curves, bars) must be strictly ascending in time with no
+  duplicate timestamps.
 
 The JSON Schemas exported from these models (see :mod:`.contract`) are the
 artefact producers should validate against.
@@ -23,11 +28,11 @@ artefact producers should validate against.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 CONTRACT_VERSION = "1"
 
@@ -35,7 +40,18 @@ AGENT_SLOTS = (1, 2, 3, 4, 5)
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, use_enum_values=False)
+    model_config = ConfigDict(extra="forbid", frozen=True, use_enum_values=False, allow_inf_nan=False)
+
+
+def _strictly_ascending(points: list, name: str) -> list:
+    """Series must be ordered oldest → newest with unique timestamps (charts cannot plot anything else)."""
+    for prev, cur in zip(points, points[1:]):
+        if cur.t <= prev.t:
+            raise ValueError(
+                f"{name} must be strictly ascending in time with unique timestamps "
+                f"({cur.t.isoformat()} follows {prev.t.isoformat()})"
+            )
+    return points
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +174,7 @@ class Check(Model):
     state: CheckState
     detail: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
-    checked_at: datetime | None = None
+    checked_at: AwareDatetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +185,11 @@ class Check(Model):
 class DocumentMeta(Model):
     schema_version: Literal["1"]
     producer: str = Field(min_length=1)
-    generated_at: datetime
+    generated_at: AwareDatetime
     origin: Origin
+    #: Producer-declared freshness bound: a heartbeat in this document older than this many
+    #: seconds means the producer is stale. ``None`` = no bound declared (staleness is not judged).
+    heartbeat_max_age_s: int | None = Field(default=None, gt=0)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -202,7 +221,7 @@ class SubsystemStatus(Model):
     state: SubsystemState
     detail: str | None = None
     version: str | None = None
-    heartbeat_at: datetime | None = None
+    heartbeat_at: AwareDatetime | None = None
 
 
 class SystemState(Model):
@@ -242,8 +261,8 @@ class Programme(Model):
     universe_status: Literal["PROVISIONAL", "VERIFIED", "FROZEN"] | None = None
     spec_ref: str | None = None
     spec_hash: str | None = None
-    frozen_at: datetime | None = None
-    sealed_at: datetime | None = None
+    frozen_at: AwareDatetime | None = None
+    sealed_at: AwareDatetime | None = None
     evaluation_windows: list[Window] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     origin: Origin
@@ -271,10 +290,10 @@ class Hypothesis(Model):
     status: HypothesisStatus
     stage_reached: Stage
     terminal: Terminal | None = None
-    preregistered_at: datetime | None = None
+    preregistered_at: AwareDatetime | None = None
     prereg_ref: str | None = None
-    created_at: datetime | None = None
-    decided_at: datetime | None = None
+    created_at: AwareDatetime | None = None
+    decided_at: AwareDatetime | None = None
     decision_reason: str | None = None
     strategy_id: str | None = None
     trial_numbers: list[int] = Field(default_factory=list)
@@ -318,7 +337,10 @@ class Trial(Model):
     programme_id: str | None = None
     hypothesis_id: str | None = None
     family: str | None = None
-    experiment: str | None = None
+    experiment: str | None = None  # free-text label
+    #: Identity of the experiment this trial belongs to; memory ``experiment_ids`` /
+    #: ``related_experiments`` and EXPERIMENT evidence resolve against this or ``trial_id``.
+    experiment_id: str | None = None
     kind: TrialKind
     stage: Stage
     outcome: TrialOutcome
@@ -326,8 +348,8 @@ class Trial(Model):
     evidence_state: EvidenceState
     oos_state: CheckState | None = None
     validation_state: CheckState | None = None
-    started_at: datetime | None = None
-    recorded_at: datetime | None = None
+    started_at: AwareDatetime | None = None
+    recorded_at: AwareDatetime | None = None
     data_used: list[str] = Field(default_factory=list)
     window_start: date | None = None
     window_end: date | None = None
@@ -346,7 +368,7 @@ class TrialAccounting(Model):
     ledger_ref: str | None = None
     ledger_hash: str | None = None
     sealed_evidence_separate: bool | None = None
-    as_of: datetime | None = None
+    as_of: AwareDatetime | None = None
     notes: list[str] = Field(default_factory=list)
 
 
@@ -391,12 +413,13 @@ class RoleStatus(Model):
     role: ResearchRole
     state: Literal["NOT_BUILT", "IDLE", "ACTIVE", "BLOCKED", "OFFLINE"]
     detail: str | None = None
-    last_activity_at: datetime | None = None
+    last_activity_at: AwareDatetime | None = None
 
 
 class ResearchFocus(Model):
     programme_id: str | None = None
     hypothesis_id: str | None = None
+    family: str | None = None  # the current research family, as the research engine declares it
     summary: str | None = None
     next_action: str | None = None
 
@@ -483,7 +506,7 @@ class MultipleTesting(Model):
 class Approval(Model):
     decision: Literal["APPROVED", "REJECTED", "REVOKED"]
     scope: Literal["SIM", "PAPER", "LIVE_SMALL", "LIVE"]
-    decided_at: datetime
+    decided_at: AwareDatetime
     decided_by: str
     decision_ref: str | None = None
     conditions: list[str] = Field(default_factory=list)
@@ -491,7 +514,7 @@ class Approval(Model):
 
 class DeploymentPackage(Model):
     package_id: str
-    created_at: datetime
+    created_at: AwareDatetime
     spec_hash: str | None = None
     data_identity: str | None = None
     executor_identity: str | None = None
@@ -510,7 +533,7 @@ class RegimeResult(Model):
 class StrategyVersion(Model):
     version: int = Field(ge=1)
     status: StrategyStatus
-    created_at: datetime
+    created_at: AwareDatetime
     parent_version: int | None = Field(default=None, ge=1)
     change_summary: str | None = None
     change_rationale: str | None = None
@@ -540,7 +563,12 @@ class Strategy(Model):
     current_version: int = Field(ge=1)
     versions: list[StrategyVersion] = Field(min_length=1)
     assigned_agent: int | None = Field(default=None, ge=1, le=5)
-    last_update: datetime | None = None
+    last_update: AwareDatetime | None = None
+    #: Furthest research → deployment stage the research engine declares this strategy reached,
+    #: and how it stopped. Optional: when absent the Command Centre does not infer pre-validation
+    #: research stages from the registry status.
+    stage_reached: Stage | None = None
+    terminal: Terminal | None = None
     origin: Origin
 
     @model_validator(mode="after")
@@ -571,7 +599,7 @@ class ImprovementProposal(Model):
     """A proposed change. It can only ever become a *new* strategy version."""
 
     proposal_id: str
-    proposed_at: datetime
+    proposed_at: AwareDatetime
     proposed_by: str
     agent_slot: int | None = Field(default=None, ge=1, le=5)
     strategy_id: str
@@ -622,14 +650,14 @@ class AgentAssignment(Model):
     strategy_id: str
     version: int = Field(ge=1)
     mode: AgentMode
-    assigned_at: datetime
+    assigned_at: AwareDatetime
     approval_ref: str | None = None
     package_id: str | None = None
 
 
 class SignalState(Model):
     state: Literal["NO_SIGNAL", "FLAT", "LONG", "SHORT"]
-    as_of: datetime
+    as_of: AwareDatetime
     detail: str | None = None
 
 
@@ -640,7 +668,7 @@ class Position(Model):
     avg_price: float | None = None
     unrealized_pnl: Metric | None = None
     mode: AgentMode
-    as_of: datetime
+    as_of: AwareDatetime
 
 
 class Order(Model):
@@ -652,7 +680,7 @@ class Order(Model):
     limit_price: float | None = None
     status: Literal["WORKING", "PARTIAL", "FILLED", "CANCELLED", "REJECTED"]
     mode: AgentMode
-    submitted_at: datetime
+    submitted_at: AwareDatetime
     agent_slot: int | None = Field(default=None, ge=1, le=5)
 
 
@@ -662,7 +690,7 @@ class Trade(Model):
     side: Literal["BUY", "SELL"]
     quantity: float = Field(gt=0)
     price: float
-    executed_at: datetime
+    executed_at: AwareDatetime
     mode: AgentMode
     slippage_bps: float | None = None
     pnl: Metric | None = None
@@ -671,14 +699,14 @@ class Trade(Model):
 
 class PnL(Model):
     mode: AgentMode
-    as_of: datetime
+    as_of: AwareDatetime
     realized: Metric | None = None
     unrealized: Metric | None = None
     day: Metric | None = None
 
 
 class SeriesPoint(Model):
-    t: datetime
+    t: AwareDatetime
     v: float
 
 
@@ -688,11 +716,12 @@ class RiskLimit(Model):
     limit: float
     used: float | None = None
     unit: Literal["ratio", "pct", "bps", "count", "currency", "contracts"]
+    currency: str | None = None  # ISO code when unit == "currency"
     state: Literal["OK", "WARN", "BREACH", "UNKNOWN"]
 
 
 class ExecutionStats(Model):
-    as_of: datetime
+    as_of: AwareDatetime
     latency_ms_p50: float | None = None
     latency_ms_p95: float | None = None
     slippage_bps_mean: float | None = None
@@ -712,20 +741,20 @@ class Connection(Model):
     name: str
     kind: Literal["MARKET_DATA", "BROKER", "RESEARCH_BUS", "MEMORY", "OTHER"]
     state: ConnectionState
-    last_heartbeat: datetime | None = None
+    last_heartbeat: AwareDatetime | None = None
     detail: str | None = None
 
 
 class Alert(Model):
     alert_id: str
-    at: datetime
+    at: AwareDatetime
     severity: Severity
     message: str
     ref: str | None = None
 
 
 class Bar(Model):
-    t: datetime
+    t: AwareDatetime
     o: float
     h: float
     l: float  # noqa: E741
@@ -755,7 +784,17 @@ class AgentState(Model):
     alerts: list[Alert] = Field(default_factory=list)
     memory_refs: list[str] = Field(default_factory=list)
     bars: list[Bar] = Field(default_factory=list)
-    last_heartbeat: datetime | None = None
+    last_heartbeat: AwareDatetime | None = None
+
+    @field_validator("equity")
+    @classmethod
+    def _equity_ordered(cls, v: list[SeriesPoint]) -> list[SeriesPoint]:
+        return _strictly_ascending(v, "equity")
+
+    @field_validator("bars")
+    @classmethod
+    def _bars_ordered(cls, v: list[Bar]) -> list[Bar]:
+        return _strictly_ascending(v, "bars")
 
 
 class AgentsState(Model):
@@ -779,6 +818,9 @@ class AgentEventKind(str, Enum):
     LEARNING = "LEARNING"
     MEMORY_WRITE = "MEMORY_WRITE"
     PROPOSAL = "PROPOSAL"
+    #: An agent tested whether a shared memory applies to its own market/strategy
+    #: (refs.memory_ids names the memory under test).
+    APPLICABILITY_TEST = "APPLICABILITY_TEST"
     SIGNAL_EVALUATION = "SIGNAL_EVALUATION"
     NO_TRADE = "NO_TRADE"
     DECISION = "DECISION"
@@ -795,6 +837,8 @@ class EventRefs(Model):
     strategy_id: str | None = None
     version: int | None = None
     trial_ids: list[str] = Field(default_factory=list)
+    hypothesis_ids: list[str] = Field(default_factory=list)
+    programme_id: str | None = None
     order_id: str | None = None
     proposal_id: str | None = None
 
@@ -803,7 +847,7 @@ class AgentEvent(Model):
     """One line of ``agent_events.jsonl`` (append-only)."""
 
     event_id: str
-    ts: datetime
+    ts: AwareDatetime
     agent_slot: int = Field(ge=1, le=5)
     kind: AgentEventKind
     mode: AgentMode
@@ -853,7 +897,7 @@ class EvidenceItem(Model):
     result: CheckState | None = None
     summary: str | None = None
     independent: bool | None = None
-    recorded_at: datetime | None = None
+    recorded_at: AwareDatetime | None = None
 
 
 class MemorySource(Model):
@@ -868,7 +912,7 @@ class Memory(Model):
     memory_id: str
     type: MemoryType
     title: str
-    created_at: datetime
+    created_at: AwareDatetime
     source: MemorySource
     hypothesis: str | None = None
     observation: str | None = None
@@ -882,7 +926,7 @@ class Memory(Model):
     related_strategies: list[str] = Field(default_factory=list)
     related_experiments: list[str] = Field(default_factory=list)
     related_memories: list[str] = Field(default_factory=list)
-    last_reviewed: datetime | None = None
+    last_reviewed: AwareDatetime | None = None
     origin: Origin
 
 
@@ -932,7 +976,7 @@ class GovernanceCheck(Model):
     state: GovernanceState
     detail: str | None = None
     evidence_ref: str | None = None
-    checked_at: datetime | None = None
+    checked_at: AwareDatetime | None = None
 
 
 class RefereeStatus(Model):
@@ -940,12 +984,12 @@ class RefereeStatus(Model):
     detail: str | None = None
     lock_ref: str | None = None
     lock_hash: str | None = None
-    last_run_at: datetime | None = None
+    last_run_at: AwareDatetime | None = None
 
 
 class ChangeRecord(Model):
     change_id: str
-    at: datetime
+    at: AwareDatetime
     actor: str
     kind: Literal[
         "SPEC_FREEZE",
@@ -1008,7 +1052,7 @@ class Dataset(Model):
     reconstructed: bool | None = None
     reconstruction_detail: str | None = None
     gaps: list[DatasetGap] = Field(default_factory=list)
-    last_verified_at: datetime | None = None
+    last_verified_at: AwareDatetime | None = None
     used_by: list[str] = Field(default_factory=list)
     origin: Origin
 
@@ -1039,7 +1083,7 @@ class Allocation(Model):
 
 class PortfolioState(Model):
     mode: AgentMode
-    as_of: datetime
+    as_of: AwareDatetime
     positions: list[Position] = Field(default_factory=list)
     exposures: list[Exposure] = Field(default_factory=list)
     allocations: list[Allocation] = Field(default_factory=list)
@@ -1047,16 +1091,21 @@ class PortfolioState(Model):
     equity: list[SeriesPoint] = Field(default_factory=list)
     drawdown: Metric | None = None
 
+    @field_validator("equity")
+    @classmethod
+    def _equity_ordered(cls, v: list[SeriesPoint]) -> list[SeriesPoint]:
+        return _strictly_ascending(v, "equity")
+
 
 class KillSwitch(Model):
     state: Literal["ARMED", "TRIPPED", "NOT_CONFIGURED"]
     detail: str | None = None
-    tripped_at: datetime | None = None
+    tripped_at: AwareDatetime | None = None
 
 
 class RiskBreach(Model):
     breach_id: str
-    at: datetime
+    at: AwareDatetime
     limit_key: str
     severity: Severity
     detail: str | None = None
@@ -1064,7 +1113,7 @@ class RiskBreach(Model):
 
 
 class RiskState(Model):
-    as_of: datetime
+    as_of: AwareDatetime
     kill_switch: KillSwitch | None = None
     portfolio_limits: list[RiskLimit] = Field(default_factory=list)
     daily_limits: list[RiskLimit] = Field(default_factory=list)
@@ -1073,7 +1122,7 @@ class RiskState(Model):
 
 
 class ExecutionState(Model):
-    as_of: datetime
+    as_of: AwareDatetime
     connections: list[Connection] = Field(default_factory=list)
     open_orders: list[Order] = Field(default_factory=list)
     fills: list[Trade] = Field(default_factory=list)
@@ -1081,13 +1130,13 @@ class ExecutionState(Model):
 
 
 class LiveEngineState(Model):
-    as_of: datetime
+    as_of: AwareDatetime
     engine_state: Literal["OFFLINE", "STARTING", "RUNNING", "DEGRADED", "STOPPED", "NOT_BUILT"]
     trading_mode: Literal["DISABLED", "SIM", "PAPER", "LIVE"]
     trading_enabled: bool
     detail: str | None = None
     connections: list[Connection] = Field(default_factory=list)
-    heartbeat_at: datetime | None = None
+    heartbeat_at: AwareDatetime | None = None
     positions_open: int | None = Field(default=None, ge=0)
     orders_working: int | None = Field(default=None, ge=0)
     pnl: PnL | None = None
@@ -1100,7 +1149,7 @@ class LiveEngineState(Model):
 
 class Insight(Model):
     insight_id: str
-    at: datetime
+    at: AwareDatetime
     kind: Literal["RESEARCH_DIGEST", "NULL_RESULT", "DATA", "EXECUTION", "GOVERNANCE", "MEMORY", "OTHER"]
     title: str
     body: str | None = None

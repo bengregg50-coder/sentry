@@ -207,7 +207,8 @@ export function tabs(items, active) {
 /* ---------------- findings / notices ---------------- */
 
 export function findingsList(findings, { limit, empty, moreHref } = {}) {
-  if (!findings || findings.length === 0) return empty ?? emptyState({ title: "No findings", compact: true, iconName: "shield" });
+  // Default wording never claims more than "none from the checks that ran" (see derived.check_coverage).
+  if (!findings || findings.length === 0) return empty ?? emptyState({ title: "No findings from the checks that ran", compact: true, iconName: "shield" });
   const shown = limit ? findings.slice(0, limit) : findings;
   return html`<div class="findings">
     ${shown.map(

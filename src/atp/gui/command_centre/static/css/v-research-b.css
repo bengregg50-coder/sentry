@@ -39,6 +39,14 @@
   letter-spacing: 0.08em;
 }
 
+/* an explanatory absence that must stay readable (e.g. NO TRIALS LINKED) */
+.rsb-muted {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+}
+
 .rsb-nowrap {
   white-space: nowrap;
 }
@@ -523,7 +531,7 @@
   border-style: dashed;
   border-color: var(--line-2);
   background: repeating-linear-gradient(-45deg, rgba(148, 163, 184, 0.03) 0 4px, transparent 4px 8px);
-  color: var(--faint) !important;
+  color: var(--muted) !important;
   font-weight: 500;
 }
 
@@ -564,15 +572,22 @@
 
 /* ---------------------------------------------------------------- robustness battery */
 
+/* Five kinds, five columns. Sized on the battery's own width (not the viewport,
+   whose usable width depends on the sidebar state), so no empty track is ever
+   left at the end of the row; too narrow for five readable cards -> 3 + 2. */
+.rsb-batswrap {
+  container: rsb-bats / inline-size;
+}
+
 .rsb-bats {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
-@media (max-width: 1500px) {
+@container rsb-bats (max-width: 1099px) {
   .rsb-bats {
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -666,20 +681,56 @@
 
 .rsb-bat__foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
+  gap: 3px 8px;
   margin-top: auto;
   padding-top: 7px;
   border-top: 1px solid var(--line);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+.rsb-bat__foot > span {
+  white-space: nowrap;
 }
 
 .rsb-bat__foot b {
   color: var(--text-2);
   font-weight: 500;
+}
+
+/* per-state split of the matching validation check (REPORTED n/m is not a pass count) */
+.rsb-bat__checks {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+}
+
+.rsb-cksplit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+}
+
+.rsb-cksplit__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rsb-cksplit__item b {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.rsb-stat-split {
+  display: inline-flex;
+  margin-top: 2px;
 }
 
 /* ---------------------------------------------------------------- check matrix */
@@ -1575,4 +1626,21 @@ i.rsb-tl-role--OTHER { border-style: dashed; }
   .rsb-hero__points {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* NOT REPORTED stays readable at every width: never below 9px, in --muted (it
+   used to inherit the dense matrices' 7.5px in --faint). Placed last so it wins
+   over the narrower-desktop matrix sizes above. */
+.rsb-cell.rsb-cell--nr,
+.rsb-mx--val .rsb-cell.rsb-cell--nr {
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+/* VAL-06: a left-aligned text column after a right-aligned numeric one gets its
+   own gutter and rule, so header and values never read as one run. */
+.rsb-reg .table th.rsb-colsep,
+.rsb-reg .table td.rsb-colsep {
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
 }

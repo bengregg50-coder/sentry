@@ -114,6 +114,15 @@ class StateProvider(Protocol):
     def revision(self) -> str: ...
 
 
+def _signature(st: Any) -> tuple[int, int, int, int]:
+    """Change detector for a file: mtime, size, inode (atomic rename-replace) and ctime.
+
+    Including the inode and ctime means a same-size rewrite within one mtime tick, or a writer
+    that preserves mtime, is still seen as a change.
+    """
+    return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
+
+
 def _format_validation_error(exc: ValidationError, limit: int = 5) -> str:
     parts = []
     for err in exc.errors()[:limit]:
@@ -127,7 +136,7 @@ def _format_validation_error(exc: ValidationError, limit: int = 5) -> str:
 
 @dataclass
 class _CacheEntry:
-    signature: tuple[int, int]
+    signature: tuple[int, ...]
     result: Any
 
 
@@ -160,7 +169,7 @@ class FileStateProvider:
             return SourceResult(key, label, file, SourceStatus.MISSING, path=str(path))
         except OSError as exc:
             return SourceResult(key, label, file, SourceStatus.UNREADABLE, path=str(path), error=str(exc))
-        signature = (st.st_mtime_ns, st.st_size)
+        signature = _signature(st)
         with self._lock:
             cached = self._cache.get(key)
             if cached is not None and cached.signature == signature:
@@ -180,7 +189,7 @@ class FileStateProvider:
             return EventsResult(SourceStatus.MISSING, path=str(path))
         except OSError as exc:
             return EventsResult(SourceStatus.UNREADABLE, path=str(path), first_error=str(exc))
-        signature = (st.st_mtime_ns, st.st_size)
+        signature = _signature(st)
         with self._lock:
             cached = self._cache.get("__events__")
             if cached is not None and cached.signature == signature:
@@ -192,16 +201,31 @@ class FileStateProvider:
 
     def revision(self) -> str:
         """Changes whenever any source file changes (used for cheap UI polling)."""
+        return self.revisions()["revision"]
+
+    def revisions(self) -> dict[str, str]:
+        """Combined revision plus separate document / event-stream revisions.
+
+        The UI refetches immediately when documents change and throttles refetches caused only by
+        the (append-heavy) agent event stream.
+        """
         if self.state_dir is None:
-            return "not-configured"
-        h = hashlib.sha256()
-        for name in sorted([f for f, _, _ in DOCUMENTS.values()] + [AGENT_EVENTS_FILE]):
-            try:
-                st = (self.state_dir / name).stat()
-                h.update(f"{name}:{st.st_mtime_ns}:{st.st_size};".encode())
-            except OSError:
-                h.update(f"{name}:-;".encode())
-        return h.hexdigest()[:16]
+            return {"revision": "not-configured", "documents": "not-configured", "events": "not-configured"}
+
+        def digest(names: list[str]) -> str:
+            h = hashlib.sha256()
+            for name in names:
+                try:
+                    sig = _signature((self.state_dir / name).stat())
+                    h.update(f"{name}:{':'.join(map(str, sig))};".encode())
+                except OSError:
+                    h.update(f"{name}:-;".encode())
+            return h.hexdigest()[:16]
+
+        docs = digest(sorted(f for f, _, _ in DOCUMENTS.values()))
+        events = digest([AGENT_EVENTS_FILE])
+        combined = hashlib.sha256(f"{docs}:{events}".encode()).hexdigest()[:16]
+        return {"revision": combined, "documents": docs, "events": events}
 
     # -- internals ----------------------------------------------------------
 
@@ -214,10 +238,14 @@ class FileStateProvider:
         }
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return SourceResult(key, label, file, SourceStatus.UNREADABLE, error=str(exc), **common)
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+            # ValueError covers JSONDecodeError and over-long integer literals; RecursionError covers
+            # pathologically nested input. Either way the document is unreadable, not the API.
+            return SourceResult(key, label, file, SourceStatus.UNREADABLE, error=f"{type(exc).__name__}: {exc}"[:500], **common)
         try:
             doc = DOCUMENT_MODELS[key].model_validate(raw)
+        except RecursionError as exc:
+            return SourceResult(key, label, file, SourceStatus.UNREADABLE, error=f"RecursionError: {exc}"[:500], **common)
         except ValidationError as exc:
             meta = None
             if isinstance(raw, dict) and isinstance(raw.get("meta"), dict):
@@ -250,7 +278,14 @@ class FileStateProvider:
                 invalid += 1
                 if first_error is None:
                     first_error = f"line {n}: {_format_validation_error(exc, limit=2)}"
-        events.sort(key=lambda e: e.ts)
+            except (ValueError, RecursionError) as exc:
+                invalid += 1
+                if first_error is None:
+                    first_error = f"line {n}: {type(exc).__name__}: {exc}"[:500]
+        try:
+            events.sort(key=lambda e: e.ts)
+        except TypeError as exc:  # defensive: the contract requires timezone-aware timestamps
+            return EventsResult(SourceStatus.INVALID, path=str(path), modified_at=modified, first_error=str(exc), total_lines=total)
         status = SourceStatus.OK if invalid == 0 else SourceStatus.INVALID
         return EventsResult(
             status,

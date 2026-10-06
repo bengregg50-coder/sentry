@@ -87,6 +87,7 @@
   flex: none;
 }
 
+/* The title never yields to the subtitle: only the subtitle truncates. */
 .panel__title {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
@@ -97,7 +98,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .panel__sub {
@@ -106,6 +108,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -292,11 +295,13 @@
   font-size: var(--fs-lg);
 }
 
+/* Dividers are drawn by each cell (box-shadow into the 1px gap), not by a container background,
+   so an incomplete last row leaves transparent space instead of a grey filler block. */
 .stat-row {
   display: grid;
   gap: 1px;
   grid-template-columns: repeat(auto-fit, minmax(var(--min, 120px), 1fr));
-  background: var(--line);
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -305,6 +310,7 @@
 .stat-row > .stat {
   background: var(--panel);
   padding: 10px 12px;
+  box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line), 1px 1px 0 var(--line);
 }
 
 /* ---------- empty states ---------- */

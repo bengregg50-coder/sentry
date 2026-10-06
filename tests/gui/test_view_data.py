@@ -108,18 +108,53 @@ def test_datasets_empty_draws_frame_without_bars(browser, empty_url):
     page.close()
 
 
-def test_insights_empty_says_none_produced(browser, empty_url):
+def test_insights_empty_says_not_connected(browser, empty_url):
     page = new_page(browser, empty_url)
     v = visit(page, "/insights")
     assert v.clean, v.describe()
     assert page.query_selector("[data-insight]") is None
     text = view_text(page).upper()
-    assert "NO INSIGHTS PRODUCED YET" in text
+    # not connected is not "none produced": no state directory means nothing can be said about insights
+    assert "NO INSIGHTS PRODUCED YET" not in text
+    titles = page.eval_on_selector_all(
+        '[data-empty-state^="source-insights-"] .empty__title', "els => els.map(e => e.textContent.trim().toUpperCase())"
+    )
+    assert titles == ["INSIGHTS NOT CONNECTED"] * 2  # INS-03 null results and INS-04 stream
     assert "NULL RESULTS ARE RESULTS" in text
     # digest blocks are present, each explaining its emptiness
     assert page.eval_on_selector_all("[data-digest]", "els => els.map(e => e.dataset.digest)") == ["D1", "D2", "D3"]
     assert "NOTHING CONNECTED — NOTHING TO CROSS-CHECK" in text
     page.close()
+
+
+def test_insights_missing_vs_invalid_titles(browser, state_factory):
+    """MISSING in a configured state dir is "none produced"; a contract error names the file."""
+    url, server = start_server(state_factory(drop=("insights",)))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/insights")
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "NO INSIGHTS PRODUCED YET" in text
+        assert "INSIGHTS NOT CONNECTED" not in text
+        page.close()
+    finally:
+        server.should_exit = True
+
+    def corrupt(doc):
+        doc["data"]["insights"][0]["kind"] = "NOT_A_KIND"
+
+    url, server = start_server(state_factory({"insights": corrupt}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/insights")
+        assert v.clean, v.describe()
+        text = view_text(page).upper()
+        assert "INSIGHTS.JSON REJECTED BY THE CONTRACT" in text
+        assert "NO INSIGHTS PRODUCED YET" not in text
+        page.close()
+    finally:
+        server.should_exit = True
 
 
 # --------------------------------------------------------------------------- fixture mode
@@ -182,6 +217,20 @@ def test_sources_fixture_all_twelve_ok(browser, fixture_url):
     synth = page.eval_on_selector_all('[data-origin="SYNTHETIC_FIXTURE"] .dat-file', "els => els.length")
     assert synth == 12
     assert page.get_attribute('[data-flow-stage="DERIVED"]', "class").count("is-live") == 1
+    # connected (even contract-valid) is not a passed check, and these are synthetic documents:
+    # every OK source reads CONNECTED in cyan, as on every other view — nothing here is green
+    assert page.eval_on_selector_all(".view .tone-ok", "els => els.length") == 0
+    row_cls = page.eval_on_selector_all('.view [data-source-row]', "els => els.map(e => e.className)")
+    assert len(row_cls) == 13 and all("tone-info" in c for c in row_cls)
+    states = page.eval_on_selector_all('.view [data-source-row] .dat-doc__status .badge', "els => els.map(e => e.dataset.state + ':' + e.textContent.trim())")
+    assert set(states) == {"CONNECTED:CONNECTED"}
+    assert "tone-info" in page.get_attribute('[data-status-count="OK"]', "class")
+    assert page.get_attribute('[data-status-count="OK"] .badge', "data-state") == "CONNECTED"
+    assert page.get_attribute(".dat-vs__events .badge", "data-state") == "CONNECTED"
+    feed = page.eval_on_selector_all('[data-feed-status="OK"] .dot', "els => els.map(e => e.dataset.state)")
+    assert feed and set(feed) == {"CONNECTED"}
+    assert page.get_attribute(".dat-hdr .badge", "data-state") == "CONNECTED"
+    assert "12/12 DOCUMENTS CONNECTED" in page.inner_text(".dat-hdr").upper()
     page.close()
 
 

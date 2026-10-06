@@ -5,7 +5,7 @@
 import { html, raw, cx } from "../core/html.js";
 import { isNil, fmtCount, fmtDate, humanize, pad2 } from "../core/format.js";
 import { toneClass } from "../core/tones.js";
-import { val, metric, badge, emptyState } from "../components/ui.js";
+import { val, metric, emptyState, originBadge } from "../components/ui.js";
 
 /* ---------------------------------------------------------------- vocabulary (architecture labels) */
 
@@ -28,7 +28,7 @@ export const ORIGINS = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
 export const ORIGIN_SHORT = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
 
 const DEPLOYED = ["DEPLOYED_SIM", "DEPLOYED_LIVE", "SCALED"];
-const ENDED = ["RETIRED", "REJECTED"];
+export const ENDED = ["RETIRED", "REJECTED"];
 
 /**
  * Library filters. Definitions are presentation filters over declared status;
@@ -72,7 +72,7 @@ export const FILTERS = {
     title: "Deployed Strategies",
     summaryKey: "deployed",
     definition: "Status DEPLOYED SIM, DEPLOYED LIVE or SCALED.",
-    sub: "Strategies running on an agent — simulation first, live only with a LIVE-scope governance approval.",
+    sub: "Strategies the registry declares deployed. Whether an agent is actually running one is reported by the agent runtime, not by this list. Policy: simulation first; live only with a LIVE-scope governance approval.",
     test: (s) => DEPLOYED.includes(s.status),
   },
   retired: {
@@ -185,9 +185,10 @@ export function refLink(text, href) {
   return href ? html`<a class="ref" href="${href}">${text}</a>` : html`<span class="ref st-ref--plain">${text}</span>`;
 }
 
-export function agentLink(slot) {
+/** Agent slot link. `title` carries a raw producer reference (e.g. "agent:02") without repeating it on screen. */
+export function agentLink(slot, { title } = {}) {
   if (isNil(slot)) return val(null);
-  return html`<a class="ref" href="${agentHref(slot)}">AGENT ${pad2(slot)}</a>`;
+  return html`<a class="ref" href="${agentHref(slot)}" ${title ? html`title="${title}"` : ""}>AGENT ${pad2(slot)}</a>`;
 }
 
 /* ---------------------------------------------------------------- row counting, never merged across origin */
@@ -238,13 +239,15 @@ export function splitList(split) {
   return parts.map((o) => ({ n: split[o], tag: o === "ORIGINAL" ? null : ORIGIN_SHORT[o] ?? o, origin: o }));
 }
 
-/** Origin column: badge for non-ORIGINAL, plain mono label for ORIGINAL (never an empty dash). */
+/**
+ * Origin field: the shared originBadge() for non-ORIGINAL records (same label as the
+ * page-head source tag, e.g. SYNTHETIC FIXTURE), a plain mono label for ORIGINAL
+ * (never an empty dash).
+ */
 export function originCell(origin) {
   if (isNil(origin)) return val(null);
   if (origin === "ORIGINAL") return html`<span class="st-origin-plain">ORIGINAL</span>`;
-  return origin === "SYNTHETIC_FIXTURE"
-    ? html`<span class="badge tone-bad" data-state="SYNTHETIC_FIXTURE">SYNTHETIC</span>`
-    : badge(origin);
+  return originBadge(origin);
 }
 
 /* ---------------------------------------------------------------- metric rendering */
@@ -294,6 +297,37 @@ export function regTable({ columns, rows, empty, rowHref, rowAttrs, rowCls, cls,
       </tbody>
     </table>
   </div>`;
+}
+
+/**
+ * Mark every .st-tw scroller that overflows horizontally with data-overflow="left|right|left right",
+ * which v-strategies.css turns into a faded edge, so off-screen columns are never hidden silently.
+ * Returns the cleanup for the view's mount().
+ */
+export function mountOverflowEdges(root) {
+  const wraps = [...root.querySelectorAll(".st-tw")];
+  if (!wraps.length) return null;
+  const update = (el) => {
+    const max = el.scrollWidth - el.clientWidth;
+    const parts = [];
+    if (max > 1 && el.scrollLeft > 1) parts.push("left");
+    if (max > 1 && max - el.scrollLeft > 1) parts.push("right");
+    if (parts.length) el.dataset.overflow = parts.join(" ");
+    else delete el.dataset.overflow;
+  };
+  const onScroll = (e) => update(e.currentTarget);
+  const all = () => wraps.forEach(update);
+  wraps.forEach((el) => el.addEventListener("scroll", onScroll, { passive: true }));
+  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(all) : null;
+  wraps.forEach((el) => {
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+  });
+  all();
+  return () => {
+    ro?.disconnect();
+    wraps.forEach((el) => el.removeEventListener("scroll", onScroll));
+  };
 }
 
 /* ---------------------------------------------------------------- misc */

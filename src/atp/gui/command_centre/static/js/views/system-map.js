@@ -11,7 +11,7 @@ import { pageHeader, panel, badge, dot, chip, val, originBadge, sourceTag, table
 import { steps } from "../components/flow.js";
 import { icon } from "../components/icons.js";
 import { ccRing } from "./_command-ring.js";
-import { DOC_KEYS, isOk, srcState, srcBadge, srcLine, countWhere, go, subhead, emptyLine } from "./_command-common.js";
+import { DOC_KEYS, isOk, srcState, srcBadge, srcLine, countWhere, go, subhead, emptyLine, originSplit, originalOf, splitVal } from "./_command-common.js";
 
 const RESEARCH_SIDE = ["research", "strategies", "memory", "governance", "datasets", "insights"];
 const TRADING_SIDE = ["agents", "agent_events", "portfolio", "risk", "execution", "live"];
@@ -317,27 +317,38 @@ function selfImprovement(ctx) {
   const conn = (k) => isOk(source(ctx, k));
   const byOrigin = ta?.available ? ta.records_by_origin : null;
 
+  // Ring values are ORIGINAL records only; the ledger beside the ring lists every origin separately.
   const nodes = [
-    { key: "RESEARCH", label: "RESEARCH", sub: "programmes", src: "research", value: research ? research.programmes.length : null },
+    { key: "RESEARCH", label: "RESEARCH", sub: "orig programmes", src: "research", value: originalOf(originSplit(research?.programmes ?? null)) },
     { key: "EVIDENCE", label: "EVIDENCE", sub: "original trial records", src: "research", value: byOrigin ? byOrigin.ORIGINAL : null },
-    { key: "MEMORY", label: "MEMORY", sub: "memories", src: "memory", value: memory ? memory.memories.length : null },
+    { key: "MEMORY", label: "MEMORY", sub: "orig memories", src: "memory", value: originalOf(originSplit(memory?.memories ?? null)) },
     { key: "BETTER_HYPOTHESES", label: "BETTER\nHYPOTHESES", sub: "not scored", src: "research", value: null },
     { key: "BETTER_EXPERIMENTS", label: "BETTER\nEXPERIMENTS", sub: "not scored", src: "research", value: null },
     { key: "BETTER_VALIDATION", label: "BETTER\nVALIDATION", sub: "not scored", src: "governance", value: null },
     { key: "BETTER_STRATEGIES", label: "BETTER\nSTRATEGIES", sub: "not scored", src: "strategies", value: null },
   ].map((n) => ({ ...n, connected: conn(n.src) }));
 
-  const rejected = research ? countWhere(research.hypotheses, (h) => h.terminal === "REJECTED") : null;
-  const byType = ms.available ? ms.by_type : null;
-  const typeCount = (t) => (byType ? countWhere(memory.memories, (m) => m.type === t) : null);
+  // Every record count is per origin (never summed across origins). Hypothesis
+  // rejections get one row per origin, like the trial records above them.
+  const hyps = research?.hypotheses ?? null;
+  const mems = ms.available ? memory?.memories ?? null : null;
+  const rejected = originSplit(hyps, (h) => h.terminal === "REJECTED");
+  const typeSplit = (t) => originSplit(mems, (m) => m.type === t);
+  const rejectedAssumptions = originSplit(mems, (m) => m.type === "REJECTED_ASSUMPTION" || m.status === "REJECTED");
   const proposals = strategies?.proposals ?? null;
   const released = countWhere(proposals, (p) => p.state === "RELEASED_AS_VERSION");
-  const versions = strategies ? strategies.strategies.reduce((acc, s) => acc + s.versions.length, 0) : null;
+  // A version carries no origin of its own: it is counted under its strategy's record origin.
+  const versions = strategies ? originSplit(strategies.strategies.flatMap((s) => s.versions.map(() => ({ origin: s.origin })))) : null;
 
   const row = (k, v, d, srcKey) => html`<li class="cc-ledger__row" data-ledger="${k}">
     <span class="cc-ledger__k">${k}</span>
     <span class="cc-ledger__v">${val(isNil(v) ? null : fmtNum(v, 0))}</span>
     <span class="cc-ledger__d">${isNil(v) ? sourceShort(source(ctx, srcKey)) : d}</span>
+  </li>`;
+  const splitRow = (k, split, d, srcKey) => html`<li class="cc-ledger__row" data-ledger="${k}">
+    <span class="cc-ledger__k">${k}</span>
+    <span class="cc-ledger__v">${splitVal(split, { cls: "cc-split--sm" }) ?? val(null)}</span>
+    <span class="cc-ledger__d">${split ? d : sourceShort(source(ctx, srcKey))}</span>
   </li>`;
 
   return panel({
@@ -352,15 +363,19 @@ function selfImprovement(ctx) {
         <blockquote class="cc-quote">Self-improving means <b>accumulated evidence</b> — not AI changing itself until P&amp;L goes up.</blockquote>
         ${subhead("Accumulated evidence", "origins kept separate")}
         <ul class="cc-ledger">
+          ${splitRow("Programmes", originSplit(research?.programmes ?? null), "Declared research programmes · per origin", "research")}
           ${row("Trial records · original", byOrigin ? byOrigin.ORIGINAL : null, "Recorded at the time by the ledger", "research")}
           ${row("Trial records · reconstructed", byOrigin ? byOrigin.RECONSTRUCTED : null, "Rebuilt after loss — kept separate", "research")}
-          ${row("Hypotheses rejected", rejected, "Failures stay visible and counted", "research")}
-          ${row("Memories", ms.available ? ms.total : null, "Evidence-backed records", "memory")}
-          ${row("Lessons", typeCount("LESSON"), "Type LESSON", "memory")}
-          ${row("Failed mechanisms", typeCount("FAILED_MECHANISM"), "Type FAILED_MECHANISM", "memory")}
-          ${row("Rejected assumptions", ms.available ? ms.rejected_assumptions : null, "Type or status rejected", "memory")}
-          ${row("Strategy versions", versions, "Every change is a new version", "strategies")}
-          ${row("Proposals released as versions", released, "Through validation and governance", "strategies")}
+          ${byOrigin?.SYNTHETIC_FIXTURE ? row("Trial records · synthetic", byOrigin.SYNTHETIC_FIXTURE, "Synthetic fixture — not SENTRY state", "research") : ""}
+          ${row("Hypotheses rejected · original", originalOf(rejected), "Failures stay visible and counted", "research")}
+          ${row("Hypotheses rejected · reconstructed", rejected ? rejected.RECONSTRUCTED : null, "Rebuilt after loss — kept separate", "research")}
+          ${rejected?.SYNTHETIC_FIXTURE ? row("Hypotheses rejected · synthetic", rejected.SYNTHETIC_FIXTURE, "Synthetic fixture — not SENTRY state", "research") : ""}
+          ${splitRow("Memories", originSplit(mems), "Evidence-backed records · per origin", "memory")}
+          ${splitRow("Lessons", typeSplit("LESSON"), "Type LESSON", "memory")}
+          ${splitRow("Failed mechanisms", typeSplit("FAILED_MECHANISM"), "Type FAILED_MECHANISM", "memory")}
+          ${splitRow("Rejected assumptions", rejectedAssumptions, "Type or status rejected", "memory")}
+          ${splitRow("Strategy versions", versions, "Every change is a new version · strategy origin", "strategies")}
+          ${row("Proposals released as versions", released, "Through validation and governance · records carry no origin", "strategies")}
         </ul>
         <div class="small muted cc-self__note">The four "better" stages are not scored by the Command Centre. Progress is shown only by the evidence above and its lineage.</div>
       </div>

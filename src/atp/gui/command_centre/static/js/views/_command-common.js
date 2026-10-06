@@ -3,10 +3,10 @@
 // never compute research verdicts, confidence, eligibility or gate outcomes.
 
 import { html, cx } from "../core/html.js";
-import { isNil, fmtCount } from "../core/format.js";
+import { isNil, fmtCount, humanize } from "../core/format.js";
 import { source, sourceShort } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
-import { badge, dot } from "../components/ui.js";
+import { badge, dot, val } from "../components/ui.js";
 import { icon } from "../components/icons.js";
 
 /** Contract document keys in registry order (schemas.DOCUMENTS). */
@@ -93,6 +93,83 @@ export function countWhere(list, pred) {
 /** fmtCount that keeps null as null (for stat/val). */
 export function fc(n) {
   return isNil(n) ? null : fmtCount(n);
+}
+
+/* ------------------------------------------------------------ per-origin counts (never merged) */
+
+/** Record origins in display order (schemas.Origin). */
+export const ORIGINS = ["ORIGINAL", "RECONSTRUCTED", "SYNTHETIC_FIXTURE"];
+const ORIGIN_TAG = { ORIGINAL: "ORIG", RECONSTRUCTED: "RECON", SYNTHETIC_FIXTURE: "SYNTH" };
+
+/** Tag tone for an origin, same semantics as originBadge(): reconstructed amber, synthetic red. */
+export function originTone(o) {
+  return toneClass(o === "SYNTHETIC_FIXTURE" ? "INVALID" : o);
+}
+
+/**
+ * Count rows per record origin (optionally only rows matching `pred`).
+ * null when the list itself is absent (source not connected); a connected,
+ * empty list gives real zeros. Origins are counted separately, never summed.
+ */
+export function originSplit(rows, pred) {
+  if (!Array.isArray(rows)) return null;
+  const out = { ORIGINAL: 0, RECONSTRUCTED: 0, SYNTHETIC_FIXTURE: 0 };
+  for (const r of rows) {
+    if (pred && !pred(r)) continue;
+    const o = r?.origin ?? "UNDECLARED";
+    out[o] = (out[o] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** A server-derived {origin: n} map as a split (absent origins are real zeros); null stays null. */
+export function splitFrom(counts) {
+  if (!counts) return null;
+  return { ORIGINAL: 0, RECONSTRUCTED: 0, SYNTHETIC_FIXTURE: 0, ...counts };
+}
+
+/** Origins with at least one record, in display order (anything unexpected last). */
+function presentOrigins(split) {
+  const rank = (o) => (ORIGINS.includes(o) ? ORIGINS.indexOf(o) : ORIGINS.length);
+  return Object.keys(split)
+    .filter((o) => split[o] > 0)
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+/** The ORIGINAL count of a split (null stays null), for places that can show only one number. */
+export function originalOf(split) {
+  return split ? split.ORIGINAL ?? 0 : null;
+}
+
+/** True when a split has records of any origin other than ORIGINAL. */
+export function hasOtherOrigins(split) {
+  return !!split && presentOrigins(split).some((o) => o !== "ORIGINAL");
+}
+
+/**
+ * Render a per-origin count: one number per origin present, ORIGINAL untagged,
+ * every other origin tagged (RECON amber, SYNTH red). A connected source with
+ * no matching records renders a single real 0. null (not connected) -> null so
+ * stat()/val() render their empty state.
+ */
+export function splitVal(split, { cls } = {}) {
+  if (!split) return null;
+  const parts = presentOrigins(split);
+  if (!parts.length) {
+    return html`<span class="${cx("cc-split", cls)}" data-origin-split><span class="cc-split__n" data-origin="ORIGINAL">${val(fmtCount(0))}</span></span>`;
+  }
+  return html`<span class="${cx("cc-split", cls)}" data-origin-split>${parts.map(
+    (o) => html`<span class="cc-split__n" data-origin="${o}" title="${fmtCount(split[o])} ${humanize(o).toLowerCase()} record(s), counted separately">${val(fmtCount(split[o]))}${
+      o === "ORIGINAL" ? "" : html`<span class="${cx("cc-split__tag", originTone(o))}">${ORIGIN_TAG[o] ?? o}</span>`
+    }</span>`,
+  )}</span>`;
+}
+
+/** Plain-text per-origin count, e.g. "7 original · 1 reconstructed" (never one merged total). */
+export function splitText(split, noun = "") {
+  if (!split) return "";
+  const parts = presentOrigins(split).map((o) => `${fmtCount(split[o])} ${humanize(o).toLowerCase()}`);
+  return (parts.length ? parts.join(" · ") : "0") + (noun ? ` ${noun}` : "");
 }
 
 /** Small navigation link used in panel actions. */

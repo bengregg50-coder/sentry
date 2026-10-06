@@ -11,6 +11,7 @@
     "side status";
   height: 100vh;
   width: 100vw;
+  position: relative;
   background:
     radial-gradient(1200px 600px at 62% -10%, rgba(37, 99, 235, 0.10), transparent 60%),
     radial-gradient(900px 500px at 100% 100%, rgba(6, 182, 212, 0.05), transparent 60%),
@@ -312,6 +313,64 @@
   margin: 0;
 }
 
+/* Collapsed navigation never hides routes: hovering (or focusing) a group opens a flyout
+   listing every item of that group, sub-routes included. */
+.nav__flyout {
+  display: none;
+}
+
+.nav__flyout-head {
+  padding: 4px 10px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.nav__fly-link {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.nav__fly-link--sub {
+  padding-left: 24px;
+  color: var(--muted);
+}
+
+.nav__fly-link:hover,
+.nav__fly-link:focus-visible {
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text);
+}
+
+.nav__fly-link[aria-current="page"] {
+  color: var(--cyan-2);
+}
+
+.app[data-nav="collapsed"] .nav__group:is(:hover, :focus-within) > .nav__flyout {
+  display: block;
+  position: fixed;
+  left: calc(var(--sidebar-w-collapsed) - 2px);
+  z-index: 30;
+  min-width: 196px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(17, 26, 38, 0.98), rgba(11, 16, 23, 0.98));
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.9), var(--glow-blue);
+}
+
 /* ---------- topbar ---------- */
 
 .topbar {
@@ -416,6 +475,16 @@
   background: var(--warn-bg);
 }
 
+.alert-chip.tone-info {
+  border-color: rgba(34, 211, 238, 0.32);
+  color: var(--cyan-2);
+  background: var(--info-bg);
+}
+
+.sys-pill .pill-abbr {
+  display: none;
+}
+
 .ro-chip {
   display: inline-flex;
   align-items: center;
@@ -511,6 +580,33 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
+}
+
+/* The state path is the only segment allowed to shrink (ellipsis; full path in its title). */
+.statusbar .seg--path {
+  flex: 0 1 auto;
+  min-width: 60px;
+  overflow: hidden;
+}
+
+.statusbar .seg--path b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@media (max-width: 1365px) {
+  .statusbar .seg--opt {
+    display: none;
+  }
+  .statusbar .seg--keep {
+    margin-left: auto;
+  }
+  .statusbar {
+    gap: 14px;
+  }
 }
 
 .statusbar .seg b {
@@ -643,44 +739,104 @@
 }
 
 @media (max-width: 1440px) {
+  .lg-span-12 { grid-column: span 12; }
+  .lg-span-6 { grid-column: span 6; }
+  .lg-span-4 { grid-column: span 4; }
+  /* subsystem pills keep a 3-letter code instead of collapsing to anonymous dots */
+  .topbar__status .sys-pill .pill-label {
+    display: none;
+  }
+  .topbar__status .sys-pill .pill-abbr {
+    display: inline;
+  }
+  .topbar__status .sys-pill {
+    padding: 0 7px;
+    gap: 5px;
+  }
+}
+
+/* Below 1280px the sidebar collapses to icons by default. Routes stay reachable: every group
+   opens a flyout on hover/focus, and the toggle opens the full sidebar as an overlay. */
+@media (max-width: 1279px) {
   .app {
     grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
   }
-  .app .brand__text,
-  .app .nav__heading span,
-  .app .nav__heading .chev,
-  .app .nav__label,
-  .app .nav__meta,
-  .app .nav__link--sub,
-  .app .sidebar__foot .foot-text {
+  .app:not([data-nav="open"]) .brand__text,
+  .app:not([data-nav="open"]) .nav__heading span,
+  .app:not([data-nav="open"]) .nav__heading .chev,
+  .app:not([data-nav="open"]) .nav__label,
+  .app:not([data-nav="open"]) .nav__meta,
+  .app:not([data-nav="open"]) .nav__link--sub,
+  .app:not([data-nav="open"]) .sidebar__foot .foot-text {
     display: none;
   }
-  .app .nav__group[data-open="false"] .nav__items {
+  .app:not([data-nav="open"]) .nav__group[data-open="false"] .nav__items {
     display: block;
   }
-  .app .nav__link {
+  .app:not([data-nav="open"]) .nav__link {
     justify-content: center;
     padding: 0;
   }
-  .app .nav__heading {
+  .app:not([data-nav="open"]) .nav__heading {
     justify-content: center;
     padding: 6px 0;
     border-top: 1px solid var(--line);
     height: 1px;
     overflow: hidden;
   }
-  .app .brand {
+  .app:not([data-nav="open"]) .brand {
     justify-content: center;
     padding: 0;
   }
-  .app .nav-toggle {
+  .app:not([data-nav="open"]) .sidebar__foot {
+    justify-content: center;
+    padding: 10px 0;
+  }
+  .app:not([data-nav="open"]) .nav-toggle {
+    margin: 0;
+  }
+  .app:not([data-nav="open"]) .nav__group:is(:hover, :focus-within) > .nav__flyout {
+    display: block;
+    position: fixed;
+    left: calc(var(--sidebar-w-collapsed) - 2px);
+    z-index: 30;
+    min-width: 196px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid var(--line-3);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, rgba(17, 26, 38, 0.98), rgba(11, 16, 23, 0.98));
+    box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.9), var(--glow-blue);
+  }
+  .app[data-nav="open"] .sidebar {
+    position: absolute;
+    grid-area: side;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--sidebar-w);
+    background: var(--bg-1);
+    box-shadow: 18px 0 40px -18px rgba(0, 0, 0, 0.9);
+  }
+  .app[data-nav="open"] .nav__flyout {
     display: none;
   }
-  .lg-span-12 { grid-column: span 12; }
-  .lg-span-6 { grid-column: span 6; }
-  .lg-span-4 { grid-column: span 4; }
-  .topbar__status .sys-pill .pill-label {
+  /* topbar: keep every subsystem pill whole; the breadcrumb yields first */
+  .topbar {
+    gap: 10px;
+    padding: 0 12px;
+  }
+  .topbar__status {
+    gap: 4px;
+    flex: none;
+  }
+  /* breadcrumb: the page title is kept, the path prefix yields */
+  .crumbs > :not(b) {
     display: none;
+  }
+  .clock {
+    min-width: 0;
   }
 }
 

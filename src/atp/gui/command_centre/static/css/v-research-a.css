@@ -86,6 +86,31 @@
   font-size: var(--fs-2xs);
 }
 
+/* path refs: middle ellipsis — the directory shrinks first so the distinguishing
+   file name stays readable; the full path is in the title */
+.rsa-refs--col .ref.rsa-path,
+.ref.rsa-path {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.rsa-path__dir {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.72;
+}
+
+.rsa-path__base {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rsa-refs__sep {
   color: var(--faint);
 }
@@ -341,6 +366,24 @@
 
 .rsa-tracks .tracks__outcome {
   padding-left: 12px;
+}
+
+/* id · title on the first line; a non-ORIGINAL origin badge sits under the title
+   instead of taking the title's width (local override of the shared flex label) */
+.rsa-tracks .tracks__label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 3px;
+  align-items: center;
+  padding-right: 8px;
+}
+
+.rsa-tracks .tracks__label > .badge {
+  grid-column: 2;
+  justify-self: start;
+  height: 15px;
+  font-size: 8.5px;
 }
 
 /* pipeline diagram: let the terminal-lane labels render left of the viewBox
@@ -717,10 +760,36 @@ a.rsa-matrix__name:hover .rsa-matrix__label {
 
 /* ---------------------------------------------------------------- overview: roles */
 
+/* seven roles: 7-up when each card gets ≥ ~160px, otherwise 4 + 3 — never a
+   lone orphan card under a full row */
+.rsa-roles-wrap {
+  container-type: inline-size;
+}
+
 .rsa-roles {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* label above its state badge in every card, so the cards read alike at any column width */
+.rsa-roles .split {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 5px;
+}
+
+@container (min-width: 1170px) {
+  .rsa-roles {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 560px) {
+  .rsa-roles {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .rsa-role {
@@ -1161,15 +1230,17 @@ a.rsa-matrix__name:hover .rsa-matrix__label {
   color: var(--muted);
 }
 
+/* both lanes share one 4-column grid and one gap so their column edges line up;
+   the progression connectors are pseudo-elements inside the gap, not track width */
+.rsa-life {
+  --rsa-life-gap: 20px;
+}
+
 .rsa-life__flow,
 .rsa-life__stops {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 22px;
-}
-
-.rsa-life__stops {
-  gap: 8px;
+  gap: 8px var(--rsa-life-gap);
 }
 
 .rsa-life__node {
@@ -1205,8 +1276,8 @@ a.rsa-matrix__name:hover .rsa-matrix__label {
   content: "";
   position: absolute;
   top: 50%;
-  right: -19px;
-  width: 15px;
+  right: calc(-1 * var(--rsa-life-gap) + 2px);
+  width: calc(var(--rsa-life-gap) - 6px);
   height: 1px;
   background: var(--line-3);
 }
@@ -1453,4 +1524,129 @@ a.rsa-matrix__name:hover .rsa-matrix__label {
   .rsa-metrics__row {
     gap: 3px;
   }
+}
+
+/* ---------------------------------------------------------------- unavailable source */
+
+/* label shown in place of a value whose research.json is unavailable; a rejected
+   (INVALID) or UNREADABLE document is a failure, not an absent source */
+.rsa-off.tone-bad {
+  color: var(--tone);
+}
+
+/* the status label may wrap in a narrow tile rather than be cut to "CONTRACT ER…" */
+.stat__hint:has(> .nodata > .rsa-off) {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.rsa-src-bad {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel__body > .rsa-src-bad:only-child {
+  height: 100%;
+}
+
+.rsa-src-bad > .empty {
+  flex: 1;
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+  background:
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--tone) 5%, transparent) 0 6px, transparent 6px 12px),
+    rgba(7, 10, 15, 0.35);
+}
+
+.rsa-src-bad .empty__title,
+.rsa-src-bad .empty__icon {
+  color: var(--tone);
+}
+
+/* quiet "not declared" chip — states an absence, never a fact either way */
+.chip.rsa-chip-quiet {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- overview: ledger cross-checks */
+
+.rsa-xc__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rsa-xc__note {
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.rsa-xc {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+
+.rsa-xc__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-xs);
+}
+
+.rsa-xc__row:last-child {
+  border-bottom: 0;
+}
+
+.rsa-xc__k {
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.rsa-xc__v {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.rsa-xc__why {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- long registers: pager */
+
+.rsa-pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.rsa-pager__k {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.14em;
+  color: var(--text-2);
+}
+
+.rsa-pager__go {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
 }

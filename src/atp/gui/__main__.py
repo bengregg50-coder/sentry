@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .app import STATE_DIR_ENV, create_app, default_provider
+from .app import STATE_DIR_ENV, create_app, default_allowed_hosts, default_provider
 from .command_centre.provider import FileStateProvider
 
 
@@ -24,7 +24,10 @@ def main(argv: list[str] | None = None) -> None:
 
     import uvicorn
 
-    uvicorn.run(create_app(provider), host=args.host, port=args.port, log_level="info")
+    hosts = default_allowed_hosts()
+    if args.host not in ("0.0.0.0", "::") and args.host not in hosts:
+        hosts.append(args.host)  # the address the operator chose to bind is an accepted Host header
+    uvicorn.run(create_app(provider, allowed_hosts=hosts), host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

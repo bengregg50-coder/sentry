@@ -103,6 +103,12 @@ def test_empty_terminal_sleeping_and_locked(empty_page, slot):
     assert candles == "0"
     assert "NO MARKET DATA" in view_text(empty_page).upper()
     assert empty_page.locator(".view canvas").count() == 0
+    # AT-04: one empty state for "no signal", not an empty box above an empty state
+    assert empty_page.locator(".ag-signal .empty").count() == 1
+    assert empty_page.locator(".ag-signal [data-v], .ag-signal__state").count() == 0
+    # AT-01 is a market chart; with nothing connected its mode is unknown, not "live"
+    assert "LIVE CHART" not in view_text(empty_page).upper()
+    assert empty_page.locator(".view .panel__actions .badge", has_text="MODE UNKNOWN").count() == 2
 
 
 def test_empty_activity_has_full_structure_and_cursor(empty_page):
@@ -154,6 +160,18 @@ def test_fixture_overview_slots_and_eligibility(fixture_page):
     assert fixture_page.locator(".ag-log__row[data-event-id]").count() == 15
     assert all(enabled == "0" for _, enabled in _controls(fixture_page))
     assert fixture_page.locator('[data-memref="FX-M0003"]').count() == 1
+    # AGT-05: every agent node's status and refs text sits inside its node with padding
+    nodes = fixture_page.eval_on_selector_all(
+        "[data-net-slot]",
+        """els => els.map(g => { const r = g.querySelector('rect').getBBox();
+            return [g.dataset.netSlot, r.x, r.x + r.width, [...g.querySelectorAll('text')].map(t => { const b = t.getBBox(); return [t.textContent, b.x, b.x + b.width]; })]; })""",
+    )
+    assert len(nodes) == 5
+    for slot, left, right, texts in nodes:
+        for label, x0, x1 in texts:
+            assert x0 >= left + 4 and x1 <= right - 4, (slot, label, x0, x1, left, right)
+        status, refs = texts[1], texts[2]
+        assert status[2] + 8 <= refs[1], (slot, status, refs)
 
 
 def test_fixture_terminal_slot2_renders_declared_state(fixture_page):
@@ -189,6 +207,11 @@ def test_fixture_terminal_slot2_renders_declared_state(fixture_page):
     assert fixture_page.locator('[data-alert="FX-AL1"]').count() == 1
     controls = _controls(fixture_page)
     assert len(controls) == 4 and all(enabled == "0" for _, enabled in controls)
+    # the candle panel is a market chart, never titled "live"; both chart panels carry the assignment mode
+    titles = fixture_page.eval_on_selector_all(".view .panel__title", "els => els.map(e => e.textContent.trim().toUpperCase())")
+    assert "MARKET CHART" in titles and not any("LIVE" in t for t in titles), titles
+    modes = fixture_page.eval_on_selector_all(".view .panel__actions .badge[data-state='SIM']", "els => els.map(e => e.textContent.trim())")
+    assert modes == ["SIM MODE", "SIM MODE"], modes
 
 
 def test_fixture_terminal_slot5_not_reported(fixture_page):
@@ -198,6 +221,8 @@ def test_fixture_terminal_slot5_not_reported(fixture_page):
     headline = fixture_page.inner_text("[data-headline]").upper()
     assert "NOT REPORTED" in headline and "SLEEPING" not in headline
     assert "DID NOT REPORT SLOT 05" in view_text(fixture_page).upper()
+    assert fixture_page.locator(".ag-signal .empty").count() == 1
+    assert fixture_page.locator(".ag-signal__state").count() == 0
 
 
 def test_fixture_terminal_slot4_standby(fixture_page):
@@ -208,6 +233,7 @@ def test_fixture_terminal_slot4_standby(fixture_page):
     assert "FIXTURE: AWAITING DEPLOYMENT PACKAGE" in view_text(fixture_page).upper()
     # reported but declares none: "none" facts, not "not connected"
     assert "NO OPEN POSITIONS" in view_text(fixture_page).upper()
+    assert fixture_page.locator(".view .panel__actions .badge", has_text="NO ASSIGNMENT").count() == 2
 
 
 @pytest.mark.parametrize("route", ["/agents/9", "/agents/x", "/agents/0/activity"])
@@ -231,8 +257,17 @@ def test_fixture_activity_slot2_stream_loop_and_proposals(fixture_page):
         )
     )
     assert loop["OBSERVE"] == "2" and loop["PROPOSE"] == "1" and loop["WRITE_MEMORY"] == "1"
-    # gated stages count this slot's proposals by state (FX-PR1 released, FX-PR2 in research)
-    assert loop["RESEARCH_VALIDATION"] == "1" and loop["GOVERNANCE_APPROVAL"] == "0" and loop["NEW_VERSION"] == "1"
+    # gated stages count this slot's proposals that reached each gate, cumulatively (FX-PR1
+    # released, FX-PR2 in research): never 1 -> 0 -> 1, which reads as a release without approval
+    assert loop["RESEARCH_VALIDATION"] == "2" and loop["GOVERNANCE_APPROVAL"] == "1" and loop["NEW_VERSION"] == "1"
+    gated = [int(loop[k]) for k in ("RESEARCH_VALIDATION", "GOVERNANCE_APPROVAL", "NEW_VERSION")]
+    assert gated == sorted(gated, reverse=True), gated
+    note = fixture_page.inner_text(".ag-loop__note").upper()
+    assert "CUMULATIVELY" in note and "0 REJECTED" in note
+    assert fixture_page.get_attribute(".ag-loop__note", "data-window") == "complete"
+    assert "ALL 15 LOADED" in note
+    modes = dict(fixture_page.eval_on_selector_all(".ag-modes__cell", "els => els.map(e => [e.dataset.mode, e.querySelector('.v').textContent.trim()])"))
+    assert modes == {"RESEARCH": "6", "SIM": "9", "PAPER": "0", "LIVE": "0"}
     proposals = fixture_page.locator('[data-proposal]').all_inner_texts()
     assert sorted(proposals) == ["FX-PR1", "FX-PR2"]
     text = view_text(fixture_page).upper()
@@ -317,6 +352,113 @@ def test_agent_strings_are_escaped(browser, state_factory):
             assert page.evaluate("document.querySelectorAll('.view img').length") == 0, route
         visit(page, "/agents/2")
         assert payload in view_text(page)
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def test_terminal_quantities_are_not_rounded(browser, state_factory):
+    """Fractional sizes are shown as declared (0.25 is never displayed as 0)."""
+    from .conftest import start_server
+
+    def mutate(d):
+        a = d["data"]["agents"][1]
+        a["positions"][0]["quantity"] = 0.25
+        a["orders"][0]["quantity"] = 1.5
+        a["recent_trades"][0]["quantity"] = 0.125
+        return d
+
+    url, server = start_server(state_factory({"agents": mutate}))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents/2", settle_ms=300)
+        assert v.clean, v.describe()
+
+        def qty(selector):
+            cells = page.locator(selector).locator("xpath=ancestor::tr").locator("td")
+            headers = page.locator(selector).locator("xpath=ancestor::table").locator("th").all_inner_texts()
+            return cells.nth([h.strip().upper() for h in headers].index("QTY")).inner_text().strip()
+
+        assert qty('[data-position="FXA"]') == "0.25"
+        assert qty('.ref:text-is("FX-O1")') == "1.5"
+        assert qty('.ref:text-is("FX-TR1")') == "0.125"
+        page.close()
+    finally:
+        server.should_exit = True
+
+
+def _windowed_state(state_factory):
+    """Slot 01 with 1,200 recorded events; the oldest 200 are HYPOTHESIS / RESEARCH (outside the 1,000 loaded)."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    target = state_factory()
+    path = target / "agent_events.jsonl"
+    t0 = datetime(2025, 12, 1, tzinfo=timezone.utc)
+    lines = []
+    for i in range(1200):
+        old = i < 200
+        lines.append(
+            json.dumps(
+                {
+                    "event_id": f"W-{i:05d}",
+                    "ts": (t0 + timedelta(minutes=i)).isoformat(),
+                    "agent_slot": 1,
+                    "kind": "HYPOTHESIS" if old else "OBSERVATION",
+                    "mode": "RESEARCH" if old else "SIM",
+                    "summary": f"FIXTURE window event {i}",
+                    "refs": {"memory_ids": []},
+                    "origin": "SYNTHETIC_FIXTURE",
+                }
+            )
+        )
+    path.write_text("\n".join(lines + path.read_text().splitlines()) + "\n")
+    return target
+
+
+def test_activity_counts_beyond_loaded_window_are_partial_not_zero(browser, state_factory):
+    """Counts over the loaded window are never presented as the slot's recorded totals."""
+    from .conftest import start_server
+
+    url, server = start_server(_windowed_state(state_factory))
+    try:
+        page = new_page(browser, url)
+        v = visit(page, "/agents/1/activity", settle_ms=400)
+        assert v.clean, v.describe()
+        sum_text = page.inner_text(".ag-sum").upper()
+        assert "1,200" in sum_text and "1,000" in sum_text
+        loop = dict(
+            page.eval_on_selector_all(
+                ".ag-loop .step",
+                "els => els.map(e => [e.dataset.step, [e.querySelector('.step__count').textContent.trim(), e.querySelector('.step__count').hasAttribute('data-empty')]])",
+            )
+        )
+        # 200 hypotheses were recorded but fall outside the window: not a recorded 0
+        assert loop["HYPOTHESIZE"] == ["—", True]
+        assert loop["OBSERVE"] == ["≥1,000", False]
+        assert all(c != "0" for k, (c, _) in loop.items() if k not in ("RESEARCH_VALIDATION", "GOVERNANCE_APPROVAL", "NEW_VERSION"))
+        assert page.get_attribute(".ag-loop__note", "data-window") == "partial"
+        note = page.inner_text(".ag-loop__note").upper()
+        assert "PARTIAL" in note and "LATEST 1,000 OF 1,200" in note
+        assert "RECORDED EVENTS OF EACH KIND" not in note
+        # kind index and by-mode: no false zeros, lower bounds marked
+        kinds = dict(page.eval_on_selector_all("[data-kind-index]", "els => els.map(e => [e.dataset.kindIndex, e.querySelector('.v').textContent.trim()])"))
+        assert kinds["HYPOTHESIS"] == "—" and kinds["OBSERVATION"] == "≥1,000"
+        assert "0" not in kinds.values()
+        modes = dict(page.eval_on_selector_all(".ag-modes__cell", "els => els.map(e => [e.dataset.mode, e.querySelector('.v').textContent.trim()])"))
+        assert modes == {"RESEARCH": "—", "SIM": "≥1,000", "PAPER": "—", "LIVE": "—"}
+        assert page.get_attribute(".ag-modes", "data-window") == "partial"
+        assert page.locator('.view .badge[data-state="PARTIAL"]').count() >= 3
+        # a kind filter is served over every recorded event, not the loaded window
+        v = visit(page, "/agents/1/activity?kind=HYPOTHESIS", settle_ms=400)
+        assert v.clean, v.describe()
+        kinds = page.eval_on_selector_all(".ag-log__row[data-event-id]", "els => els.map(e => e.dataset.kind)")
+        assert len(kinds) == 200 and set(kinds) == {"HYPOTHESIS"}
+        assert "HAS RECORDED NO" not in view_text(page).upper()
+        # a slot whose events all fit in the window keeps exact counts, including real zeros
+        v = visit(page, "/agents/2/activity", settle_ms=300)
+        assert v.clean, v.describe()
+        assert page.get_attribute(".ag-loop__note", "data-window") == "complete"
         page.close()
     finally:
         server.should_exit = True

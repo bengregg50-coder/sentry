@@ -36,29 +36,84 @@ import {
 
 const EVENT_WINDOW = 1000;
 
+/* ------------------------------------------------------------------ loaded window */
+
+/**
+ * What the loaded window covers. The API returns this slot's newest
+ * EVENT_WINDOW events, so a count over the window is the slot's recorded total
+ * only when the window holds every event (fewer than the limit came back, or as
+ * many as derived.agent_slots counts for the slot). Otherwise it is partial.
+ */
+function windowOf(ctx, sv, res) {
+  const evOk = eventsAvailable(ctx, res);
+  const events = res?.events ?? [];
+  const total = evOk ? sv.slot?.events?.count ?? null : null;
+  const loaded = events.length;
+  const complete = evOk && (loaded < EVENT_WINDOW || (!isNil(total) && loaded >= total));
+  return { evOk, events, total, loaded, complete, partial: evOk && !complete };
+}
+
+/** "the latest 1,000 of 1,200 recorded events" — what a partial window holds. */
+function windowScope(w) {
+  return isNil(w.total) ? `the latest ${fmtCount(w.loaded)} recorded events` : `the latest ${fmtCount(w.loaded)} of ${fmtCount(w.total)} recorded events`;
+}
+
+/**
+ * A count over the loaded window: exact when the window is complete, a lower
+ * bound ("≥n") when it is partial, and empty for a partial zero — older,
+ * unloaded events may hold that kind, so it is never shown as a recorded 0.
+ */
+function windowCount(w, c) {
+  if (!w.evOk) return null;
+  if (w.complete) return fmtCount(c);
+  return c > 0 ? `≥${fmtCount(c)}` : null;
+}
+
+/** windowCount as a marked value. */
+function windowVal(w, c) {
+  const v = windowCount(w, c);
+  if (!isNil(v)) return html`<span class="v" data-v>${v}</span>`;
+  return w.partial ? html`<span class="v is-empty" data-v data-empty="1" title="None in ${windowScope(w)}; older events are not loaded">—</span>` : val(null);
+}
+
+/** Amber marker for a partial window. */
+function partialBadge(w) {
+  if (!w.partial) return "";
+  return badge("PARTIAL", {
+    label: isNil(w.total) ? `PARTIAL · LATEST ${fmtCount(w.loaded)}` : `PARTIAL · ${fmtCount(w.loaded)} OF ${fmtCount(w.total)}`,
+    title: `Counts cover ${windowScope(w)}; older events are not loaded`,
+  });
+}
+
+function countBy(events, key) {
+  const m = new Map();
+  for (const e of events) m.set(e[key], (m.get(e[key]) ?? 0) + 1);
+  return m;
+}
+
 /* ------------------------------------------------------------------ learning loop */
 
-function learningLoop(ctx, n, res, events) {
-  const evOk = eventsAvailable(ctx, res);
+function learningLoop(ctx, n, res, w) {
   const strategies = doc(ctx, "strategies");
   const props = strategies ? strategies.proposals.filter((p) => p.agent_slot === n) : null;
-  const byKind = new Map();
-  for (const e of events) byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1);
+  const byKind = countBy(w.events, "kind");
   const list = [
     ...LOOP_STAGES.map(([key, label, kind]) => ({
       key,
       label,
-      count: evOk ? byKind.get(kind) ?? 0 : null,
+      count: windowCount(w, byKind.get(kind) ?? 0),
       owner: `AGENT · ${humanize(kind)}`,
     })),
+    // cumulative by state membership: a proposal counts at every gate it has reached
     ...GATED_STAGES.map(([key, label, owner, states], i) => ({
       key,
       label,
       count: props ? props.filter((p) => states.includes(p.state)).length : null,
-      owner: `${owner} · PROPOSALS`,
+      owner: `${owner} · PROPOSALS REACHED`,
       boundary: i === 0,
     })),
   ];
+  const rejected = props ? props.filter((p) => p.state === "REJECTED").length : null;
   return html`
     <div class="ag-loop">${steps(list, { cls: "ag-loop__steps" })}
       <div class="ag-loop__zones" aria-hidden="true">
@@ -66,9 +121,15 @@ function learningLoop(ctx, n, res, events) {
         <span class="ag-loop__zone ag-loop__zone--gated" style="grid-column: span ${GATED_STAGES.length}">GATED · RESEARCH + GOVERNANCE</span>
       </div>
     </div>
-    <div class="ag-loop__note">
-      ${evOk ? html`Agent-stage counts are this slot's recorded events of each kind (${fmtCount(events.length)} loaded).` : html`<span class="muted">Agent-stage counts unavailable: ${eventsAbsence(ctx, res)}</span>`}
-      ${props ? html` Research and governance stages count proposals from ${agentLabel(n)} by state.` : html` <span class="muted">Gated-stage counts unavailable: strategies.json is not connected.</span>`}
+    <div class="${cx("ag-loop__note", w.partial && "is-partial")}" data-window="${!w.evOk ? "unavailable" : w.complete ? "complete" : "partial"}">
+      ${!w.evOk
+        ? html`<span class="muted">Agent-stage counts unavailable: ${eventsAbsence(ctx, res)}</span>`
+        : w.complete
+          ? html`Agent-stage counts are this slot's recorded events of each kind (all ${fmtCount(w.loaded)} loaded).`
+          : html`${partialBadge(w)} Agent-stage counts cover only ${windowScope(w)}: ≥ marks a lower bound and — means none in the loaded window. Older events are not loaded, so no stage is shown as zero.`}
+      ${props
+        ? html` Research and governance stages count proposals from ${agentLabel(n)} that have reached each gate, cumulatively (a released version passed validation and approval); ${fmtCount(rejected)} rejected.`
+        : html` <span class="muted">Gated-stage counts unavailable: strategies.json is not connected.</span>`}
     </div>
     <div class="ag-boundary">
       <div class="ag-boundary__side ag-boundary__side--agent">
@@ -85,19 +146,18 @@ function learningLoop(ctx, n, res, events) {
 
 /* ------------------------------------------------------------------ stream side panels */
 
-function kindIndex(ctx, n, res, events, active) {
-  const evOk = eventsAvailable(ctx, res);
-  const counts = new Map();
-  for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+function kindIndex(n, w, active) {
+  const counts = countBy(w.events, "kind");
   return html`<div class="ag-kinds">
+    ${w.partial ? html`<div class="ag-kinds__window">${partialBadge(w)}<span>Counts in ${windowScope(w)}</span></div>` : ""}
     ${KIND_GROUPS.map(
       (g) => html`<div class="ag-kinds__group">
         <div class="ag-kinds__label">${g.label}</div>
         ${g.kinds.map((k) => {
-          const c = evOk ? counts.get(k) ?? 0 : null;
-          return html`<a class="${cx("ag-kinds__row", k === active && "is-active", !c && "is-zero")}" href="#/agents/${n}/activity?kind=${k}" data-kind-index="${k}">
+          const c = counts.get(k) ?? 0;
+          return html`<a class="${cx("ag-kinds__row", k === active && "is-active", (!w.evOk || !c) && "is-zero")}" href="#/agents/${n}/activity?kind=${k}" data-kind-index="${k}">
             <span class="ag-kinds__k">${humanize(k)}</span>
-            ${isNil(c) ? val(null) : html`<span class="v" data-v>${c}</span>`}
+            ${windowVal(w, c)}
           </a>`;
         })}
       </div>`,
@@ -105,24 +165,22 @@ function kindIndex(ctx, n, res, events, active) {
   </div>`;
 }
 
-function streamSummary(ctx, sv, res, events) {
-  const evOk = eventsAvailable(ctx, res);
-  const total = sv.slot?.events?.count;
-  const modes = new Map();
-  for (const e of events) modes.set(e.mode, (modes.get(e.mode) ?? 0) + 1);
+function streamSummary(ctx, w) {
+  const { evOk, events, total } = w;
+  const modes = countBy(events, "mode");
   const newest = events[0]?.ts ?? null;
   const oldest = events.length ? events[events.length - 1].ts : null;
   const cell = (k, v) => html`<div class="ag-sum__cell"><div class="ag-sum__k">${k}</div><div class="ag-sum__v">${v}</div></div>`;
   return html`<div class="ag-sum">
     ${cell("Events (slot)", evOk && !isNil(total) ? val(fmtCount(total)) : val(null))}
-    ${cell("Loaded", evOk ? val(fmtCount(events.length)) : val(null))}
+    ${cell("Loaded", evOk ? val(fmtCount(w.loaded)) : val(null))}
     ${cell("Newest", newest ? ageVal(newest, ctx.now) : evOk ? html`<span class="ag-none">NONE</span>` : val(null))}
     ${cell("Oldest loaded", oldest ? html`<span class="v mono" data-v>${fmtDateTime(oldest)}</span>` : val(null))}
   </div>
-  ${subhead("By mode")}
-  <div class="ag-modes">
+  ${subhead("By mode", w.partial ? partialBadge(w) : "")}
+  <div class="ag-modes" data-window="${!evOk ? "unavailable" : w.complete ? "complete" : "partial"}">
     ${["RESEARCH", "SIM", "PAPER", "LIVE"].map(
-      (m) => html`<div class="ag-modes__cell"><span class="ag-modes__k">${m}</span>${evOk ? html`<span class="v" data-v>${modes.get(m) ?? 0}</span>` : val(null)}</div>`,
+      (m) => html`<div class="ag-modes__cell" data-mode="${m}"><span class="ag-modes__k">${m}</span>${windowVal(w, modes.get(m) ?? 0)}</div>`,
     )}
   </div>`;
 }
@@ -174,8 +232,8 @@ function proposalsArea(ctx, n) {
   });
 }
 
-function memoryTraffic(ctx, n, res, events) {
-  const evOk = eventsAvailable(ctx, res);
+function memoryTraffic(ctx, w) {
+  const { evOk, events } = w;
   const memOk = source(ctx, "memory")?.status === "OK";
   const collect = (kind) => {
     const seen = new Map();
@@ -186,7 +244,7 @@ function memoryTraffic(ctx, n, res, events) {
     return [...seen.entries()];
   };
   const col = (title, kind, items) => html`<div class="ag-traffic__col" data-traffic="${kind}">
-    <div class="ag-traffic__head"><span>${title}</span>${evOk ? html`<span class="v" data-v>${items.length}</span>` : val(null)}</div>
+    <div class="ag-traffic__head"><span>${title}</span>${windowVal(w, items.length)}</div>
     ${items.length
       ? items.map(([id, ts]) => {
           const m = findMemory(ctx, id);
@@ -196,7 +254,7 @@ function memoryTraffic(ctx, n, res, events) {
             <span class="ag-traffic__meta">${m ? badge(m.validation_state) : ""}${originBadge(m?.origin)}${ageVal(ts, ctx.now)}</span>
           </a>`;
         })
-      : html`<div class="ag-traffic__none">${evOk ? `No ${humanize(kind)} events reference a memory.` : "Event stream not connected."}</div>`}
+      : html`<div class="ag-traffic__none">${!evOk ? "Event stream not connected." : w.complete ? `No ${humanize(kind)} events reference a memory.` : `No ${humanize(kind)} event in ${windowScope(w)} references a memory; older events are not loaded.`}</div>`}
   </div>`;
   return html`<div class="ag-traffic">
     ${col("Recalled", "MEMORY_RECALL", collect("MEMORY_RECALL"))}
@@ -214,24 +272,46 @@ export default {
   async load(ctx) {
     const n = parseSlot(ctx.params.slot);
     if (!n) return { invalid: true };
-    return { events: await loadEvents({ slot: n, limit: EVENT_WINDOW }) };
+    const kind = EVENT_KINDS.includes(ctx.query?.kind) ? ctx.query.kind : null;
+    // A kind filter is served by the API over every recorded event, not by
+    // filtering the loaded window (whose oldest events may be cut off).
+    const [events, kindEvents] = await Promise.all([
+      loadEvents({ slot: n, limit: EVENT_WINDOW }),
+      kind ? loadEvents({ slot: n, limit: EVENT_WINDOW, kind }) : null,
+    ]);
+    return { events, kindEvents };
   },
   render(ctx) {
     const n = parseSlot(ctx.params.slot);
     if (!n) return unknownSlotPage(ctx, ctx.params.slot, { pageHeader, panel, emptyState });
     const sv = slotView(ctx, n);
     const res = ctx.extra?.events ?? null;
-    const evOk = eventsAvailable(ctx, res);
-    const events = res?.events ?? [];
+    const w = windowOf(ctx, sv, res);
+    const { evOk, events } = w;
     const requested = ctx.query?.kind ?? null;
     const kind = requested && EVENT_KINDS.includes(requested) ? requested : null;
-    const shown = kind ? events.filter((e) => e.kind === kind) : events;
-    const counts = new Map();
-    for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+    const kindRes = kind ? ctx.extra?.kindEvents ?? null : null;
+    const streamRes = kind ? kindRes : res;
+    const shown = kind ? kindRes?.events ?? [] : events;
+    // the filtered stream is complete for its kind when the API returned fewer than the limit
+    const kindComplete = !!kind && eventsAvailable(ctx, kindRes) && shown.length < EVENT_WINDOW;
+    const counts = countBy(events, "kind");
     const tabItems = [
-      { key: "ALL", label: "All", href: `#/agents/${n}/activity`, count: evOk ? events.length : null },
-      ...EVENT_KINDS.filter((k) => counts.get(k) || k === kind).map((k) => ({ key: k, label: humanize(k), href: `#/agents/${n}/activity?kind=${k}`, count: counts.get(k) ?? 0 })),
+      { key: "ALL", label: "All", href: `#/agents/${n}/activity`, count: evOk ? fmtCount(w.loaded) : null },
+      ...EVENT_KINDS.filter((k) => counts.get(k) || k === kind).map((k) => ({
+        key: k,
+        label: humanize(k),
+        href: `#/agents/${n}/activity?kind=${k}`,
+        count: k === kind && eventsAvailable(ctx, kindRes) ? (kindComplete ? fmtCount(shown.length) : `≥${fmtCount(shown.length)}`) : windowCount(w, counts.get(k) ?? 0),
+      })),
     ];
+    const streamSub = !evOk
+      ? "agent_events.jsonl"
+      : kind
+        ? `${humanize(kind)} · ${kindComplete ? `all ${fmtCount(shown.length)} recorded` : `latest ${fmtCount(shown.length)}`}, newest first`
+        : w.complete
+          ? `All ${fmtCount(w.loaded)} recorded events, newest first`
+          : `Latest ${fmtCount(w.loaded)}${isNil(w.total) ? "" : ` of ${fmtCount(w.total)}`} events, newest first`;
 
     return html`<div class="ag-page ag-page--activity">
       ${pageHeader({
@@ -248,7 +328,7 @@ export default {
           code: "AA-01",
           title: "Learning loop",
           sub: `${agentLabel(n)} · observe → propose is autonomous; validation, approval and release are not`,
-          body: learningLoop(ctx, n, res, events),
+          body: learningLoop(ctx, n, res, w),
         })}
       </div>
 
@@ -257,7 +337,7 @@ export default {
           span: 8,
           code: "AA-02",
           title: "Reasoning stream",
-          sub: evOk ? (kind ? `${humanize(kind)} · ${shown.length} of ${events.length} loaded` : `${events.length} events loaded, newest first`) : "agent_events.jsonl",
+          sub: streamSub,
           actions: html`${sourceTag(res?.source ?? source(ctx, "agent_events"), { now: ctx.now })}`,
           body: html`
             <div class="ag-tabs">${tabs(tabItems, kind ?? "ALL")}</div>
@@ -266,15 +346,15 @@ export default {
               maxHeight: 760,
               prompt: shown.length ? `sentry://agents/${pad2(n)}/reasoning${kind ? ` --kind ${kind}` : ""}` : null,
               empty: logEmpty({
-                reason: eventsAbsence(ctx, res, { slot: n, kind }),
+                reason: eventsAbsence(ctx, streamRes, { slot: n, kind }),
                 hint: "Each recorded step — observation, interpretation, memory recall, hypothesis, test, evaluation, learning, memory write, proposal — appears here as a timestamped line with links to the memories, strategy and proposal it references.",
               }),
             })}`,
           cls: "ag-fillbody",
         })}
         <div class="span-4 stack">
-          ${panel({ code: "AA-03", title: "Stream", sub: "This slot's recorded events", body: streamSummary(ctx, sv, res, events) })}
-          ${panel({ code: "AA-04", title: "Event kinds", sub: "Filter the stream by kind", body: kindIndex(ctx, n, res, events, kind) })}
+          ${panel({ code: "AA-03", title: "Stream", sub: "This slot's recorded events", body: streamSummary(ctx, w) })}
+          ${panel({ code: "AA-04", title: "Event kinds", sub: "Filter the stream by kind", body: kindIndex(n, w, kind) })}
         </div>
       </div>
 
@@ -292,7 +372,7 @@ export default {
           code: "AA-06",
           title: "Memory traffic",
           sub: "Memories recalled and written, from event references",
-          body: memoryTraffic(ctx, n, res, events),
+          body: memoryTraffic(ctx, w),
           cls: "ag-xl-12",
         })}
       </div>

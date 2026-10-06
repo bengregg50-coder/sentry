@@ -253,7 +253,6 @@ function ledger(rs, rsrc, query) {
 /* ---------------------------------------------------------------- terminated hypotheses */
 
 function terminated(rs, rsrc) {
-  const byNumber = new Map((rs?.trials ?? []).filter((t) => !isNil(t.trial_number)).map((t) => [t.trial_number, t]));
   const rows = rs
     ? rs.hypotheses.filter((h) => B.TERMINATED.includes(h.terminal) || B.TERMINATED.includes(h.status)).sort((a, b) => String(b.decided_at ?? "").localeCompare(String(a.decided_at ?? "")))
     : null;
@@ -266,13 +265,16 @@ function terminated(rs, rsrc) {
     { label: "Decision reason", render: (h) => (h.decision_reason ? html`<span class="rsb-reason">${h.decision_reason}</span>` : null), cls: "rsb-w-reason" },
     {
       label: "Trials",
-      render: (h) =>
-        h.trial_numbers.length
-          ? html`<span class="rsb-chips">${h.trial_numbers.map((n) => {
-              const t = byNumber.get(n);
-              return t ? html`<a class="ref" href="${B.trialHref(t.trial_id)}" title="${t.trial_id} · ${t.outcome}">#${n}</a>` : html`<span class="rsb-faint" title="No trial record with this number is present">#${n}</span>`;
-            })}</span>`
-          : html`<span class="rsb-faint">NONE RUN</span>`,
+      title: "Trials linked to the hypothesis — by the trial's hypothesis_id or the hypothesis's declared trial numbers",
+      render: (h) => {
+        const { trials, missing } = B.trialsOfHypothesis(rs, h);
+        if (!trials.length && !missing.length) {
+          return html`<span class="rsb-muted" data-trials-linked="0" title="No trial record names this hypothesis and it declares no trial numbers. This does not assert that none were run.">NO TRIALS LINKED</span>`;
+        }
+        return html`<span class="rsb-chips" data-trials-linked="${String(trials.length)}">${trials.map(
+          (t) => html`<a class="ref" href="${B.trialHref(t.trial_id)}" data-linked-trial="${t.trial_id}" title="${t.trial_id} · ${humanize(t.outcome)}">${isNil(t.trial_number) ? t.trial_id : `#${t.trial_number}`}</a>`,
+        )}${missing.map((n) => html`<span class="rsb-faint" data-missing-trial="${String(n)}" title="Declared by the hypothesis, but no trial record with this number is present">#${n}</span>`)}</span>`;
+      },
     },
     { label: "Origin", render: (h) => B.originCell(h.origin) },
   ];

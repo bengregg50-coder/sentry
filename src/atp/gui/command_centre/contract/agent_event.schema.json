@@ -11,6 +11,7 @@
         "LEARNING",
         "MEMORY_WRITE",
         "PROPOSAL",
+        "APPLICABILITY_TEST",
         "SIGNAL_EVALUATION",
         "NO_TRADE",
         "DECISION",
@@ -37,6 +38,13 @@
     "EventRefs": {
       "additionalProperties": false,
       "properties": {
+        "hypothesis_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hypothesis Ids",
+          "type": "array"
+        },
         "memory_ids": {
           "items": {
             "type": "string"
@@ -55,6 +63,18 @@
           ],
           "default": null,
           "title": "Order Id"
+        },
+        "programme_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Programme Id"
         },
         "proposal_id": {
           "anyOf": [

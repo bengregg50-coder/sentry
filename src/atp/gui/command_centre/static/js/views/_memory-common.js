@@ -282,8 +282,8 @@ export function memoryCard(m) {
       </div>
     </dl>
     <footer class="mem-card__foot">
-      <span title="Created">${icon("clock")}<span class="v" data-v>${fmtDate(m.created_at)}</span></span>
-      <span class="mem-card__src" title="Source">${sourceLine(m.source)}</span>
+      <span class="mem-card__date" title="Created">${icon("clock")}<span class="v" data-v>${fmtDate(m.created_at)}</span></span>
+      <span class="mem-card__src" title="Source: ${sourceLine(m.source)}">${sourceLine(m.source)}</span>
       ${originBadge(m.origin)}
       <a class="mem-card__open" href="${memHref(m.memory_id)}">OPEN ${icon("expand")}</a>
     </footer>

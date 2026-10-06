@@ -5,9 +5,9 @@
 // Counts are per record origin and never merged.
 
 import { html } from "../core/html.js";
-import { fmtDate, fmtDateTime, humanize } from "../core/format.js";
+import { fmtCount, fmtDate, fmtDateTime, humanize } from "../core/format.js";
 import { derived, sourceReason } from "../core/state.js";
-import { pageHeader, panel, badge, dot, chip, stat, statRow, sourceTag, sourceEmpty, emptyState, tabs } from "../components/ui.js";
+import { pageHeader, panel, badge, dot, chip, stat, statRow, sourceTag, emptyState, tabs } from "../components/ui.js";
 import { toneClass } from "../core/tones.js";
 import * as R from "./_research-a-common.js";
 
@@ -15,18 +15,19 @@ const PATH = "/research/experiments";
 
 /* ---------------------------------------------------------------- summary */
 
-function summaryBody(ctx, rs) {
+function summaryBody(ctx, rs, src) {
   const trials = rs?.trials ?? null;
   const ta = derived(ctx, "trial_accounting");
   const d = ta?.available ? ta.declared : null;
-  const nc = rs ? "NOT DECLARED" : "NOT CONNECTED";
+  const off = R.offLabel(src);
+  const nc = rs ? "NOT DECLARED" : off;
   const pick = (fn) => (trials ? R.splitByOrigin(trials.filter(fn)) : null);
   return statRow(
     [
-      stat({ label: "Trial records", value: R.splitVal(R.splitByOrigin(trials)), hint: "Present in research.json", emptyLabel: "NOT CONNECTED" }),
-      stat({ label: "Running", value: R.splitVal(pick((t) => t.outcome === "RUNNING")), hint: "Outcome RUNNING", emptyLabel: "NOT CONNECTED" }),
-      stat({ label: "Evidence lost", value: R.splitVal(pick((t) => t.evidence_state === "LOST")), hint: "Evidence state LOST", emptyLabel: "NOT CONNECTED" }),
-      stat({ label: "With metrics", value: R.splitVal(pick((t) => t.metrics.length > 0)), hint: "At least one reported metric", emptyLabel: "NOT CONNECTED" }),
+      stat({ label: "Trial records", value: R.splitVal(R.splitByOrigin(trials)), hint: "Present in research.json", emptyLabel: off }),
+      stat({ label: "Running", value: R.splitVal(pick((t) => t.outcome === "RUNNING")), hint: "Outcome RUNNING", emptyLabel: off }),
+      stat({ label: "Evidence lost", value: R.splitVal(pick((t) => t.evidence_state === "LOST")), hint: "Evidence state LOST", emptyLabel: off }),
+      stat({ label: "With metrics", value: R.splitVal(pick((t) => t.metrics.length > 0)), hint: "At least one reported metric", emptyLabel: off }),
       stat({ label: "Reconstructed baseline", value: R.count(d?.reconstructed_baseline), hint: "Declared by the ledger", emptyLabel: nc }),
       stat({ label: "Live-recorded", value: R.count(d?.live_recorded), hint: "Declared by the ledger", emptyLabel: nc }),
     ],
@@ -61,16 +62,20 @@ function evidenceCell(t) {
           t.validation_state ? badge(t.validation_state, { label: "VAL · " + humanize(t.validation_state), ghost: true }) : ""
         }</span>`
       : ""}
-    ${t.evidence_refs?.length ? html`<span class="rsa-refs rsa-refs--col">${t.evidence_refs.map((r) => html`<span class="ref" title="${r}">${r}</span>`)}</span>` : ""}
+    ${t.evidence_refs?.length ? html`<span class="rsa-refs rsa-refs--col">${t.evidence_refs.map((r) => R.pathRef(r))}</span>` : ""}
     ${t.origin === "ORIGINAL" ? html`<span class="rsa-orig">ORIGINAL RECORD</span>` : ""}
   </div>`;
 }
 
-function registerBody(rs, src, kindFilter) {
+function registerBody(rs, src, kindFilter, rowsQ) {
   const all = rs ? [...rs.trials].sort(R.byTrialNumber) : null;
   const byKind = all ? R.groupBy(all, (t) => t.kind) : null;
   const rows = all ? (kindFilter === "ALL" ? all : all.filter((t) => t.kind === kindFilter)) : null;
   const running = rows ? rows.filter((t) => t.outcome === "RUNNING") : [];
+  // Only a page of rows is materialised (a ledger of thousands of trials would freeze the page);
+  // every count on this page is taken from the full arrays, never from the page.
+  const page = R.pageRows(rows, rowsQ);
+  const kindQ = kindFilter === "ALL" ? null : kindFilter;
   // Tabs: every kind when nothing is connected (structure); otherwise kinds with records plus the active filter.
   const kinds = all ? R.TRIAL_KINDS.filter((k) => byKind.has(k) || k === kindFilter) : R.TRIAL_KINDS;
   const tabItems = [
@@ -130,7 +135,7 @@ function registerBody(rs, src, kindFilter) {
       : ""}
     ${R.frameTable({
       columns,
-      rows,
+      rows: page.shown,
       rowHref: (t) => R.trialHref(t.trial_id),
       rowCls: (t) =>
         t.outcome === "RUNNING"
@@ -144,12 +149,12 @@ function registerBody(rs, src, kindFilter) {
             reason: kindFilter === "ALL" ? "research.json is connected but lists no trial records." : "No trial record in research.json has this kind.",
             compact: true,
           })
-        : sourceEmpty(src, {
-            title: "Experiment ledger not connected",
+        : R.srcEmpty(src, "Experiment ledger", {
             compact: true,
             hint: "Each trial appears with its experiment, data, window, outcome, evidence state and gross / cost / net metrics with basis.",
           }),
-    })}`;
+    })}
+    ${R.pager(page, (n) => R.qhref(PATH, { kind: kindQ, rows: n }), { hint: kindQ ? "" : "select a kind above to narrow the register" })}`;
 }
 
 /* ---------------------------------------------------------------- view */
@@ -160,6 +165,7 @@ export default {
     const { rs, src } = R.research(ctx);
     const kindFilter = ctx.query.kind || "ALL";
     const kindRows = rs ? rs.trials.filter((t) => kindFilter === "ALL" || t.kind === kindFilter) : null;
+    const paged = R.pageRows(kindRows, ctx.query.rows);
     return html`
       ${pageHeader({
         kicker: "RESEARCH ENGINE",
@@ -170,7 +176,7 @@ export default {
       })}
 
       <div class="grid">
-        ${panel({ span: 12, code: "EXP-01", title: "Trial ledger", sub: rs ? "Records by origin · declared ledger counts shown separately" : sourceReason(src), body: summaryBody(ctx, rs), cls: "rsa-wraplabels" })}
+        ${panel({ span: 12, code: "EXP-01", title: "Trial ledger", sub: rs ? "Records by origin · declared ledger counts shown separately" : sourceReason(src), body: summaryBody(ctx, rs, src), cls: "rsa-wraplabels" })}
       </div>
 
       <div class="grid">
@@ -205,8 +211,12 @@ export default {
           span: 12,
           code: "EXP-05",
           title: "Experiment register",
-          sub: rs ? `${R.splitText(kindRows, "trial records")}${kindFilter === "ALL" ? "" : " · " + humanize(kindFilter)} · select a row for its history` : sourceReason(src),
-          body: registerBody(rs, src, kindFilter),
+          sub: rs
+            ? `${R.splitText(kindRows, "trial records")}${kindFilter === "ALL" ? "" : " · " + humanize(kindFilter)}${
+                paged.hidden.length ? ` · rows 1–${fmtCount(paged.shown.length)} shown` : ""
+              } · select a row for its history`
+            : sourceReason(src),
+          body: registerBody(rs, src, kindFilter, ctx.query.rows),
           cls: "rsa-register",
         })}
       </div>

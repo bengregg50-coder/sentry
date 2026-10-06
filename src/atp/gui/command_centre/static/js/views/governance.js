@@ -4,6 +4,7 @@
 
 import { html } from "../core/html.js";
 import { fmtDateTime, fmtCount, humanize, shortHash, isNil } from "../core/format.js";
+import { toneClass } from "../core/tones.js";
 import { doc, source, derived, sourceReason } from "../core/state.js";
 import {
   pageHeader,
@@ -22,26 +23,35 @@ import {
   emptyState,
 } from "../components/ui.js";
 
+// [key, label, what the check examines]. The third element is a DEFINITION of the check, phrased
+// as what is examined — never a statement of its result. It is rendered as a separate muted
+// "Checks:" line; only a producer-declared `detail` is ever shown as the result.
 const CHECKS = [
-  ["trial_accounting", "Trial accounting", "Append-only ledger of every tested candidate"],
-  ["global_trial_count", "Global trial count", "All trials counted toward multiple-testing"],
-  ["research_live_separation", "Research / live separation", "Research code paths cannot reach execution"],
-  ["oos_separation", "OOS separation", "Holdout data untouched until declared evaluation"],
-  ["multiple_testing", "Multiple-testing status", "Correction applied across the trial family"],
-  ["referee", "Referee", "Independent reproduction of recorded results"],
-  ["data_integrity", "Data integrity", "Datasets verified against manifests"],
-  ["dataset_identity", "Dataset identity", "Content hashes bound to every result"],
-  ["validation_status", "Validation status", "Promotion gates applied as specified"],
-  ["reconstruction_status", "Reconstruction status", "Reconstructed material kept apart from sealed evidence"],
-  ["strategy_approval", "Strategy approval", "Only approved strategies may enter deployment"],
+  ["trial_accounting", "Trial accounting", "whether the trial ledger is append-only and records every tested candidate"],
+  ["global_trial_count", "Global trial count", "whether every trial is counted toward multiple-testing"],
+  ["research_live_separation", "Research / live separation", "whether research code paths can reach execution"],
+  ["oos_separation", "OOS separation", "whether holdout data stays untouched until its declared evaluation"],
+  ["multiple_testing", "Multiple-testing status", "whether a correction is applied across the trial family"],
+  ["referee", "Referee", "whether an independent reproduction matches the recorded results"],
+  ["data_integrity", "Data integrity", "whether datasets verify against their manifests"],
+  ["dataset_identity", "Dataset identity", "whether content hashes are bound to every result"],
+  ["validation_status", "Validation status", "whether promotion gates were applied as specified"],
+  ["reconstruction_status", "Reconstruction status", "whether reconstructed material is kept apart from sealed evidence"],
+  ["strategy_approval", "Strategy approval", "whether only approved strategies can enter deployment"],
 ];
 
 function checkTile(def, check, govAvailable) {
   const [key, label, desc] = def;
   const state = check?.state ?? (govAvailable ? "NOT_REPORTED" : "NOT_CONNECTED");
-  return html`<div class="gov-check" data-check="${key}" data-state="${state}">
+  const detail = check
+    ? check.detail
+      ? html`<div class="gov-check__detail" data-detail="declared">${check.detail}</div>`
+      : html`<div class="gov-check__detail is-empty" data-detail="none">No detail declared</div>`
+    : "";
+  return html`<div class="gov-check ${toneClass(state)}" data-check="${key}" data-state="${state}">
     <div class="split"><span class="gov-check__label">${label}</span>${badge(state)}</div>
-    <div class="gov-check__desc">${check?.detail ?? desc}</div>
+    ${detail}
+    <div class="gov-check__def"><span class="gov-check__def-k">Checks</span> ${desc}</div>
     <div class="gov-check__meta">${check?.checked_at ? html`CHECKED ${fmtDateTime(check.checked_at)}` : html`<span class="muted">${check ? "NO CHECK TIMESTAMP" : govAvailable ? "NOT REPORTED BY GOVERNANCE" : "SOURCE NOT CONNECTED"}</span>`}${
       check?.evidence_ref ? html` · <span class="ref">${check.evidence_ref}</span>` : ""
     }</div>
@@ -80,12 +90,50 @@ function referee(gov, govSrc) {
   if (!gov) return sourceEmpty(govSrc, { title: "Referee status not connected", compact: true });
   const r = gov.referee;
   if (!r) return emptyState({ title: "Referee not reported", reason: "governance.json carries no referee block.", compact: true });
-  return html`<div class="split" style="margin-bottom:10px">${badge(r.state, { size: "lg" })}<span class="small muted">${r.last_run_at ? html`LAST RUN ${fmtDateTime(r.last_run_at)}` : "NEVER RUN"}</span></div>
+  // A missing timestamp is "not reported" — only a declared NOT_RUN state means it never ran.
+  const lastRun = r.last_run_at
+    ? html`LAST RUN ${fmtDateTime(r.last_run_at)}`
+    : r.state === "NOT_RUN"
+      ? "NEVER RUN"
+      : html`<span class="faint" data-last-run="not-reported">LAST RUN NOT REPORTED</span>`;
+  return html`<div class="split" style="margin-bottom:10px">${badge(r.state, { size: "lg" })}<span class="small muted" data-referee-last-run>${lastRun}</span></div>
     ${r.detail ? html`<p class="prose" style="margin-bottom:8px">${r.detail}</p>` : ""}
     ${kv([
       ["Lock", r.lock_ref ? html`<span class="ref">${r.lock_ref}</span>` : null],
       ["Lock hash", r.lock_hash ? html`<span class="mono">${shortHash(r.lock_hash, 16)}</span>` : null],
     ])}`;
+}
+
+/** Families of cross-checks that could not run, with the source that is missing. */
+function skippedChecks(ctx) {
+  return (derived(ctx, "check_coverage") ?? []).filter((c) => !c.ran);
+}
+
+function skippedLine(c) {
+  const why = c.missing?.length ? c.missing.map((m) => `${m.file} ${humanize(m.status).toLowerCase()}`).join(", ") : c.note ?? "not run";
+  return html`<li data-check-family="${c.key}"><b>${c.label}</b> — not run: ${why}</li>`;
+}
+
+/** Empty state: "no findings" only ever means "none from the checks that ran". */
+function noFindings(ctx) {
+  const cov = derived(ctx, "check_coverage") ?? [];
+  const ran = cov.filter((c) => c.ran);
+  if (!ran.length) {
+    return emptyState({ title: "Nothing to cross-check", reason: "Nothing is connected, so no cross-check could run.", compact: true, iconName: "shield", code: "findings-not-connected" });
+  }
+  const skipped = skippedChecks(ctx);
+  return html`${emptyState({
+    title: "No findings from the checks that ran",
+    reason: `${ran.length} of ${cov.length} check families ran: ${ran.map((c) => c.label).join(" · ")}.`,
+    compact: true,
+    iconName: "shield",
+    code: "findings-none",
+  })}${skipped.length ? html`<ul class="gov-skipped" data-skipped="${skipped.length}">${skipped.map(skippedLine)}</ul>` : ""}`;
+}
+
+function coverageNote(ctx) {
+  const skipped = skippedChecks(ctx);
+  return skipped.length ? html`<ul class="gov-skipped" data-skipped="${skipped.length}">${skipped.map(skippedLine)}</ul>` : "";
 }
 
 export default {
@@ -129,43 +177,34 @@ export default {
           code: "GOV-04",
           title: "Consistency findings",
           sub: "Cross-checks of declared state — not research verdicts",
-          body: findingsList(findings, {
-            empty: emptyState({
-              title: "No findings",
-              reason: ctx.snap && Object.values(ctx.snap.sources).some((s) => s.status === "OK") ? "Connected state is internally consistent." : "Nothing is connected, so there is nothing to cross-check.",
-              compact: true,
-              iconName: "shield",
-            }),
-          }),
+          body: html`${findingsList(findings, { empty: noFindings(ctx) })}${findings.length ? coverageNote(ctx) : ""}`,
           cls: "lg-span-12",
         })}
-        ${panel({
-          span: 5,
-          code: "GOV-05",
-          title: "Integrity notices",
-          sub: "Declared by the research engine",
-          body: research
-            ? research.integrity_notices.length
-              ? integrityNotices(research.integrity_notices)
-              : emptyState({ title: "No integrity notices declared", compact: true, iconName: "shield" })
-            : sourceEmpty(source(ctx, "research"), { compact: true }),
-          cls: "lg-span-12",
-        })}
+        <div class="span-5 lg-span-12 stack" data-gov-side>
+          ${panel({
+            code: "GOV-05",
+            title: "Integrity notices",
+            sub: "Declared by the research engine",
+            body: research
+              ? research.integrity_notices.length
+                ? integrityNotices(research.integrity_notices)
+                : emptyState({ title: "No integrity notices declared", compact: true, iconName: "shield" })
+              : sourceEmpty(source(ctx, "research"), { compact: true }),
+          })}
+          ${panel({
+            code: "GOV-06",
+            title: "Deployment & live controls",
+            sub: "Locked — reasons computed from state",
+            body: controls
+              ? html`<div class="stack">${controls.actions.map((a) => control(a))}</div>`
+              : emptyState({ title: "No snapshot", compact: true }),
+          })}
+        </div>
       </div>
 
       <div class="grid">
         ${panel({
-          span: 5,
-          code: "GOV-06",
-          title: "Deployment & live controls",
-          sub: "Locked — reasons computed from state",
-          body: controls
-            ? html`<div class="stack">${controls.actions.map((a) => control(a))}</div>`
-            : emptyState({ title: "No snapshot", compact: true }),
-          cls: "lg-span-12",
-        })}
-        ${panel({
-          span: 7,
+          span: 12,
           code: "GOV-07",
           title: "Change history",
           sub: "Seals, spec freezes, approvals, reconstructions",

@@ -7,7 +7,7 @@ import { html } from "../core/html.js";
 import { fmtCount, fmtDate, fmtDateTime, humanize, isNil } from "../core/format.js";
 import { derived, sourceReason } from "../core/state.js";
 import { toneClass } from "../core/tones.js";
-import { pageHeader, panel, badge, chip, sourceTag, sourceEmpty, emptyState, tabs, kv, val } from "../components/ui.js";
+import { pageHeader, panel, badge, chip, sourceTag, emptyState, tabs, kv, val } from "../components/ui.js";
 import { pipelineTracks } from "../components/pipeline.js";
 import { icon } from "../components/icons.js";
 import * as R from "./_research-a-common.js";
@@ -162,7 +162,7 @@ function detailPanel(ctx, rs, src, id, statusFilter) {
       title: "Hypothesis detail",
       sub: id,
       actions: close,
-      body: sourceEmpty(src, { title: "Cannot resolve hypothesis", hint: "The requested hypothesis can only be shown from research.json; nothing is reconstructed in the browser." }),
+      body: R.srcEmpty(src, "Hypothesis register", { hint: "The requested hypothesis can only be shown from research.json; nothing is reconstructed in the browser." }),
     });
   }
   const h = rs.hypotheses.find((x) => x.hypothesis_id === id);
@@ -241,8 +241,7 @@ function registerBody(rs, src, statusFilter, focusId) {
             reason: statusFilter === "ALL" ? "research.json is connected but lists no hypotheses." : "No hypothesis in research.json currently has this status.",
             compact: true,
           })
-        : sourceEmpty(src, {
-            title: "Hypothesis register not connected",
+        : R.srcEmpty(src, "Hypothesis register", {
             compact: true,
             hint: "Every hypothesis appears here — validated, pending, rejected, blocked or abandoned — with its preregistration, decision and trials.",
           }),

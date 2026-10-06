@@ -35,29 +35,37 @@ export function hrefForNode(n) {
 /** Schematic shown when nothing is connected: the relationship model, no nodes. */
 export function graphSchematic() {
   const W = 1100;
-  const H = 220;
-  const xs = GRAPH_COLUMNS.map((_, i) => 80 + i * ((W - 160) / (GRAPH_COLUMNS.length - 1)));
+  const H = 168;
+  const boxW = 136;
+  const half = boxW / 2;
+  const boxY = 110;
+  const midY = boxY + 17;
+  const xs = GRAPH_COLUMNS.map((_, i) => 90 + i * ((W - 180) / (GRAPH_COLUMNS.length - 1)));
+  const schematicLabel = { ...COLUMN_LABEL, TRIAL: "TRIALS" };
   const parts = [];
-  const rel = [
+  // Adjacent columns: straight connectors between box edges at mid-height; the label sits above
+  // the boxes' top edge, centred on the gap, so it never overlaps a box border.
+  const adjacent = [
     [1, 0, "PART OF"],
     [2, 1, "TESTS"],
     [3, 2, "SOURCED FROM"],
     [3, 4, "RELATES TO"],
-    [1, 4, "BECAME"],
-    [5, 4, "PROPOSES CHANGE"],
+    [5, 4, "PROPOSES"],
   ];
-  rel.forEach(([a, b, label], i) => {
-    const y = 120 + (i % 2 ? 26 : -26) * (a === 1 && b === 4 ? 2.2 : 0.4);
-    const x1 = xs[a];
-    const x2 = xs[b];
-    const my = a === 1 && b === 4 ? 40 : 110;
-    parts.push(`<path d="M${x1} 110 C${x1} ${my}, ${x2} ${my}, ${x2} 110" fill="none" stroke="var(--faint)" stroke-dasharray="2 4"/>`);
-    parts.push(`<text x="${(x1 + x2) / 2}" y="${(my + 110) / 2 - 2 + (a === 1 && b === 4 ? -12 : 0)}" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:8px">${esc(label)}</text>`);
-    void y;
+  adjacent.forEach(([a, b, lbl]) => {
+    const left = Math.min(xs[a], xs[b]) + half;
+    const right = Math.max(xs[a], xs[b]) - half;
+    parts.push(`<line x1="${left}" y1="${midY}" x2="${right}" y2="${midY}" stroke="var(--faint)" stroke-dasharray="2 4"/>`);
+    parts.push(`<text x="${(left + right) / 2}" y="${boxY - 7}" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:8px;letter-spacing:.06em">${esc(lbl)}</text>`);
   });
+  // The one long relationship arcs over the top.
+  const x1 = xs[1];
+  const x2 = xs[4];
+  parts.push(`<path d="M${x1} ${boxY} C${x1} 36, ${x2} 36, ${x2} ${boxY}" fill="none" stroke="var(--faint)" stroke-dasharray="2 4"/>`);
+  parts.push(`<text x="${(x1 + x2) / 2}" y="52" text-anchor="middle" class="svg-label svg-label--muted" style="font-size:8px;letter-spacing:.06em">BECAME</text>`);
   GRAPH_COLUMNS.forEach((c, i) => {
-    parts.push(`<rect x="${xs[i] - 62}" y="110" width="124" height="34" rx="3" fill="rgba(13,20,30,.9)" stroke="var(--line-3)" stroke-dasharray="3 3"/>`);
-    parts.push(`<text x="${xs[i]}" y="131" text-anchor="middle" class="svg-label">${esc(COLUMN_LABEL[c])}</text>`);
+    parts.push(`<rect x="${xs[i] - half}" y="${boxY}" width="${boxW}" height="34" rx="3" fill="rgba(13,20,30,.9)" stroke="var(--line-3)" stroke-dasharray="3 3"/>`);
+    parts.push(`<text x="${xs[i]}" y="${boxY + 21}" text-anchor="middle" class="svg-label">${esc(schematicLabel[c])}</text>`);
   });
   return html`<div class="diagram" style="--diagram-min:880px">${raw(`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Knowledge graph relationship model">${parts.join("")}</svg>`)}</div>`;
 }

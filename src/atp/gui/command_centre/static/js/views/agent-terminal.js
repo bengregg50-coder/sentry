@@ -3,7 +3,7 @@
 // terminal frame with each area stating why it is empty and what will appear.
 
 import { html, raw, cx } from "../core/html.js";
-import { fmtCount, fmtDateTime, fmtNum, humanize, isNil, EMPTY } from "../core/format.js";
+import { fmtCount, fmtDateTime, fmtNum, humanize, isNil } from "../core/format.js";
 import { toneClass } from "../core/tones.js";
 import { source, findMemory, findStrategy, handoffFor } from "../core/state.js";
 import {
@@ -52,6 +52,7 @@ import {
   mountChartsSafe,
   pad2,
 } from "./_agents-common.js";
+import { qtyVal } from "./_ops-common.js";
 
 const CONTROL_KEYS = ["ASSIGN_STRATEGY", "START_SIMULATION", "HALT_AGENT", "TRIP_KILL_SWITCH"];
 const CONTROL_ICONS = { ASSIGN_STRATEGY: "assign", START_SIMULATION: "play", HALT_AGENT: "stop", TRIP_KILL_SWITCH: "power" };
@@ -79,6 +80,17 @@ function areaEmpty(sv, { title, none, hint, iconName = "empty", code }) {
     iconName,
     code,
   });
+}
+
+/**
+ * The slot's assignment mode (SIM / PAPER / LIVE) as declared by deployment.
+ * Shown on the chart panels so a market or equity chart is never read as live
+ * trading unless the assignment says LIVE.
+ */
+function modeBadge(sv) {
+  const mode = sv.agent?.assignment?.mode ?? null;
+  if (mode) return badge(mode, { label: `${humanize(mode)} MODE`, title: "Assignment mode declared by deployment" });
+  return badge(null, { label: sv.reported ? "NO ASSIGNMENT" : "MODE UNKNOWN", title: absence(sv) ?? `${agentLabel(sv.n)} declares no strategy assignment.` });
 }
 
 /* ------------------------------------------------------------------ head */
@@ -215,7 +227,6 @@ function signalArea(ctx, sv) {
   const sig = sv.agent?.signal;
   if (!sig) {
     return html`<div class="ag-signal is-empty">
-      <div class="ag-signal__state"><span class="v is-empty" data-v>${EMPTY}</span></div>
       ${areaEmpty(sv, { title: "No signal state", none: "No signal state declared", hint: "LONG / SHORT / FLAT / NO SIGNAL with its timestamp and reasoning appears here.", code: "signal" })}
     </div>`;
   }
@@ -293,7 +304,7 @@ function positionsArea(ctx, sv) {
     columns: [
       { key: "instrument", label: "Instrument", render: (r) => html`<span class="mono strong" data-position="${r.instrument}">${r.instrument}</span>` },
       { key: "side", label: "Side", render: (r) => badge(r.side) },
-      { key: "quantity", label: "Qty", num: true, render: (r) => val(fmtNum(r.quantity, 0)) },
+      { key: "quantity", label: "Qty", num: true, render: (r) => qtyVal(r.quantity) },
       { key: "avg_price", label: "Avg price", num: true, render: (r) => (isNil(r.avg_price) ? null : val(fmtNum(r.avg_price, 2))) },
       { key: "unrealized_pnl", label: "Unrealized", num: true, render: (r) => (r.unrealized_pnl ? metric(r.unrealized_pnl) : null) },
       { key: "mode", label: "Mode", render: (r) => chip(humanize(r.mode)) },
@@ -312,7 +323,7 @@ function ordersArea(ctx, sv) {
       { key: "order_id", label: "Order", render: (r) => html`<span class="ref">${r.order_id}</span>` },
       { key: "instrument", label: "Instr", cls: "mono" },
       { key: "side", label: "Side", render: (r) => html`<span class="mono strong">${r.side}</span>` },
-      { key: "quantity", label: "Qty", num: true, render: (r) => val(fmtNum(r.quantity, 0)) },
+      { key: "quantity", label: "Qty", num: true, render: (r) => qtyVal(r.quantity) },
       { key: "order_type", label: "Type", render: (r) => html`<span class="mono small">${humanize(r.order_type)}</span>${isNil(r.limit_price) ? "" : html` <span class="mono text-2">@ ${fmtNum(r.limit_price, 2)}</span>`}` },
       { key: "status", label: "Status", render: (r) => badge(r.status) },
       { key: "submitted_at", label: "Submitted", render: (r) => ageVal(r.submitted_at, ctx.now) },
@@ -331,7 +342,7 @@ function tradesArea(ctx, sv) {
       { key: "trade_id", label: "Trade", render: (r) => html`<span class="ref">${r.trade_id}</span>` },
       { key: "instrument", label: "Instr", cls: "mono" },
       { key: "side", label: "Side", render: (r) => html`<span class="mono strong">${r.side}</span>` },
-      { key: "quantity", label: "Qty", num: true, render: (r) => val(fmtNum(r.quantity, 0)) },
+      { key: "quantity", label: "Qty", num: true, render: (r) => qtyVal(r.quantity) },
       { key: "price", label: "Price", num: true, render: (r) => val(fmtNum(r.price, 2)) },
       { key: "slippage_bps", label: "Slip", num: true, render: (r) => (isNil(r.slippage_bps) ? null : val(fmtNum(r.slippage_bps, 1), { unit: " bps" })) },
       { key: "pnl", label: "P&L", num: true, render: (r) => (r.pnl ? metric(r.pnl) : null) },
@@ -409,9 +420,9 @@ export default {
         ${panel({
           span: 8,
           code: "AT-01",
-          title: "Live chart",
+          title: "Market chart",
           sub: bars.length ? `${a.market ?? "Market not declared"} · ${a.timeframe ?? "timeframe not declared"} · ${bars.length} bars` : "Market · candles",
-          actions: html`${a?.timeframe ? chip(a.timeframe) : ""}${a?.market ? chip(a.market) : ""}`,
+          actions: html`${a?.timeframe ? chip(a.timeframe) : ""}${a?.market ? chip(a.market) : ""}${modeBadge(sv)}`,
           body: chartHost({
             kind: "candles",
             data: bars,
@@ -436,7 +447,7 @@ export default {
           code: "AT-06",
           title: "Equity & drawdown",
           sub: equity.length ? `${equity.length} points` : "Equity curve",
-          actions: html`<span class="ag-dd"><span class="label">DRAWDOWN</span>${metric(a?.drawdown ?? null)}</span>`,
+          actions: html`<span class="ag-dd"><span class="label">DRAWDOWN</span>${metric(a?.drawdown ?? null)}</span>${modeBadge(sv)}`,
           body: chartHost({
             kind: "area",
             data: equity,

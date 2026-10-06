@@ -2,20 +2,19 @@
 
 import { html, raw, esc } from "../core/html.js";
 import { isNil, EMPTY, humanize } from "../core/format.js";
-import { toneOf } from "../core/tones.js";
-
-const STEP_TONE = { COMPLETE: "ok", BLOCKED: "warn", NOT_REACHED: "muted", VIOLATION: "bad" };
+import { stepTone } from "../core/tones.js";
 
 /**
  * steps: [{label, state?, detail?, count?, owner?, boundary?}]
- *  - state: COMPLETE | BLOCKED | NOT_REACHED | VIOLATION | any contract state
+ *  - state: a handoff step state (COMPLETE | RUNNING | BLOCKED | NOT_REACHED | WITHDRAWN | FAILED |
+ *    VIOLATION | UNVERIFIED …) or any contract state; colour comes from core/tones.js stepTone()
  *  - count: number|null|undefined (undefined => no count row; null => empty)
  *  - boundary: draw an autonomy/governance boundary before this step
  */
 export function steps(list, { cls } = {}) {
   return html`<div class="steps ${cls ?? ""}">
     ${list.map((s) => {
-      const tone = STEP_TONE[s.state] ?? toneOf(s.state);
+      const tone = stepTone(s.state);
       return html`<div class="step tone-${tone} ${s.boundary ? "step--boundary" : ""}" data-step="${s.key ?? s.label}" data-state="${s.state ?? ""}">
         <div class="step__node"></div>
         <div class="step__label">${s.label}</div>
